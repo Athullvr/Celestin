@@ -1,56 +1,54 @@
-# DevDay Exchange Community Hackathon: Kochi
+# MCP Memory Bridge
 
-A repository template for participants at the 10–11 October 2026 hackathon. It contains event rules and documentation scaffolding; build your project from scratch at the event.
+MCP server for shared, searchable project memory. It stores chat messages and project decisions in SQLite and exposes project-scoped search and context retrieval through the official Python MCP SDK.
 
-**[Event and registration on Luma](https://luma.com/z10nz8gp)** · **[Event rules](RULES.md)** · **[Agent instructions](AGENTS.md)**
+## Local setup
 
-## Event details
+Requires Python 3.10 or newer. From the repository root:
 
-| Detail | Information |
-| --- | --- |
-| Venue | JAIN University, Kochi |
-| Location | [Open the venue map](https://maps.app.goo.gl/Eme7gR7NDXSNRANu5) |
-| Rooms | 2008 and 2009 |
-| Check-in | 10 October 2026, 6:00 PM IST |
-| Kick-off | 10 October 2026, 6:30 PM IST |
-| Wrap-up | 11 October 2026, by 10:00 AM IST |
-| Participation | Solo or a team of up to 4 participants |
-| Theme | Open — build anything you like |
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
 
-Keep your approved Luma QR code ready for entry, and bring your laptop and charger. Eligible checked-in participants will receive Codex credits and OpenAI API credits.
+Run the server over stdio:
 
-## Use this template
+```powershell
+memory-bridge
+```
 
-1. Select **Use this template → Create a new repository** on GitHub. Create your own project repository and clone it.
-2. Read [RULES.md](RULES.md) and [AGENTS.md](AGENTS.md) before building. Begin project implementation at the event.
-3. Fill in the project overview below as you build. Use any suitable language or framework, keeping the implementation simple.
-4. Record meaningful changes in [CHANGELOG.md](CHANGELOG.md) and your Codex usage in [AI_USAGE.md](AI_USAGE.md). Commit after completed milestones; aim for a meaningful checkpoint about every 30 minutes.
-5. Complete [SUBMISSION.md](SUBMISSION.md) with your code repository, short project description, and working demo. Follow submission instructions announced by the organizers.
+For an MCP client that launches local processes, configure the command as `memory-bridge` (or use the environment's absolute path to `.venv\Scripts\memory-bridge.exe`). The server exposes `ingest_chat_message`, `save_decision`, `search_chat_history`, `retrieve_context`, and `ping`.
 
-This template has no application code or required technology stack. The documentation and commit cadence are repository workflow guidance; the event participation rules are in [RULES.md](RULES.md).
+The database is created at `data/memory_bridge.db` by default. Set `MEMORY_BRIDGE_DB_PATH` before launching the server to choose another path. Saved decisions start in `draft` status; context retrieval gives approved decisions priority and excludes drafts and deprecated decisions.
 
-## Project overview — complete during the event
+### MCP client configuration
 
-- **Project name:** TODO
-- **Short description:** TODO — what it does, who it helps, and why it matters.
-- **Team:** TODO — participant names and GitHub handles; maximum 4 members.
-- **Working demo:** TODO — link or local demo instructions.
-- **Technology stack:** TODO
+```json
+{
+  "mcpServers": {
+    "memory-bridge": {
+      "command": "memory-bridge",
+      "args": []
+    }
+  }
+}
+```
 
-### Run the project
+The client discovers tools through MCP `tools/list` and invokes them through `tools/call`. For example, call `ingest_chat_message` with `{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`. Use its returned `message_id` as `source_message_id` when calling `save_decision`.
 
-Replace these placeholders with commands that actually work for your project:
+Search reads persisted messages and returns message IDs, conversation IDs, timestamps, and relevance scores. Context retrieval combines eligible decisions and messages and returns source traceability and token-counter metadata. The current counter is a UTF-8 byte estimate; `retrieve_context` accepts budgets from 1 through 20,000.
 
-1. Prerequisites and versions: TODO
-2. Dependency installation: TODO
-3. Environment setup: TODO — list required variable names and provide a sanitized `.env.example` if needed.
-4. Start the project: TODO
-5. Run checks or tests: TODO
+### Tests
 
-### Current status
+```powershell
+python -m pip install -e ".[test]"
+python -m pytest -q
+```
 
-- Working features: TODO
-- Known limitations: TODO
-- Libraries, APIs, and public datasets used: TODO — include source links and applicable attribution.
+## DevDay Exchange resources
 
-See [AI_USAGE.md](AI_USAGE.md) for AI assistance and [CHANGELOG.md](CHANGELOG.md) for the development record.
+This project was built from the DevDay Exchange Community: Kochi template. Event guidance remains in [RULES.md](RULES.md), [AGENTS.md](AGENTS.md), and [SUBMISSION.md](SUBMISSION.md). See [AI_USAGE.md](AI_USAGE.md) and [CHANGELOG.md](CHANGELOG.md) for event documentation.
+
+- Event: 10–11 October 2026 at JAIN University, Kochi.
+- [Event and registration on Luma](https://luma.com/z10nz8gp)

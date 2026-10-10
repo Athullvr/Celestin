@@ -1,0 +1,1 @@
+"""Docs examples package."""
