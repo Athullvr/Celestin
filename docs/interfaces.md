@@ -1,12 +1,12 @@
 # MCP Memory Bridge — Public Tool Contracts
 
-**Status:** Phase 2 proposal for team approval. This document defines the MCP boundary; it does not define SQLite tables, repository methods, FTS implementation, or retrieval algorithms.
+**Status:** MCP boundary contract. This document defines public tool arguments and response schemas; database and retrieval implementation details are documented in `docs/retrieval_integration.md` and `docs/retrieval.md`.
 
 ## Ownership and compatibility
 
 The MCP server owns tool names, public arguments, boundary validation, and serialization. It delegates persistence to the database/repository layer and search/ranking/context construction to the retrieval layer through separately agreed service interfaces. Tool handlers must not contain SQL, embedding, ranking, or token-selection logic. Every delegated call carries the requested `project` scope; the implementation must enforce that scope in the underlying operation, including source-message lookup.
 
-Currently the MCP branch exposes only `ping() -> str`. The retrieval branch has a proposed retrieval DTO (`record_id`, `project_id`, `source_id`, `timestamp`, `record_kind`, `status`, `relevance_score`, `content`) and context bundle (`items`, `excluded`, `rendered_context`, `token_count`, `token_budget`, `token_count_is_estimate`, `token_counter`). It has no stable public MCP response format and explicitly marks its draft interface unapproved. No database schema or repository contract is present in the inspected branches. The schemas below are therefore proposed public DTOs; mapping to storage must be agreed without requiring storage to adopt these names.
+The MCP server exposes the tools defined below and adapts the persistence and retrieval implementations to these public DTOs. The schemas are independent of storage names and remain the compatibility boundary for MCP clients.
 
 ## Shared conventions
 
@@ -111,7 +111,7 @@ Result:
 }
 ```
 
-`source_message_id` is the ID of the matched message itself, allowing direct linking to `save_decision`; `message_id` is an equivalent explicit result identifier. `score` is the retrieval relevance value (FTS5 BM25 may be negative; smaller/more negative ranks first under the current implementation), not a probability. Results are ordered by retrieval rank and capped at `limit`. The adapter maps retrieval's `record_id` to `message_id`, `source_id` to `source_message_id`, `content` to `content`, `timestamp` to `created_at`, and `relevance_score` to `score`. Optional conversation/role fields may be null if retrieval does not supply them; the retrieval contract currently does not include either, so their availability needs coordination.
+`source_message_id` is the ID of the matched message itself, allowing direct linking to `save_decision`; `message_id` is an equivalent explicit result identifier. `score` is the retrieval relevance value (FTS5 BM25 may be negative; smaller/more negative ranks first under the current implementation), not a probability. Results are ordered by retrieval rank and capped at `limit`. The adapter maps the retrieval result's message ID to `message_id` and `source_message_id`, its `source_id` (the conversation ID in chat search) to `conversation_id`, `content` to `content`, `timestamp` to `created_at`, and `relevance_score` to `score`. The current retrieval schema does not include message role, so `role` is `null`.
 
 Errors: `INVALID_ARGUMENT`, `PROJECT_NOT_FOUND` (if applicable), `RETRIEVAL_UNAVAILABLE`, `INTERNAL_ERROR`.
 
@@ -162,7 +162,7 @@ Result:
 }
 ```
 
-The output item and exclusion fields map the retrieval branch's current `ContextBundle` DTO. `project_id` is represented publicly as `project`; `source_id` as `source_message_id`; `timestamp` as `created_at`. Context must contain only records from the requested project. Approved canonical decisions take priority in ordering over historical messages. Deprecated decisions are excluded by default; drafts are also excluded by default. The retrieval branch currently allows explicit inclusion flags internally, but this public tool has no such arguments; inclusion controls require team approval and a documented public signature change.
+The output item and exclusion fields map the retrieval branch's current `ContextBundle` DTO. `project_id` is represented publicly as `project`; timestamps map to `created_at`. For chat records, `source_message_id` is the record's own message ID. For canonical decisions, it is the stored source-message provenance ID. Context must contain only records from the requested project. Approved canonical decisions take priority in ordering over historical messages. Deprecated decisions are excluded by default; drafts are also excluded by default. The public tool has no inclusion flags.
 
 Budget behavior: the complete serialized `rendered_context`, including metadata, must have `token_count <= token_budget`. Include whole records only; never truncate a record to fit. Scan ranked candidates in order, skip and report records that do not fit, and continue so a later smaller record can fit. Exact normalized-content duplicates may be skipped and reported. An empty context is valid, with count zero. Return the counter name and whether the count is an estimate. Existing retrieval code defaults to a UTF-8 byte estimator and labels it estimated; this may differ from model tokenization. The public request has no default budget (it is required), while a 2,000-unit internal default exists in retrieval code; team should confirm that distinction and define a maximum.
 
