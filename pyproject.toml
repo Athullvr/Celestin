@@ -13,6 +13,12 @@ dependencies = ["mcp>=1.0,<2.0"]
 [project.scripts]
 memory-bridge = "memory_bridge.mcp_server.server:main"
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
