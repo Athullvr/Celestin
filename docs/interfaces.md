@@ -12,6 +12,7 @@ The MCP server exposes the tools defined below and adapts the persistence and re
 
 - `project` is a required, non-empty string identifying the project namespace. Reject whitespace-only values; preserve the caller's value (do not silently normalize/case-fold it). All reads and writes, including `source_message_id` resolution and candidate assembly, are restricted to this project. A resource found only in another project is treated as not found.
 - Text arguments are Unicode strings. Required text must contain at least one non-whitespace character; preserve original text except where a tool's downstream search semantics apply. Reject wrong JSON types (including booleans where integers are required) and invalid values at the MCP boundary.
+- MCP boundary limits (Unicode code points): `project` 200; `conversation_id` 512; `role` 32; message `content` 100,000; decision `key` 256; decision `value` 100,000; `source_message_id` 64; and `query` 4,096. Reject embedded NUL characters. `limit` is 1–100 (default 10); `token_budget` is 1–20,000.
 - IDs are opaque, non-empty strings. Message IDs are stable IDs assigned by the persistence layer on ingestion and returned as `message_id`. They are project-scoped; clients must not infer their format. `source_message_id` refers to exactly such an ID, and must identify a message in the same requested project.
 - Timestamps are serialized as RFC 3339 / ISO 8601 strings with an explicit UTC offset; server-generated timestamps use UTC and `Z` (example `2026-10-11T12:34:56.123Z`). Do not return naive/local timestamps. When retrieval passes through existing timestamps, preserve their instant and serialize in this format.
 - Successful tool results are JSON objects matching the schemas below (MCP structured content). Error names below are stable categories; clients should not depend on backend exception text. Invalid arguments: `INVALID_ARGUMENT`; unknown project: `PROJECT_NOT_FOUND`; missing or cross-project source: `SOURCE_MESSAGE_NOT_FOUND`; configured retrieval/index unavailable: `RETRIEVAL_UNAVAILABLE`; persistence failure: `STORAGE_ERROR`; unexpected internal failure: `INTERNAL_ERROR`. Return an MCP tool error with a safe message and category; do not leak SQL, paths, or provider credentials.
@@ -28,7 +29,7 @@ Signature: `ingest_chat_message(project: string, conversation_id: string, role: 
 |---|---:|---|
 | `project` | yes | Non-empty project identifier; shared project rules apply. |
 | `conversation_id` | yes | Non-empty opaque string scoped to `project`. |
-| `role` | yes | Non-empty string. Proposed allowed values: `system`, `developer`, `user`, `assistant`, or `tool`; team must confirm whether custom roles are needed. |
+| `role` | yes | One of `system`, `user`, or `assistant`, matching the database layer's accepted values. |
 | `content` | yes | Non-empty after trimming check; original content is stored/returned without trimming. |
 
 Result:
@@ -177,5 +178,9 @@ Errors: `INVALID_ARGUMENT`, `PROJECT_NOT_FOUND` (if applicable), `RETRIEVAL_UNAV
 5. Confirm token-budget units/counter, maximum, and whether the public tool requires a budget (as proposed) despite the internal 2,000 default.
 6. Confirm MCP error encoding and whether a nonexistent project is distinguishable from an empty project. The current database contract is absent, so `PROJECT_NOT_FOUND` is conditional.
 7. Approve the timestamp serialization and result envelope. Existing retrieval candidates validate ISO 8601 but do not mandate UTC serialization.
+
+The server currently has no project registry, so an unknown project is indistinguishable from a valid project with no records. Reads return empty results in that case; writes are project-scoped and create records under the supplied project. A source ID absent from the requested project returns `SOURCE_MESSAGE_NOT_FOUND`.
+
+The server currently supports local stdio transport only. Before exposing it over a network or other remote transport, add authentication and transport security, and review authorization and project access controls. Do not expose an unauthenticated remote endpoint.
 
 No existing public function signature is changed by this document. The proposed four tools are new contracts; current `ping()` remains compatible. Any implementation proposal that changes these contracts must be brought to the team for approval before changing public signatures.
