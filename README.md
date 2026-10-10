@@ -24,6 +24,12 @@ For an MCP client that launches local processes, configure the command as
 The server exposes `ingest_chat_message`, `save_decision`,
 `search_chat_history`, `retrieve_context`, and `ping`.
 
+`ingest_chat_message` and `save_decision` persist through the SQLite
+repositories. The database is created at `data/memory_bridge.db` by default;
+set `MEMORY_BRIDGE_DB_PATH` before launching the server to choose another path.
+Saved decisions start in `draft` status. Search and context retrieval still use
+sample services in this phase.
+
 ### Inspect and invoke the MCP tools
 
 Connect an MCP-compatible client over stdio using this command configuration:
@@ -40,12 +46,11 @@ Connect an MCP-compatible client over stdio using this command configuration:
 ```
 
 The client should discover the four memory tools through MCP `tools/list` and
-invoke them through `tools/call`. For example, call
-`ingest_chat_message` with `{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`, then call `save_decision` with
-`{"project":"demo","key":"runtime","value":"Python","source_message_id":"mock-message-001"}`.
-The current services return clearly marked sample IDs and do not persist data;
-search and retrieval return illustrative fixtures rather than searching those
-messages. The token counter in this mock phase is a UTF-8 byte estimate, and
+invoke them through `tools/call`. For example, call `ingest_chat_message` with
+`{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`.
+Use its returned `message_id` as `source_message_id` when calling
+`save_decision`. Search and retrieval return illustrative fixtures rather than
+searching persisted messages. The token counter in this mock phase is a UTF-8 byte estimate, and
 `retrieve_context` accepts budgets from 1 through 20,000.
 
 Run the contract tests from the repository root with:

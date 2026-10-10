@@ -16,31 +16,6 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def ingest_chat_message(project: str, conversation_id: str, role: str, content: str) -> dict[str, Any]:
-    return {
-        "project": project,
-        "message_id": "mock-message-001",
-        "conversation_id": conversation_id,
-        "role": role,
-        "content": content,
-        "created_at": _timestamp(),
-    }
-
-
-def save_decision(project: str, key: str, value: str, source_message_id: str) -> dict[str, Any]:
-    now = _timestamp()
-    return {
-        "project": project,
-        "decision_id": "mock-decision-001",
-        "key": key,
-        "value": value,
-        "status": "draft",
-        "source_message_id": source_message_id,
-        "created_at": now,
-        "updated_at": now,
-    }
-
-
 def search_chat_history(project: str, query: str, limit: int) -> dict[str, Any]:
     results = [{
         "message_id": "mock-message-001",

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from memory_bridge.mcp_server import server
 from memory_bridge.mcp_server import mock_services
+from memory_bridge.mcp_server.persistence_services import PersistenceServices
 from memory_bridge.mcp_server.server import (
     MAX_TOKEN_BUDGET,
     ingest_chat_message,
@@ -18,6 +23,16 @@ from memory_bridge.mcp_server.server import (
 
 
 class ToolContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._temp_dir = tempfile.TemporaryDirectory()
+        adapter = PersistenceServices(Path(self._temp_dir.name) / "memory.db")
+        self._service_patch = patch.object(server, "persistence_services", adapter)
+        self._service_patch.start()
+
+    def tearDown(self) -> None:
+        self._service_patch.stop()
+        self._temp_dir.cleanup()
+
     def test_all_public_tools_are_registered_once(self) -> None:
         tools = mcp._tool_manager.list_tools()
         names = [tool.name for tool in tools]
@@ -46,22 +61,23 @@ class ToolContractTests(unittest.TestCase):
 
         result = asyncio.run(invoke())
         self.assertEqual(result["project"], "demo")
-        self.assertEqual(result["message_id"], "mock-message-001")
+        self.assertTrue(result["message_id"].isdigit())
 
     def test_ingest_shape_and_project_scope(self) -> None:
         result = ingest_chat_message("alpha", "conv-1", "user", "Hello")
         self.assertEqual(set(result), {"project", "message_id", "conversation_id", "role", "content", "created_at"})
         self.assertEqual(result["project"], "alpha")
         self.assertEqual(result["content"], "Hello")
-        self.assertEqual(result["message_id"], "mock-message-001")
+        self.assertTrue(result["message_id"].isdigit())
         self.assertTrue(result["created_at"].endswith("Z"))
         datetime.fromisoformat(result["created_at"].replace("Z", "+00:00"))
 
     def test_save_decision_is_a_draft(self) -> None:
-        result = save_decision("alpha", "runtime", "Python", "message-1")
+        message = ingest_chat_message("alpha", "conversation-1", "user", "Use Python")
+        result = save_decision("alpha", "runtime", "Python", message["message_id"])
         self.assertEqual(set(result), {"project", "decision_id", "key", "value", "status", "source_message_id", "created_at", "updated_at"})
         self.assertEqual(result["status"], "draft")
-        self.assertEqual(result["source_message_id"], "message-1")
+        self.assertEqual(result["source_message_id"], message["message_id"])
         self.assertTrue(result["created_at"].endswith("Z"))
 
     def test_search_shape_and_limit(self) -> None:
@@ -80,8 +96,7 @@ class ToolContractTests(unittest.TestCase):
             self.assertEqual(set(result["items"][0]), {"record_id", "source_message_id", "created_at", "record_kind", "status", "content", "relevance_score"})
 
     def test_tools_delegate_to_mock_service_module(self) -> None:
-        self.assertTrue(callable(mock_services.ingest_chat_message))
-        self.assertTrue(callable(mock_services.save_decision))
+        self.assertIsInstance(server.persistence_services, PersistenceServices)
         self.assertTrue(callable(mock_services.search_chat_history))
         self.assertTrue(callable(mock_services.retrieve_context))
 
