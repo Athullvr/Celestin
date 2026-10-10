@@ -1,10 +1,12 @@
 # Memory Bridge Interfaces
 
-> **Team contract for Members 2 & 3.** Everything needed to consume the
-> persistence layer is documented here, including argument validation rules,
-> return value shapes, and raised errors. Coordinate with Member 1 before
-> relying on anything not covered in this file, and before proposing any
-> signature change.
+> **Team contract across Members 1, 2, and 3.** Everything needed to consume the
+> persistence, retrieval, and MCP integration layers is documented here, including argument
+> validation rules, return value shapes, and error specifications.
+
+---
+
+# Part 1: Persistence Layer (Member 1)
 
 ## Overview
 
@@ -133,7 +135,52 @@ save_decision(project, key, value, source_message_id=None, status="draft", conn=
 - `(project, key)` uniqueness is enforced by the schema, so two projects
   can use identical keys without collision.
 
-## For Member 2 (vector index)
+## Configuration & migrations
+
+| Env var | Purpose |
+|---|---|
+| `MEMORY_BRIDGE_DB_PATH` | overrides default database location (default: `data/memory_bridge.db`, created on demand) |
+
+- Schema version tracked with `PRAGMA user_version`; migrations in
+  `src/memory_bridge/database/engine.py` (`SCHEMA_MIGRATIONS`).
+- A clean checkout self-initializes on first connect. Restart-safe.
+
+---
+
+# Part 2: Retrieval & Context Assembly (Member 2)
+
+## Confirmed boundaries
+
+- Member 1 owns database schemas, connections, repositories, ingestion, and
+  decision persistence.
+- Member 2 owns retrieval, ranking, context assembly, and the planned embedding
+  provider abstraction.
+- Member 3 owns the MCP server, public tool definitions, request validation,
+  and client integration.
+
+## Current Member 2 implementation
+
+| Interface | Current signature / output | Notes |
+|---|---|---|
+| FTS adapter | `FtsMessageSearch(connection: sqlite3.Connection, schema: FtsSchema).search(query: str, *, project_id: str, limit: int = 10) -> list[SearchResult]` | `FtsSchema` maps an already-existing FTS5 table and columns. Results carry `message_id`, `project_id`, `source_id`, `content`, optional `timestamp`, and `relevance_score`. |
+| Ranking | `rank_candidates(candidates, *, project_id: str, policy: RankingPolicy = RankingPolicy()) -> list[RetrievalCandidate]` | Rechecks project, filters draft/deprecated decision candidates by the provisional policy, applies decision tier, BM25 score, recency tie-break, then stable IDs. |
+| Context | `build_context_bundle(candidates, *, project_id: str, token_budget: int = 2_000, ranking_policy: RankingPolicy = RankingPolicy(), token_counter: TokenCounter | None = None) -> ContextBundle` | Produces traceable JSON Lines, per-record same-project exclusions, and reason counts. Foreign-project exclusions are count-only. The default byte-based count is an estimate, not a model token count. |
+
+Details and verified behavior are in `docs/retrieval.md`.
+
+## Proposed embedding interface
+
+An embedding interface remains proposed for a later phase:
+
+```text
+EmbeddingProvider.embed(texts: Sequence[str]) -> Sequence[Sequence[float]]
+```
+
+---
+
+# Part 3: Integration Boundaries & MCP Mapping
+
+## For Member 2 (Retrieval / Vector Index)
 
 - Embed the **value/content** of records you read via the repositories; use
   the returned `id` (or `source_message_id`) as the vector payload/reference,
@@ -143,30 +190,13 @@ save_decision(project, key, value, source_message_id=None, status="draft", conn=
 - `list_for_project(..., include_deprecated=False)` is the intended source
   when assembling memory context to avoid surfacing deprecated decisions.
 
-## For Member 3 (MCP tools)
+## For Member 3 (MCP Tools)
 
-- Wire MCP tool handlers to the repository methods directly (or the two
-  contract functions). Wrap `ValidationError`/`NotFoundError` into MCP tool
-  error responses using the error table above.
-- Treat `save_decision`/`update_status` as the only ways to mutate
-  decisions so that status transitions remain validated.
+- Wire MCP tool handlers to the repository and retrieval methods directly.
+  Wrap `ValidationError`/`NotFoundError` into MCP tool error responses.
 - Recommended tool mapping:
-  - save message -> `ingest_chat_message` / `ChatMessageRepository.insert`
-  - save decision -> `save_decision` / `DecisionRepository.save`
-  - update decision status -> `DecisionRepository.update_status`
-  - recall/search -> read via `list_for_project` / `list_for_conversation`,
-    ranked in Member 2's index.
-
-## Configuration
-
-| Env var | Purpose |
-|---|---|
-| `MEMORY_BRIDGE_DB_PATH` | overrides default database location (default: `data/memory_bridge.db`, created on demand) |
-
-## Versioning / migrations
-
-- Schema version tracked with `PRAGMA user_version`; migrations in
-  `src/memory_bridge/database/engine.py` (`SCHEMA_MIGRATIONS`).
-- A clean checkout self-initializes on first connect. Restart-safe.
-- Schema-change coordination: Member 1 owns the schema; Members 2/3 must not
-  alter tables directly.
+  - `save_message` -> `ingest_chat_message` / `ChatMessageRepository.insert`
+  - `save_decision` -> `save_decision` / `DecisionRepository.save`
+  - `update_decision_status` -> `DecisionRepository.update_status`
+  - `recall_search` -> read via `list_for_project` / `list_for_conversation`,
+    ranked with Member 2's retrieval & ranking engine.
