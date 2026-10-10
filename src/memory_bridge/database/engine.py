@@ -59,6 +59,89 @@ SCHEMA_MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_project_memory_project
         ON project_memory (project);
     """,
+    2: """
+    -- FTS5 indexes are maintained alongside the authoritative rows. Metadata
+    -- columns stay UNINDEXED but are returned by the retrieval adapter.
+    CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(
+        message_id UNINDEXED,
+        project_id UNINDEXED,
+        source_id UNINDEXED,
+        created_at UNINDEXED,
+        content
+    );
+
+    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_insert
+    AFTER INSERT ON chat_messages BEGIN
+        INSERT INTO chat_messages_fts
+            (rowid, message_id, project_id, source_id, created_at, content)
+        VALUES
+            (new.id, CAST(new.id AS TEXT), new.project, new.conversation_id,
+             new.created_at, new.content);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_delete
+    AFTER DELETE ON chat_messages BEGIN
+        DELETE FROM chat_messages_fts WHERE rowid = old.id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS chat_messages_fts_update
+    AFTER UPDATE ON chat_messages BEGIN
+        DELETE FROM chat_messages_fts WHERE rowid = old.id;
+        INSERT INTO chat_messages_fts
+            (rowid, message_id, project_id, source_id, created_at, content)
+        VALUES
+            (new.id, CAST(new.id AS TEXT), new.project, new.conversation_id,
+             new.created_at, new.content);
+    END;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS project_memory_fts USING fts5(
+        decision_id UNINDEXED,
+        project_id UNINDEXED,
+        source_id UNINDEXED,
+        updated_at UNINDEXED,
+        status UNINDEXED,
+        value
+    );
+
+    CREATE TRIGGER IF NOT EXISTS project_memory_fts_insert
+    AFTER INSERT ON project_memory BEGIN
+        INSERT INTO project_memory_fts
+            (rowid, decision_id, project_id, source_id, updated_at, status, value)
+        VALUES
+            (new.id, CAST(new.id AS TEXT), new.project,
+             COALESCE(CAST(new.source_message_id AS TEXT), 'decision:' || CAST(new.id AS TEXT)),
+             new.updated_at, new.status, new.value);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS project_memory_fts_delete
+    AFTER DELETE ON project_memory BEGIN
+        DELETE FROM project_memory_fts WHERE rowid = old.id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS project_memory_fts_update
+    AFTER UPDATE ON project_memory BEGIN
+        DELETE FROM project_memory_fts WHERE rowid = old.id;
+        INSERT INTO project_memory_fts
+            (rowid, decision_id, project_id, source_id, updated_at, status, value)
+        VALUES
+            (new.id, CAST(new.id AS TEXT), new.project,
+             COALESCE(CAST(new.source_message_id AS TEXT), 'decision:' || CAST(new.id AS TEXT)),
+             new.updated_at, new.status, new.value);
+    END;
+
+    -- Backfill rows that predate this migration.
+    INSERT INTO chat_messages_fts
+        (rowid, message_id, project_id, source_id, created_at, content)
+    SELECT id, CAST(id AS TEXT), project, conversation_id, created_at, content
+    FROM chat_messages;
+
+    INSERT INTO project_memory_fts
+        (rowid, decision_id, project_id, source_id, updated_at, status, value)
+    SELECT id, CAST(id AS TEXT), project,
+           COALESCE(CAST(source_message_id AS TEXT), 'decision:' || CAST(id AS TEXT)),
+           updated_at, status, value
+    FROM project_memory;
+    """,
 }
 
 _ROLE_VALUES = ("user", "assistant", "system")
