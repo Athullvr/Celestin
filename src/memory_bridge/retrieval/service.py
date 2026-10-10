@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
+from dataclasses import asdict
+from typing import Any
 
+from memory_bridge.database.engine import connect
 from memory_bridge.repositories.decisions import DecisionRepository
 from memory_bridge.retrieval.context_builder import ContextBundle, build_context_bundle
 from memory_bridge.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
@@ -55,11 +59,11 @@ class RetrievalService:
         self._candidate_limit = candidate_limit
 
     def search_chat_history(
-        self, project: str, query: str, limit: int
+        self, project: str, query: str, limit: int = 10
     ) -> list[SearchResult]:
         """Return project-scoped message search matches ordered by BM25.
 
-        Each result includes the chat message ID, project, conversation ID as
+        Each result includes the chat message ID, project, conversation ID in
         ``source_id``, content, timestamp, and relevance score.
         """
         return self._message_search.search(
@@ -67,7 +71,7 @@ class RetrievalService:
         )
 
     def retrieve_context(
-        self, project: str, query: str, token_budget: int
+        self, project: str, query: str, token_budget: int = 2_000
     ) -> ContextBundle:
         """Assemble ranked message/decision candidates into a bounded bundle.
 
@@ -93,7 +97,15 @@ class RetrievalService:
         }
 
         candidates: list[RetrievalCandidate] = [
-            RetrievalCandidate.from_message_search_result(result)
+            RetrievalCandidate(
+                record_id=result.message_id,
+                project_id=result.project_id,
+                source_id=result.message_id,
+                content=result.content,
+                timestamp=result.timestamp,
+                relevance_score=result.relevance_score,
+                record_kind="chat_message",
+            )
             for result in message_results
         ]
         for result in decision_results:
@@ -106,7 +118,11 @@ class RetrievalService:
                 RetrievalCandidate(
                     record_id=f"decision:{decision['id']}",
                     project_id=decision["project"],
-                    source_id=result.source_id,
+                    source_id=(
+                        str(decision["source_message_id"])
+                        if decision["source_message_id"] is not None
+                        else None
+                    ),
                     content=decision["value"],
                     timestamp=decision["updated_at"],
                     relevance_score=result.relevance_score,
@@ -125,3 +141,80 @@ class RetrievalService:
                 include_deprecated=False,
             ),
         )
+
+
+def _search_result_dict(result: SearchResult) -> dict[str, Any]:
+    return {
+        "message_id": result.message_id,
+        "project": result.project_id,
+        "source_message_id": result.message_id,
+        "conversation_id": result.source_id,
+        "role": None,
+        "content": result.content,
+        "created_at": result.timestamp,
+        "score": result.relevance_score,
+    }
+
+
+def _context_bundle_dict(bundle: ContextBundle, query: str) -> dict[str, Any]:
+    return {
+        "project": bundle.project_id,
+        "query": query,
+        "items": [
+            {
+                "record_id": item.record_id,
+                "project_id": item.project_id,
+                "source_message_id": item.source_id,
+                "created_at": item.timestamp,
+                "record_kind": item.record_kind,
+                "status": item.status,
+                "content": item.content,
+                "relevance_score": item.relevance_score,
+            }
+            for item in bundle.items
+        ],
+        "excluded": [
+            {
+                "record_id": item.record_id,
+                "project_id": item.project_id,
+                "source_message_id": item.source_id,
+                "created_at": item.timestamp,
+                "record_kind": item.record_kind,
+                "status": item.status,
+                "reason": item.reason,
+            }
+            for item in bundle.excluded
+        ],
+        "excluded_counts": [asdict(item) for item in bundle.excluded_counts],
+        "rendered_context": bundle.rendered_context,
+        "token_count": bundle.token_count,
+        "token_budget": bundle.token_budget,
+        "token_count_is_estimate": bundle.token_count_is_estimate,
+        "token_counter": bundle.token_counter,
+    }
+
+
+def search_chat_history(
+    project: str,
+    query: str,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Search messages using the configured production SQLite database."""
+    with closing(connect()) as connection:
+        results = RetrievalService(connection).search_chat_history(
+            project, query, limit
+        )
+    return [_search_result_dict(result) for result in results]
+
+
+def retrieve_context(
+    project: str,
+    query: str,
+    token_budget: int = 2_000,
+) -> dict[str, Any]:
+    """Return a serializable, traceable context bundle for one project."""
+    with closing(connect()) as connection:
+        bundle = RetrievalService(connection).retrieve_context(
+            project, query, token_budget
+        )
+    return _context_bundle_dict(bundle, query)

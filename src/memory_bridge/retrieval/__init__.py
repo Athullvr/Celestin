@@ -24,6 +24,8 @@ from .service import (
     DECISION_FTS_SCHEMA,
     MESSAGE_FTS_SCHEMA,
     RetrievalService,
+    retrieve_context,
+    search_chat_history,
 )
 
 __all__ = [
@@ -44,4 +46,6 @@ __all__ = [
     "MESSAGE_FTS_SCHEMA",
     "DECISION_FTS_SCHEMA",
     "RetrievalService",
+    "search_chat_history",
+    "retrieve_context",
 ]

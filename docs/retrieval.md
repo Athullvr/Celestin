@@ -10,19 +10,20 @@ timestamp descending, then message ID and source ID ascending. Missing or
 unparseable SQLite timestamps sort after valid timestamps and remain available
 as returned values.
 
-The component does not create, migrate, rebuild, or delete database objects.
-The test suite creates a temporary FTS5 table using fixture-only columns. This
-is an adapter fixture, not a proposed production schema. `FtsSchema` must be
-configured with the actual names supplied by Member 1 before integration.
+`FtsMessageSearch` itself does not create, migrate, rebuild, or delete database
+objects. The production `database.connect()` migration path creates and
+maintains `chat_messages_fts` and `project_memory_fts`; isolated adapter tests
+also create temporary FTS5 fixtures. `FtsSchema` maps these production tables
+in `retrieval.service`.
 
 ## Requirements and query behavior
 
 - Python's SQLite runtime must be compiled with FTS5 support. The tests exercise
   the actual runtime by creating a temporary virtual table.
-- The configured table must be an FTS5 virtual table with indexed message
-  content and retrievable message ID, project ID, source ID, and timestamp
-  columns. These metadata columns can be unindexed FTS5 columns or available
-  columns on the agreed table design.
+- The configured table must be an FTS5 virtual table with indexed content and
+  retrievable metadata columns. Production migration 2 creates the indexes,
+  backfills existing rows, and installs insert/update/delete triggers for
+  messages and canonical decisions.
 - For a non-empty query, the adapter checks `sqlite_master` for a virtual table
   declared with FTS5 before searching. Missing tables, ordinary tables, and
   incompatible column declarations raise `SearchIndexUnavailable`. An empty
@@ -40,14 +41,16 @@ configured with the actual names supplied by Member 1 before integration.
 - A missing or incompatible configured FTS table raises
   `SearchIndexUnavailable`. Invalid Python input raises `TypeError` or
   `ValueError` as appropriate. Other SQLite operational errors propagate.
-- FTS search returns messages only. Candidate ranking and canonical status
-  filtering are available as an independent policy layer; loading canonical
-  decisions and combining repository results remain pending integration.
+- `RetrievalService` searches messages and decisions separately, then loads
+  authoritative decision rows through `DecisionRepository.list_for_project`
+  and maps results to retrieval candidates. Decision scores are BM25 scores
+  from the decision-value FTS index; SQLite status and provenance fields remain
+  authoritative.
 
 ## Candidate ranking policy
 
 `rank_candidates` accepts retrieval DTOs and applies project and status filters
-before sorting. Its provisional default rules are:
+before sorting. Its default rules are:
 
 1. Approved canonical decisions precede historical messages. This is a
    decision-priority tier, not a claim that the decision matched the query
@@ -59,16 +62,16 @@ before sorting. Its provisional default rules are:
 4. Record ID and source ID provide deterministic final tie-breaks.
    Known ISO 8601 timestamps rank ahead of missing timestamps; naive ISO
    datetimes are interpreted as UTC. Non-ISO timestamp values are rejected by
-   the ranking DTO until Member 1's timestamp representation is known.
+   the ranking DTO.
 5. Draft and deprecated decisions are excluded by default. Explicit
    `include_drafts=True` includes drafts in a separate tier after messages;
    they retain `status="draft"`. Explicit `include_deprecated=True` includes
    deprecated decisions in the last tier.
 
-These rules are a provisional Member 2 adapter policy because Member 1's
-schema/repository contract and the project's agreed cross-source priority
-rules are not available yet. The ranking layer rechecks project IDs so
-cross-project candidates cannot enter the result list.
+The ranking layer rechecks project IDs so cross-project candidates cannot
+enter the result list. The integrated service applies approved-first and
+exclude-draft/deprecated defaults. Decision BM25 relevance stays separate from
+the approved-priority rule.
 
 ## Context bundles and token budget
 
@@ -99,20 +102,26 @@ included in per-record exclusion details; only their count appears in
 cover all rejected inputs by reason. Duplicate detection is textual, not
 semantic.
 
-The 2,000 default and approved-decision priority are Member 2 adapter defaults.
-Member 1's actual row/repository contract and the agreed project-level context
-priority remain pending; this builder is not yet wired to production data.
+The integrated retrieval service uses the 2,000 default and approved-decision
+priority. Its module-level functions open a connection through the production
+database initializer; callers using `RetrievalService(connection)` own that
+connection. A decision without `source_message_id` retains a null source ID in
+the context DTO rather than receiving a synthetic provenance ID.
 
-## Pending integration contract
+## Production service and limitations
 
-Member 1 must provide the real message schema, FTS table/index lifecycle, and
-repository/connection access method. This implementation currently accepts a
-`sqlite3.Connection` directly for isolated tests; it does not claim that this
-is Member 1's production repository API. Member 3's MCP request and response
-contract also remains pending. The approved-decision priority tier, status
-mapping, and optional overrides are Member 2 proposals pending agreement. The
-model-specific tokenizer is also unknown; token counts remain estimates unless
-the caller injects and identifies a compatible `TokenCounter`.
+`memory_bridge.retrieval.search_chat_history(project, query, limit=10)` returns
+traceable result dictionaries. `retrieve_context(project, query,
+token_budget=2000)` returns a JSON-serializable context dictionary. Both use
+`database.connect()` and apply production migrations. See
+`docs/retrieval_integration.md` for response examples and MCP adapter guidance.
+
+There is no project registry, so an unknown project is indistinguishable from
+an empty project; both return empty results. Search includes the conversation
+ID but not role because production FTS metadata does not store role. Missing
+FTS raises `SearchIndexUnavailable`; other SQLite/repository failures
+propagate. The model-specific tokenizer remains unknown; counts are estimates
+unless a compatible `TokenCounter` is injected into `build_context_bundle`.
 
 ## Tests and dependencies
 
@@ -122,9 +131,8 @@ Run the retrieval suite with:
 python3 -m pytest -q
 ```
 
-The current test environment uses Python 3.12, pytest 7.4, SQLite with FTS5,
-and the Python standard library in production code. This workspace has no
-`pyproject.toml`, setup configuration, or dependency declaration. The retrieval
-test `conftest.py` adds `src/` to `sys.path`; production code does not import
-test helpers. There is no embeddings package/provider implementation yet; that
-abstraction remains a later planned phase.
+The project uses Python 3.10+, pytest, SQLite with FTS5, and the Python
+standard library in production retrieval code. Tests use temporary synthetic
+databases and do not require network access. There is no embeddings
+package/provider implementation yet; that abstraction remains a later planned
+phase.
