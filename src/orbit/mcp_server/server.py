@@ -37,9 +37,14 @@ class _SafeToolManager(ToolManager):
         except ToolError as exc:
             # Errors produced by our handlers already use this stable JSON envelope.
             try:
-                payload = json.loads(str(exc))
+                # FastMCP's Tool.run wraps handler exceptions as
+                # "Error executing tool <name>: <original message>".
+                # Parse the JSON suffix so stable handler error categories are
+                # preserved over the actual MCP protocol as well as direct calls.
+                message = str(exc)
+                payload = json.loads(message[message.index("{"):])
                 code = payload.get("error", {}).get("code")
-            except (AttributeError, json.JSONDecodeError, TypeError):
+            except (AttributeError, ValueError, json.JSONDecodeError, TypeError):
                 code = None
             if code in {
                 "INVALID_ARGUMENT", "SOURCE_MESSAGE_NOT_FOUND", "RETRIEVAL_UNAVAILABLE",
