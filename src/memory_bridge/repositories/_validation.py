@@ -64,9 +64,9 @@ def validate_value(value: str) -> str:
 
 
 def validate_source_message_id(
-    conn: sqlite3.Connection, source_message_id: int | None
+    conn: sqlite3.Connection, project: str, source_message_id: int | None
 ) -> int | None:
-    """Validate an optional chat-message reference.
+    """Validate an optional chat-message reference within its project.
 
     Returns the validated ID. Raises ``NotFoundError`` when the ID is not
     an existing ``chat_messages.id`` so broken references never enter the
@@ -77,11 +77,12 @@ def validate_source_message_id(
     if not isinstance(source_message_id, int) or isinstance(source_message_id, bool):
         raise ValidationError("source_message_id must be an integer or None")
     row = conn.execute(
-        "SELECT 1 FROM chat_messages WHERE id = ?", (source_message_id,)
+        "SELECT 1 FROM chat_messages WHERE id = ? AND project = ?",
+        (source_message_id, project),
     ).fetchone()
     if row is None:
         raise NotFoundError(
             f"source_message_id {source_message_id} does not reference an "
-            "existing chat message"
+            "existing chat message in this project"
         )
     return source_message_id

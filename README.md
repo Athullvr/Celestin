@@ -21,4 +21,44 @@ memory-bridge
 
 For an MCP client that launches local processes, configure the command as
 `memory-bridge` (or use the environment's absolute path to `.venv\Scripts\memory-bridge.exe`).
-The server currently provides a `ping` tool for a basic health check.
+The server exposes `ingest_chat_message`, `save_decision`,
+`search_chat_history`, `retrieve_context`, and `ping`.
+
+`ingest_chat_message` and `save_decision` persist through the SQLite
+repositories. Search and context retrieval use the SQLite FTS5 indexes and the
+retrieval service. The database is created at `data/memory_bridge.db` by
+default; set `MEMORY_BRIDGE_DB_PATH` before launching the server to choose
+another path. Saved decisions start in `draft` status; context retrieval gives
+approved decisions priority and excludes drafts and deprecated decisions.
+
+### Inspect and invoke the MCP tools
+
+Connect an MCP-compatible client over stdio using this command configuration:
+
+```json
+{
+  "mcpServers": {
+    "memory-bridge": {
+      "command": "memory-bridge",
+      "args": []
+    }
+  }
+}
+```
+
+The client should discover the four memory tools through MCP `tools/list` and
+invoke them through `tools/call`. For example, call `ingest_chat_message` with
+`{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`.
+Use its returned `message_id` as `source_message_id` when calling
+`save_decision`. Search reads persisted messages and returns the matching
+message ID, conversation ID, timestamp, and relevance score. Context retrieval
+combines eligible decisions and messages, returning source traceability and
+the retrieval service's token counter metadata. The current counter is a
+UTF-8 byte estimate, and `retrieve_context` accepts budgets from 1 through
+20,000.
+
+Run the contract tests from the repository root with:
+
+```powershell
+python -m unittest discover -s tests -v
+```

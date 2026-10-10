@@ -43,7 +43,7 @@ class DecisionRepository:
         key = validate_key(key)
         value = validate_value(value)
         status = validate_status(status)
-        validate_source_message_id(self._conn, source_message_id)
+        validate_source_message_id(self._conn, project, source_message_id)
         updated_at = utc_now_iso()
 
         self._conn.execute(

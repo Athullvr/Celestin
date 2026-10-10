@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
-# Local runtime state — SQLite is authoritative but lives on disk, never in Git
+# Local runtime state: SQLite is authoritative but lives on disk, never in Git
 data/
 *.db
 *.db-journal
