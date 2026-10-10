@@ -11,21 +11,23 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from memory_bridge.database.engine import DatabaseError
 from memory_bridge.repositories._validation import NotFoundError, ValidationError
+from memory_bridge.retrieval import SearchIndexUnavailable
 
-from . import mock_services
 from .persistence_services import PersistenceServices, SourceMessageNotFoundError
+from .retrieval_services import RetrievalServices
 
 mcp = FastMCP("memory-bridge")
 
 ALLOWED_ROLES = {"system", "developer", "user", "assistant", "tool"}
 MIN_SEARCH_LIMIT = 1
 MAX_SEARCH_LIMIT = 100
-# Operational safety cap for the mock phase. Requests must also be positive.
+# Operational safety cap for context requests.
 MAX_TOKEN_BUDGET = 20_000
 
 # Replaceable adapter instance: tests can inject a temporary database while
 # public tool names and arguments remain stable.
 persistence_services = PersistenceServices()
+retrieval_services = RetrievalServices()
 
 
 def _error(code: str, message: str) -> ToolError:
@@ -41,6 +43,19 @@ def _required_string(name: str, value: str) -> str:
 
 def _validate_project(project: str) -> str:
     return _required_string("project", project)
+
+
+def _retrieval_call(callback, failure_message: str):
+    try:
+        return callback()
+    except (TypeError, ValueError) as exc:
+        raise _error("INVALID_ARGUMENT", "The retrieval request is invalid.") from exc
+    except SearchIndexUnavailable as exc:
+        raise _error("RETRIEVAL_UNAVAILABLE", "The search index is unavailable.") from exc
+    except (DatabaseError, sqlite3.Error) as exc:
+        raise _error("RETRIEVAL_UNAVAILABLE", "The retrieval service is unavailable.") from exc
+    except Exception as exc:
+        raise _error("INTERNAL_ERROR", failure_message) from exc
 
 
 @mcp.tool(description="Record one chat message in a project.")
@@ -88,10 +103,13 @@ def search_chat_history(project: str, query: str, limit: int = 10) -> dict[str, 
     query = _required_string("query", query)
     if isinstance(limit, bool) or not isinstance(limit, int) or not MIN_SEARCH_LIMIT <= limit <= MAX_SEARCH_LIMIT:
         raise _error("INVALID_ARGUMENT", "limit must be an integer from 1 through 100.")
-    return mock_services.search_chat_history(project, query, limit)
+    return _retrieval_call(
+        lambda: retrieval_services.search_chat_history(project, query, limit),
+        "Chat history could not be searched.",
+    )
 
 
-@mcp.tool(description="Build project-scoped context within a positive token budget (maximum 20000). Counts are estimates in the mock service.")
+@mcp.tool(description="Build project-scoped context within a positive token budget (maximum 20000). Counts may be estimates.")
 def retrieve_context(project: str, query: str, token_budget: int) -> dict[str, Any]:
     """Retrieve traceable project context that fits the requested budget."""
     project = _validate_project(project)
@@ -100,7 +118,10 @@ def retrieve_context(project: str, query: str, token_budget: int) -> dict[str, A
         raise _error("INVALID_ARGUMENT", "token_budget must be a positive integer.")
     if token_budget > MAX_TOKEN_BUDGET:
         raise _error("INVALID_ARGUMENT", f"token_budget must not exceed {MAX_TOKEN_BUDGET}.")
-    return mock_services.retrieve_context(project, query, token_budget)
+    return _retrieval_call(
+        lambda: retrieval_services.retrieve_context(project, query, token_budget),
+        "Project context could not be retrieved.",
+    )
 
 
 @mcp.tool(description="Confirm that the Memory Bridge MCP server is responding.")
