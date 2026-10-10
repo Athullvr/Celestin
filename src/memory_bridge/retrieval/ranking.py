@@ -160,7 +160,8 @@ def _rank_candidates_with_exclusions(
             candidate.relevance_score,
             recency,
             candidate.record_id,
-            candidate.source_id,
+            candidate.source_id is not None,
+            candidate.source_id if candidate.source_id is not None else "",
         )
 
     return sorted(eligible, key=ordering), excluded
