@@ -57,6 +57,35 @@ schema/repository contract and the project's agreed cross-source priority
 rules are not available yet. The ranking layer rechecks project IDs so
 cross-project candidates cannot enter the result list.
 
+## Context bundles and token budget
+
+`build_context_bundle` accepts retrieval candidates, re-applies the ranking and
+status policy, and defaults to a 2,000-unit budget. Included records are
+rendered as one compact JSON object per line. Each line preserves record ID,
+project ID, source ID, timestamp, record kind, status, relevance score, and full
+content. The budget applies to the complete rendered text, including metadata.
+
+No compatible tokenizer dependency is installed in this workspace. The default
+`Utf8ByteTokenEstimator` counts UTF-8 bytes and reports `token_count_is_estimate`
+as true; it does not claim an exact model-token count. Byte count is a
+conservative upper bound for tokenizers whose tokens each represent one or
+more UTF-8 bytes, but different tokenizer families can have different
+accounting. A model-specific `TokenCounter` can be injected later without
+changing selection logic.
+
+Selection scans candidates in their ranking order. It includes a complete
+record only if the full rendered bundle remains within budget; it never clips
+content. An oversized candidate is reported with reason `token_budget` and the
+scan continues, so a later smaller record may fit. Exact duplicate content
+(case-insensitive after whitespace normalization) is included once; later
+copies are reported as `duplicate_content`. Exclusions keep record, project,
+source, timestamp, type, and status metadata. Duplicate detection is textual,
+not semantic.
+
+The 2,000 default and approved-decision priority are Member 2 adapter defaults.
+Member 1's actual row/repository contract and the agreed project-level context
+priority remain pending; this builder is not yet wired to production data.
+
 ## Pending integration contract
 
 Member 1 must provide the real message schema, FTS table/index lifecycle, and
