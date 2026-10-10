@@ -17,6 +17,9 @@
   - `project_memory(id, project, key, value, status, source_message_id, updated_at)`
     with `UNIQUE (project, key)` and an optional FK
     `source_message_id -> chat_messages.id`.
+- Schema migration 2 also creates the synchronized FTS5 indexes
+  `chat_messages_fts` and `project_memory_fts`; these are search indexes, not
+  additional sources of truth.
 - All timestamps are ISO-8601 UTC strings with a `Z` designator
   (`2026-10-11T12:34:56.789012Z`).
 - `role` ∈ {`user`, `assistant`, `system`}
@@ -173,6 +176,11 @@ separate ranking rule, not a score produced by this repository.
   SQLite does not supply a relevance score. Keep the score method/scale
   consistent with the chosen retriever and keep approved-first as an
   independent priority rule.
+- The production service signatures, FTS schema mapping, and synthetic
+  integration test are documented in
+  [retrieval_integration.md](retrieval_integration.md). An instantiated
+  `RetrievalService` is ready for MCP handlers to call; this change does not
+  wire or modify those handlers.
 
 ## Reproducible fixture and example
 
