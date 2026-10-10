@@ -11,9 +11,9 @@ requires-python = ">=3.10"
 dependencies = ["mcp>=1.0,<2.0"]
 
 [project.scripts]
-orbit = "memory_bridge.mcp_server.server:main"
+orbit = "orbit.mcp_server.server:main"
 # Keep the existing command available for already-configured local clients.
-memory-bridge = "memory_bridge.mcp_server.server:main"
+memory-bridge = "orbit.mcp_server.server:main"
 
 [project.optional-dependencies]
 test = ["pytest"]

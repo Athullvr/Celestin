@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from fixtures import MESSAGES
-from memory_bridge.retrieval import FtsMessageSearch, FtsSchema, SearchIndexUnavailable
+from orbit.retrieval import FtsMessageSearch, FtsSchema, SearchIndexUnavailable
 
 
 @pytest.fixture

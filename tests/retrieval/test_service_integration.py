@@ -1,9 +1,9 @@
 """Integration coverage using the production schema and synthetic records."""
 
-from memory_bridge.database.engine import connect
-from memory_bridge.repositories.decisions import DecisionRepository
-from memory_bridge.repositories.messages import ChatMessageRepository
-from memory_bridge.retrieval.service import RetrievalService
+from orbit.database.engine import connect
+from orbit.repositories.decisions import DecisionRepository
+from orbit.repositories.messages import ChatMessageRepository
+from orbit.retrieval.service import RetrievalService
 
 
 def test_retrieval_service_searches_and_assembles_project_context(tmp_path):

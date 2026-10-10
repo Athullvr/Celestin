@@ -2,7 +2,7 @@
 
 ## Current implementation
 
-`memory_bridge.retrieval.FtsMessageSearch` queries an existing FTS5 message
+`orbit.retrieval.FtsMessageSearch` queries an existing FTS5 message
 table and returns `SearchResult` values with message ID, project ID, source ID,
 content, optional timestamp, and BM25 relevance score. Lower (typically more
 negative) BM25 scores rank ahead of higher scores. Ties use SQLite's parsed

@@ -11,9 +11,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools.tool_manager import ToolManager
 
-from memory_bridge.database.engine import DatabaseError, ROLE_VALUES
-from memory_bridge.repositories._validation import NotFoundError, ValidationError
-from memory_bridge.retrieval import SearchIndexUnavailable
+from orbit.database.engine import DatabaseError, ROLE_VALUES
+from orbit.repositories._validation import NotFoundError, ValidationError
+from orbit.retrieval import SearchIndexUnavailable
 
 from .persistence_services import PersistenceServices, SourceMessageNotFoundError
 from .retrieval_services import RetrievalServices

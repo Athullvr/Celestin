@@ -20,8 +20,8 @@ Create the database connection with the production initializer, which applies
 schema migrations and FTS index setup, then pass it to the service:
 
 ```python
-from memory_bridge.database.engine import connect
-from memory_bridge.retrieval import RetrievalService
+from orbit.database.engine import connect
+from orbit.retrieval import RetrievalService
 
 conn = connect()  # or connect("path/to/memory_bridge.db")
 retrieval = RetrievalService(conn)

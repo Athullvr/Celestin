@@ -11,14 +11,14 @@ from unittest.mock import patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from memory_bridge.mcp_server import server
-from memory_bridge.mcp_server.persistence_services import PersistenceServices
-from memory_bridge.mcp_server.retrieval_services import RetrievalServices
-from memory_bridge.database.engine import connect
-from memory_bridge.retrieval import SearchIndexUnavailable
-from memory_bridge.repositories.decisions import DecisionRepository
-from memory_bridge.repositories._validation import ValidationError
-from memory_bridge.mcp_server.server import (
+from orbit.mcp_server import server
+from orbit.mcp_server.persistence_services import PersistenceServices
+from orbit.mcp_server.retrieval_services import RetrievalServices
+from orbit.database.engine import connect
+from orbit.retrieval import SearchIndexUnavailable
+from orbit.repositories.decisions import DecisionRepository
+from orbit.repositories._validation import ValidationError
+from orbit.mcp_server.server import (
     MAX_TOKEN_BUDGET,
     ingest_chat_message,
     mcp,

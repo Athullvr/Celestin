@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 
-from memory_bridge.repositories.decisions import DecisionRepository
-from memory_bridge.retrieval.context_builder import ContextBundle, build_context_bundle
-from memory_bridge.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
-from memory_bridge.retrieval.ranking import RankingPolicy, RetrievalCandidate
+from orbit.repositories.decisions import DecisionRepository
+from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
+from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
+from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
 
 
 MESSAGE_FTS_SCHEMA = FtsSchema(
@@ -32,7 +32,7 @@ DECISION_FTS_SCHEMA = FtsSchema(
 class RetrievalService:
     """Project-scoped search and context assembly over the production schema.
 
-    Pass the connection returned by :func:`memory_bridge.database.engine.connect`.
+    Pass the connection returned by :func:`orbit.database.engine.connect`.
     Schema migration 2 creates and synchronizes the two FTS5 indexes used here.
     """
 

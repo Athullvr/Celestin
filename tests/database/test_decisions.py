@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from memory_bridge.repositories._validation import NotFoundError, ValidationError
-from memory_bridge.repositories.decisions import (
+from orbit.repositories._validation import NotFoundError, ValidationError
+from orbit.repositories.decisions import (
     DecisionRepository,
     save_decision,
 )

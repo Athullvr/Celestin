@@ -6,14 +6,14 @@ use parameterized SQL exclusively.
 
 Module-level functions operate on the default, library-owned connection
 (the process-wide database at ``DB_PATH``). Use
-:func:`memory_bridge.repositories.messages.ingest_chat_message` /
+:func:`orbit.repositories.messages.ingest_chat_message` /
 ``...decision`).save_decision`` for the default store, or instantiate
 ``ChatMessageRepository`` / ``DecisionRepository`` with your own
 connection when embedding the layer elsewhere.
 """
 
-from memory_bridge.repositories.decisions import DecisionRepository, save_decision
-from memory_bridge.repositories.messages import ChatMessageRepository, ingest_chat_message
+from orbit.repositories.decisions import DecisionRepository, save_decision
+from orbit.repositories.messages import ChatMessageRepository, ingest_chat_message
 
 __all__ = [
     "ChatMessageRepository",

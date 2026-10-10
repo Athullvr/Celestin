@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from memory_bridge.repositories._validation import (
+from orbit.repositories._validation import (
     NotFoundError,
     ValidationError,
     validate_key,
@@ -156,7 +156,7 @@ def save_decision(
     Uses the default database when no ``conn`` is supplied.
     """
     if conn is None:
-        from memory_bridge.database.engine import connect
+        from orbit.database.engine import connect
 
         conn = connect(db_path)
     return DecisionRepository(conn).save(

@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from memory_bridge.database.engine import (
+from orbit.database.engine import (
     SCHEMA_MIGRATIONS,
     connect,
 )

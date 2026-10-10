@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from memory_bridge.database.engine import connect
+from orbit.database.engine import connect
 
 
 @pytest.fixture()
@@ -14,14 +14,14 @@ def db_conn(tmp_path):
 
 @pytest.fixture()
 def messages(db_conn):
-    from memory_bridge.repositories.messages import ChatMessageRepository
+    from orbit.repositories.messages import ChatMessageRepository
 
     return ChatMessageRepository(db_conn)
 
 
 @pytest.fixture()
 def decisions(db_conn):
-    from memory_bridge.repositories.decisions import DecisionRepository
+    from orbit.repositories.decisions import DecisionRepository
 
     return DecisionRepository(db_conn)
 

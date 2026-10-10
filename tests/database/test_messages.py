@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from memory_bridge.database.engine import connect
-from memory_bridge.repositories._validation import NotFoundError, ValidationError
-from memory_bridge.repositories.messages import (
+from orbit.database.engine import connect
+from orbit.repositories._validation import NotFoundError, ValidationError
+from orbit.repositories.messages import (
     ChatMessageRepository,
     ingest_chat_message,
 )

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from memory_bridge.retrieval import (
+from orbit.retrieval import (
     DEFAULT_TOKEN_BUDGET,
     RankingPolicy,
     RetrievalCandidate,

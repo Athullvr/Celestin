@@ -6,9 +6,9 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from memory_bridge.database.engine import connect
-from memory_bridge.repositories import ChatMessageRepository, DecisionRepository
-from memory_bridge.repositories._validation import NotFoundError
+from orbit.database.engine import connect
+from orbit.repositories import ChatMessageRepository, DecisionRepository
+from orbit.repositories._validation import NotFoundError
 
 
 class SourceMessageNotFoundError(LookupError):

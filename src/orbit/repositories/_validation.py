@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 
-from memory_bridge.database.engine import ROLE_VALUES, STATUS_VALUES
+from orbit.database.engine import ROLE_VALUES, STATUS_VALUES
 
 
 class ValidationError(ValueError):

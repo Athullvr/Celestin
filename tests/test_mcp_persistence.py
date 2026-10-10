@@ -9,10 +9,10 @@ from unittest.mock import patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from memory_bridge.database.engine import connect
-from memory_bridge.mcp_server import server
-from memory_bridge.mcp_server.persistence_services import PersistenceServices
-from memory_bridge.repositories import DecisionRepository
+from orbit.database.engine import connect
+from orbit.mcp_server import server
+from orbit.mcp_server.persistence_services import PersistenceServices
+from orbit.repositories import DecisionRepository
 
 
 class MCPRepositoryIntegrationTests(unittest.TestCase):

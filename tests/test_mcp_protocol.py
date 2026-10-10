@@ -22,7 +22,7 @@ class StdioProtocolTests(unittest.TestCase):
             if executable:
                 command, args = executable, []
             else:
-                command, args = sys.executable, ["-m", "memory_bridge.mcp_server.server"]
+                command, args = sys.executable, ["-m", "orbit.mcp_server.server"]
 
             parameters = StdioServerParameters(
                 command=command,
@@ -69,6 +69,20 @@ class StdioProtocolTests(unittest.TestCase):
                     )
                     self.assertIn("INVALID_ARGUMENT", error_text)
                     self.assertNotIn("private sample text", error_text)
+
+            legacy_executable = shutil.which("memory-bridge")
+            self.assertIsNotNone(legacy_executable)
+            async with stdio_client(
+                StdioServerParameters(
+                    command=legacy_executable,
+                    cwd=REPOSITORY_ROOT,
+                )
+            ) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    initialized = await session.initialize()
+                    self.assertEqual(initialized.serverInfo.name, "Orbit")
+                    ping_result = await session.call_tool("ping", {})
+                    self.assertFalse(ping_result.isError)
 
         asyncio.run(exercise_protocol())
 

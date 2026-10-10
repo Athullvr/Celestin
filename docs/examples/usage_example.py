@@ -4,8 +4,8 @@ Run with:
     python -m docs.examples.usage_example
 """
 
-from memory_bridge.database.engine import connect
-from memory_bridge.repositories import (
+from orbit.database.engine import connect
+from orbit.repositories import (
     ChatMessageRepository,
     DecisionRepository,
 )

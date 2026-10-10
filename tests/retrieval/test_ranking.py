@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from memory_bridge.retrieval import (
+from orbit.retrieval import (
     RankingPolicy,
     RetrievalCandidate,
     SearchResult,

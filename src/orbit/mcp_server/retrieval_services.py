@@ -6,8 +6,8 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from memory_bridge.database.engine import connect
-from memory_bridge.retrieval import RetrievalService
+from orbit.database.engine import connect
+from orbit.retrieval import RetrievalService
 
 
 class RetrievalServices:
