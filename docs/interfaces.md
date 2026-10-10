@@ -19,12 +19,16 @@
   - `project_memory(id, project, key, value, status, source_message_id, updated_at)`
     with `UNIQUE (project, key)` and an optional FK
     `source_message_id -> chat_messages.id`.
+- Schema migration 2 also creates the synchronized FTS5 indexes
+  `chat_messages_fts` and `project_memory_fts`; these are search indexes, not
+  additional sources of truth.
 - All timestamps are ISO-8601 UTC strings with a `Z` designator
   (`2026-10-11T12:34:56.789012Z`).
 - `role` ∈ {`user`, `assistant`, `system`}
   `status` ∈ {`draft`, `approved`, `deprecated`}
-- Project scoping: every read/write is scoped by the `project` argument.
-  One project can never read another project's rows.
+- Project scoping: list and decision lookups take a `project` argument and
+  filter by it. Message `get(id)`/`delete(id)` and decision `delete(project,
+  key)` are identifier-based operations; IDs are not authorization boundaries.
 
 ## Quick start
 
@@ -117,21 +121,45 @@ save_decision(project, key, value, source_message_id=None, status="draft", conn=
 - Deleting a referenced chat message sets `source_message_id` to NULL
   (`ON DELETE SET NULL`); the decision survives with no source pointer.
 
+### Retrieval and relevance scores
+
+Retrieve canonical decisions from SQLite with
+`DecisionRepository.list_for_project(project, include_deprecated=False)`.
+This returns each decision's `id`, `project`, `key`, `value`, `status`,
+`source_message_id`, and `updated_at`. Pass only the desired status values
+with `status="approved"` or another supported status when filtering further.
+The repository does not rank decisions or calculate a query relevance score.
+
+Relevance scores belong to the retrieval layer: it must score each decision's
+`value` against the user's query using its configured search method (for
+example, the same embedding similarity or keyword search used for messages),
+then pass that score with the decision to the ranking policy. Keep the source
+decision ID as the stable record reference and `source_message_id` as
+provenance. The database currently provides no canonical-decision search
+index or scoring algorithm, so the scoring method and score scale must be
+chosen and documented by the retrieval integration. Do not treat `id`,
+`updated_at`, or status as a relevance score. Approved-first priority is a
+separate ranking rule, not a score produced by this repository.
+
 ## Timestamps and IDs
 
-- `created_at` / `updated_at`: server-side UTC ISO-8601 strings; callers
-  never supply these.
-- IDs: SQLite `INTEGER PRIMARY KEY` autoincrement-ordered, globally unique
-  per table. They are stable, so safe as vector-index reference keys and in
-  provenance metadata.
+- `created_at`: defaults to a server-side UTC ISO-8601 string when a message
+  is inserted; `ChatMessageRepository.insert` also accepts an explicit value.
+  `updated_at` is always set by the decision repository.
+- IDs: each table has its own SQLite `INTEGER PRIMARY KEY` sequence. IDs are
+  stable reference keys within that table, but are not globally unique across
+  tables. A decision's `source_message_id` always refers to
+  `chat_messages.id`; a decision's own `id` refers to `project_memory.id`.
 
 ## Project scoping guarantees
 
-- Every repository read/write method requiring project scoping takes an
-  explicit `project` argument, and every query filters on it.
-- `ValidationError` on empty/non-string project. Empty or unknown
-  conversations/keys for a valid project yield empty lists or
-  `NotFoundError`, never another project's rows.
+- Project list/get methods take an explicit `project` argument and filter on
+  it. `ChatMessageRepository.get(message_id)` and ID-based delete operations
+  use identifiers directly; callers must enforce authorization before using
+  those methods across project boundaries.
+- `ValidationError` on empty/non-string project, conversation ID, or key.
+  Unknown conversations yield empty lists; unknown decision keys raise
+  `NotFoundError`. Queries never return another project's rows.
 - `(project, key)` uniqueness is enforced by the schema, so two projects
   can use identical keys without collision.
 
@@ -189,6 +217,27 @@ EmbeddingProvider.embed(texts: Sequence[str]) -> Sequence[Sequence[float]]
   and the vector index is a cache.
 - `list_for_project(..., include_deprecated=False)` is the intended source
   when assembling memory context to avoid surfacing deprecated decisions.
+- For each query, retrieve the project's decisions from SQLite, score each
+  decision `value` in the retrieval layer, and map its `id`, `project`,
+  `source_message_id`, `updated_at`, and `status` into the retrieval DTO.
+  SQLite does not supply a relevance score. Keep the score method/scale
+  consistent with the chosen retriever and keep approved-first as an
+  independent priority rule.
+- The production service signatures, FTS schema mapping, and synthetic
+  integration test are documented in
+  [retrieval_integration.md](retrieval_integration.md). An instantiated
+  `RetrievalService` is ready for MCP handlers to call; this change does not
+  wire or modify those handlers.
+
+## Reproducible fixture and example
+
+- Database tests use `tests/conftest.py`: `db_conn` creates a fresh temporary
+  SQLite database per test, and `sample_message_id` inserts a sample message
+  for provenance tests. Run them with `python -m pytest tests/database`.
+- `docs/examples/usage_example.py` creates an in-memory database, inserts a
+  message, saves a linked decision, approves it, and reads project-scoped
+  messages and decisions. After installing the project (`python -m pip install
+  -e .`), run it with `python -m docs.examples.usage_example`.
 
 ## For Member 3 (MCP Tools)
 

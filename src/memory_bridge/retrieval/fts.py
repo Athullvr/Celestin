@@ -152,11 +152,11 @@ class FtsMessageSearch:
             rows = self._connection.execute(sql, (match_query, project_id, limit))
             return [
                 SearchResult(
-                    message_id=row[0],
-                    project_id=row[1],
-                    source_id=row[2],
-                    timestamp=row[3],
-                    content=row[4],
+                    message_id=str(row[0]),
+                    project_id=str(row[1]),
+                    source_id=str(row[2]),
+                    timestamp=str(row[3]) if row[3] is not None else None,
+                    content=str(row[4]),
                     relevance_score=float(row[5]),
                 )
                 for row in rows
