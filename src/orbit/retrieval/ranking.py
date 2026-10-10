@@ -16,7 +16,7 @@ class RetrievalCandidate:
 
     record_id: str
     project_id: str
-    source_id: str
+    source_id: str | None
     content: str
     timestamp: str | None
     relevance_score: float
@@ -24,12 +24,16 @@ class RetrievalCandidate:
     status: str | None = None
 
     def __post_init__(self) -> None:
-        for field_name in ("record_id", "project_id", "source_id", "content"):
+        for field_name in ("record_id", "project_id", "content"):
             value = getattr(self, field_name)
             if not isinstance(value, str):
                 raise TypeError(f"{field_name} must be a string")
-        if not self.record_id or not self.project_id or not self.source_id:
-            raise ValueError("record_id, project_id, and source_id must be non-empty")
+        if not self.record_id or not self.project_id:
+            raise ValueError("record_id and project_id must be non-empty")
+        if self.source_id is not None and (
+            not isinstance(self.source_id, str) or not self.source_id
+        ):
+            raise ValueError("source_id must be a non-empty string or None")
         if self.record_kind not in {"chat_message", "canonical_decision"}:
             raise ValueError("record_kind must be chat_message or canonical_decision")
         if self.record_kind == "chat_message" and self.status is not None:
@@ -156,7 +160,8 @@ def _rank_candidates_with_exclusions(
             candidate.relevance_score,
             recency,
             candidate.record_id,
-            candidate.source_id,
+            candidate.source_id is not None,
+            candidate.source_id if candidate.source_id is not None else "",
         )
 
     return sorted(eligible, key=ordering), excluded

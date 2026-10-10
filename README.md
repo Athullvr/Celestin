@@ -1,11 +1,12 @@
 # Orbit — Persistent Memory for AI Agents
 
 An MCP-powered persistent memory system for AI agents and coding assistants.
+It stores chat messages and project decisions in SQLite and exposes project-scoped
+search and context retrieval through the official Python MCP SDK.
 
 ## Local setup
 
-Requires Python 3.10 or newer. From the repository root, install the project and
-its dependencies in editable mode:
+Requires Python 3.10 or newer. From the repository root:
 
 ```powershell
 python -m venv .venv
@@ -40,12 +41,7 @@ absolute path to `.venv\Scripts\orbit.exe`).
 The server exposes `ingest_chat_message`, `save_decision`,
 `search_chat_history`, `retrieve_context`, and `ping`.
 
-`ingest_chat_message` and `save_decision` persist through the SQLite
-repositories. Search and context retrieval use the SQLite FTS5 indexes and the
-retrieval service. The database is created at `data/memory_bridge.db` by
-default; set `MEMORY_BRIDGE_DB_PATH` before launching the server to choose
-another path. Saved decisions start in `draft` status; context retrieval gives
-approved decisions priority and excludes drafts and deprecated decisions.
+The database is created at `data/memory_bridge.db` by default. Set `MEMORY_BRIDGE_DB_PATH` before launching the server to choose another path. Saved decisions start in `draft` status; context retrieval gives approved decisions priority and excludes drafts and deprecated decisions.
 
 ### Inspect and invoke the MCP tools
 
@@ -67,15 +63,22 @@ through MCP `tools/list` and invoke them through `tools/call`. For example, call
 `ingest_chat_message` with
 `{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`.
 Use its returned `message_id` as `source_message_id` when calling
-`save_decision`. Search reads persisted messages and returns the matching
-message ID, conversation ID, timestamp, and relevance score. Context retrieval
-combines eligible decisions and messages, returning source traceability and
-the retrieval service's token counter metadata. The current counter is a
-UTF-8 byte estimate, and `retrieve_context` accepts budgets from 1 through
-20,000.
+`save_decision`. Search reads persisted messages and returns their IDs,
+conversation IDs, timestamps, and relevance scores. Context retrieval combines
+eligible decisions and messages, returning source traceability and token
+counter metadata. The current counter is a UTF-8 byte estimate, and
+`retrieve_context` accepts budgets from 1 through 20,000.
 
-Run the contract tests from the repository root with:
+### Tests
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m pip install -e ".[test]"
+python -m pytest -q
 ```
+
+## DevDay Exchange resources
+
+This project was built from the DevDay Exchange Community: Kochi template. Event guidance remains in [RULES.md](RULES.md), [AGENTS.md](AGENTS.md), and [SUBMISSION.md](SUBMISSION.md). See [AI_USAGE.md](AI_USAGE.md) and [CHANGELOG.md](CHANGELOG.md) for event documentation.
+
+- Event: 10–11 October 2026 at JAIN University, Kochi.
+- [Event and registration on Luma](https://luma.com/z10nz8gp)

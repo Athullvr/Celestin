@@ -1,9 +1,28 @@
+# Local secrets; sanitized example files may be committed.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Common dependencies, build output, caches, and local tooling.
+node_modules/
+.next/
+dist/
+build/
+coverage/
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.pytest_cache/
+.DS_Store
+Thumbs.db
+*.log
 
-# Local runtime state: SQLite is authoritative but lives on disk, never in Git
+# Local SQLite runtime state
 data/
 *.db
 *.db-journal
@@ -11,7 +30,3 @@ data/
 *.db-shm
 *.sqlite
 *.sqlite3
-
-.pytest_cache/
-build/
-dist/

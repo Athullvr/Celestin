@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from orbit.retrieval import (
     RankingPolicy,
     RetrievalCandidate,
@@ -192,3 +196,16 @@ def test_missing_timestamp_is_preserved_from_fts_search_result():
 
     assert candidate_result.timestamp is None
     assert rank_candidates([candidate_result], project_id="project-alpha") == [candidate_result]
+
+
+@pytest.mark.parametrize(
+    "source_ids",
+    [(None, "some-id"), ("some-id", None)],
+)
+def test_nullable_source_id_tiebreak_is_type_safe(source_ids):
+    base = candidate("same-record")
+    records = [replace(base, source_id=source_id) for source_id in source_ids]
+
+    results = rank_candidates(records, project_id="project-alpha")
+
+    assert [result.source_id for result in results] == [None, "some-id"]

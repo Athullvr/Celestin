@@ -39,7 +39,7 @@ class Utf8ByteTokenEstimator:
 class ContextItem:
     record_id: str
     project_id: str
-    source_id: str
+    source_id: str | None
     timestamp: str | None
     record_kind: str
     status: str | None
@@ -76,7 +76,7 @@ class ContextItem:
 class ExcludedRecord:
     record_id: str
     project_id: str
-    source_id: str
+    source_id: str | None
     timestamp: str | None
     record_kind: str
     status: str | None

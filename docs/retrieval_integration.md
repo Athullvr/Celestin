@@ -1,90 +1,115 @@
 # Retrieval service integration contract
 
-The retrieval package combines the production SQLite schema with Member 2's
-FTS search, ranking, and context builder. It does not change the MCP server or
-its tools; Member 3 can connect the service after this interface is agreed.
+The retrieval package combines the production SQLite repositories and FTS5
+migrations with Member 2's search, ranking, and context builder. It does not
+modify the MCP server or its public tools.
 
-## Service boundary
+## Public operations
 
 ```python
-RetrievalService.search_chat_history(
-    project: str, query: str, limit: int
-) -> list[SearchResult]
+from orbit.retrieval import search_chat_history, retrieve_context
 
-RetrievalService.retrieve_context(
-    project: str, query: str, token_budget: int
-) -> ContextBundle
+search_chat_history(project: str, query: str, limit: int = 10) -> list[dict]
+retrieve_context(project: str, query: str, token_budget: int = 2_000) -> dict
 ```
 
-Create the database connection with the production initializer, which applies
-schema migrations and FTS index setup, then pass it to the service:
+Both functions open and close a connection using `orbit.database.connect()`
+for each call. The `RetrievalService(connection)` class is also exported for
+callers that already own a SQLite connection; its methods return the internal
+`SearchResult` and `ContextBundle` DTOs. The public wrappers serialize results
+for service-boundary use.
 
 ```python
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
-
-conn = connect()  # or connect("path/to/memory_bridge.db")
-retrieval = RetrievalService(conn)
-messages = retrieval.search_chat_history("my-project", "SQLite", 10)
-bundle = retrieval.retrieve_context("my-project", "SQLite", 2_000)
 ```
 
-The caller owns and closes `conn`. `SearchResult` carries `message_id`,
-`project_id`, `source_id`, `content`, `timestamp`, and `relevance_score`.
-`source_id` for a chat result is its `conversation_id`; role is not included.
+Search returns a list of objects shaped like:
+
+```json
+{
+  "message_id": "17",
+  "project": "my-project",
+  "source_message_id": "17",
+  "conversation_id": "conversation-1",
+  "role": null,
+  "content": "SQLite stores the project data.",
+  "created_at": "2026-10-11T12:34:56.789012Z",
+  "score": -0.000001
+}
+```
+
+The matched message ID is the source ID. `conversation_id` comes from the
+production FTS metadata. `role` is `null` because the current FTS mapping does
+not store it. BM25 `score` is a relevance value, not a probability.
+
+Context returns an object with `project`, `query`, `items`, `excluded`,
+`excluded_counts`, `rendered_context`, `token_count`, `token_budget`,
+`token_count_is_estimate`, and `token_counter`. Each included item preserves
+`record_id`, `project_id`, `source_message_id`, `created_at`, `record_kind`,
+`status`, `content`, and `relevance_score`. Canonical decisions without a
+database `source_message_id` retain `null`; the service does not fabricate a
+source ID. The builder's JSON Lines context still uses internal DTO keys
+`source_id` and `timestamp`.
 
 ## Production FTS mapping
 
 Schema migration 2 creates `chat_messages_fts` and `project_memory_fts`,
 backfills existing rows, and installs insert/update/delete triggers. SQLite
-FTS5 must be enabled. The service uses these `FtsSchema` mappings:
+FTS5 must be enabled. The service uses these mappings:
 
 | Field | Messages index | Decisions index |
 |---|---|---|
 | table | `chat_messages_fts` | `project_memory_fts` |
-| message ID field | `message_id` | `decision_id` |
+| record ID | `message_id` | `decision_id` |
 | project field | `project_id` | `project_id` |
-| source field | `source_id` (`conversation_id`) | `source_id` (`source_message_id`, or `decision:<id>` when absent) |
-| timestamp field | `created_at` | `updated_at` |
-| indexed content field | `content` | `value` |
+| FTS source metadata | `source_id` (`conversation_id`) | `source_id` (indexed value; service reads authoritative `source_message_id`) |
+| timestamp | `created_at` | `updated_at` |
+| indexed content | `content` | `value` |
 
-The adapter can query the production database after `connect()`; callers do not
-create or manage FTS tables themselves. The migration maintains the indexes
-when repository writes insert, update, or delete rows.
+The service queries the production tables after `connect()` applies migrations;
+callers do not create or manage FTS tables. Migration triggers maintain both
+indexes for inserts, updates, and deletes.
 
 ## Candidate assembly and ranking
 
-`search_chat_history` queries only the project's messages. `retrieve_context`
-searches both FTS indexes with the same query, loads canonical decision rows
-from `DecisionRepository` for that project, and maps results to retrieval
-candidates. Message scores come from BM25 over message content; decision scores
-come from BM25 over decision `value`. Lower BM25 scores rank first within a
-priority tier. Candidate IDs are stringified table IDs (`message_id` for chat;
-`decision:<id>` for decisions), and project and provenance fields are carried
-into the bundle.
+`search_chat_history` searches only messages scoped to the requested project.
+`retrieve_context` searches the message and decision FTS indexes, then loads
+authoritative decision rows with `DecisionRepository.list_for_project(project,
+include_deprecated=True)`. It uses each FTS index's BM25 score; no score is
+invented from decision status or timestamps. Message candidates use the
+matched message ID as provenance. Decision provenance is the stored
+`source_message_id`, or `null` if absent.
 
-The default `RankingPolicy` puts approved decisions before historical messages
-and excludes drafts and deprecated decisions. This priority is independent of
-the BM25 scores. The service limits each FTS result set to 100 candidates by
-default; configure `candidate_limit` on `RetrievalService` to change it.
+The service applies `RankingPolicy`: approved canonical decisions precede
+historical messages independent of their BM25 values; drafts and deprecated
+decisions are excluded. The service limits each FTS result set to 100 by
+default; `candidate_limit` on `RetrievalService` changes that internal limit.
 
-## Budget and traceability
+## Budget, errors, and limitations
 
-The service passes the requested `token_budget` to `build_context_bundle`.
-Its default `Utf8ByteTokenEstimator` counts UTF-8 bytes and marks
-`token_count_is_estimate=True`; it is not an exact model tokenizer. The builder
-counts the complete rendered JSON Lines context, never clips a record, and
-returns a bundle whose measured count is at most the requested budget. An
-oversized record is excluded and later smaller records may still fit.
+The requested context budget is passed to `build_context_bundle`. Its default
+counter estimates tokens by counting UTF-8 bytes and reports
+`token_count_is_estimate=True`; it is not an exact model-token count. The
+builder measures the complete rendered JSON Lines, never truncates a record,
+and skips oversized records while continuing to later candidates.
 
-## Reproducible integration check
+An unknown project is indistinguishable from a valid project with no matches
+because there is no project registry; both return empty results. Empty and
+punctuation-only queries return empty results. Missing/incompatible FTS tables
+raise `SearchIndexUnavailable`; database and repository errors propagate
+rather than becoming successful empty results.
 
-`tests/retrieval/test_service_integration.py` uses synthetic rows in a
-temporary production-schema database. It checks the service signatures in
-practice, FTS index synchronization, project isolation, decision/message
-assembly, approved-first ordering, default status filtering, and budget
-accounting. Run it with:
+The MCP branch's mock search handler currently returns a
+`{"project", "query", "results"}` envelope, while this retrieval operation
+returns the requested `list[dict]`. Member 3 can wrap the list at the MCP
+boundary if that envelope remains the agreed tool contract. No MCP server
+handler was changed as part of this integration.
 
-```sh
-python -m pytest tests/retrieval/test_service_integration.py
-```
+## Tests
+
+`tests/retrieval/test_service_integration.py` uses synthetic rows in temporary
+databases created by the production migration code. It covers FTS
+synchronization, project isolation, decision/message assembly, ranking,
+traceability, public serialization, missing indexes, database errors, and
+budget accounting. Run all tests with `PYTHONPATH=src python -m pytest -q`.
