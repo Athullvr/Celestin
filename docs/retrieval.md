@@ -23,15 +23,39 @@ configured with the actual names supplied by Member 1 before integration.
   columns on the agreed table design.
 - Identifiers are validated and quoted. Query text, project ID, and limit are
   SQL parameters. Every search includes a project ID predicate.
-- Query text is treated as plain Unicode word terms joined with `AND`.
+- Query text is matched against the configured content column and treated as
+  plain Unicode word terms joined with `AND`.
   Punctuation is discarded; FTS operators, prefixes, and phrase syntax are not
   exposed. Empty and punctuation-only queries return an empty list.
 - A missing or incompatible configured FTS table raises
   `SearchIndexUnavailable`. Invalid Python input raises `TypeError` or
   `ValueError` as appropriate. Other SQLite operational errors propagate.
-- This first version searches messages only. Canonical decisions, status
-  filtering, cross-source ranking, token budgets, embeddings, and repository
-  integration remain later phases.
+- FTS search returns messages only. Candidate ranking and canonical status
+  filtering are available as an independent policy layer; loading canonical
+  decisions and combining repository results remain pending integration.
+
+## Candidate ranking policy
+
+`rank_candidates` accepts retrieval DTOs and applies project and status filters
+before sorting. Its provisional default rules are:
+
+1. Approved canonical decisions precede historical messages. This is a
+   decision-priority tier, not a claim that the decision matched the query
+   better. Its FTS relevance score remains unchanged.
+2. Within a priority tier, lower FTS5 BM25 scores rank first.
+3. Recency is a configurable tie-breaker (`recency_tiebreaker=True` by
+   default): newer ISO 8601 timestamps precede older ones only when relevance
+   scores tie. No arbitrary relevance/recency weights are combined.
+4. Record ID and source ID provide deterministic final tie-breaks.
+5. Draft and deprecated decisions are excluded by default. Explicit
+   `include_drafts=True` includes drafts in a separate tier after messages;
+   they retain `status="draft"`. Explicit `include_deprecated=True` includes
+   deprecated decisions in the last tier.
+
+These rules are a provisional Member 2 adapter policy because Member 1's
+schema/repository contract and the project's agreed cross-source priority
+rules are not available yet. The ranking layer rechecks project IDs so
+cross-project candidates cannot enter the result list.
 
 ## Pending integration contract
 

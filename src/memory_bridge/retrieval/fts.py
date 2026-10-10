@@ -115,7 +115,7 @@ class FtsMessageSearch:
         )
         sql = (
             f"SELECT {fields}, bm25({table}) "
-            f"FROM {table} WHERE {table} MATCH ? "
+            f'FROM {table} WHERE "{schema.content}" MATCH ? '
             f'AND "{schema.project_id}" = ? '
             f"ORDER BY 6 ASC, 4 DESC LIMIT ?"
         )
