@@ -13,10 +13,22 @@ from memory_bridge.retrieval import (
 )
 
 
+class FalsyCounter:
+    name = "test-counter"
+    is_estimate = True
+
+    def __bool__(self):
+        return False
+
+    def count_tokens(self, text):
+        return len(text.split())
+
+
 def candidate(
     record_id,
     content,
     *,
+    project_id="project-alpha",
     kind="chat_message",
     status=None,
     score=-1.0,
@@ -25,7 +37,7 @@ def candidate(
 ):
     return RetrievalCandidate(
         record_id=record_id,
-        project_id="project-alpha",
+        project_id=project_id,
         source_id=source_id or f"source-{record_id}",
         content=content,
         timestamp=timestamp,
@@ -41,6 +53,7 @@ def test_empty_candidates_return_empty_bundle():
     assert bundle.project_id == "project-alpha"
     assert bundle.items == ()
     assert bundle.excluded == ()
+    assert bundle.excluded_counts == ()
     assert bundle.rendered_context == ""
     assert bundle.token_count == 0
     assert bundle.token_budget == DEFAULT_TOKEN_BUDGET == 2_000
@@ -121,6 +134,96 @@ def test_traceability_metadata_is_preserved_in_items_and_rendered_context():
     assert item.timestamp == rendered["timestamp"] == "2026-04-05T06:07:08Z"
     assert item.record_kind == rendered["record_kind"] == "chat_message"
     assert item.content == rendered["content"] == "The recorded content."
+
+
+def test_jsonl_preserves_complete_unicode_and_escaped_content():
+    content = 'naïve café 東京\n"quoted" content'
+    first = candidate("unicode-1", content, timestamp=None)
+    second = candidate("unicode-2", "A similar but non-identical record.")
+
+    bundle = build_context_bundle([first, second], project_id="project-alpha")
+    lines = bundle.rendered_context.splitlines()
+
+    assert len(lines) == 2
+    assert [json.loads(line)["record_id"] for line in lines] == ["unicode-2", "unicode-1"]
+    unicode_line = next(json.loads(line) for line in lines if json.loads(line)["record_id"] == "unicode-1")
+    assert unicode_line["content"] == content
+    assert unicode_line["timestamp"] is None
+    assert [item.record_id for item in bundle.items] == ["unicode-2", "unicode-1"]
+
+
+def test_similar_but_nonidentical_content_is_not_deduplicated():
+    records = [
+        candidate("first", "The service stores data in SQLite."),
+        candidate("second", "The service stores data in SQLite locally."),
+    ]
+
+    bundle = build_context_bundle(records, project_id="project-alpha")
+
+    assert [item.record_id for item in bundle.items] == ["first", "second"]
+    assert bundle.excluded == ()
+
+
+def test_empty_content_records_are_not_all_collapsed_as_duplicates():
+    records = [candidate("empty-a", ""), candidate("empty-b", "")]
+
+    bundle = build_context_bundle(records, project_id="project-alpha")
+
+    assert [item.record_id for item in bundle.items] == ["empty-a", "empty-b"]
+    assert bundle.excluded == ()
+
+
+def test_excluded_records_account_for_status_project_duplicate_and_budget():
+    records = [
+        candidate("approved", "Current canonical fact.", kind="canonical_decision", status="approved"),
+        candidate("draft", "Unapproved idea.", kind="canonical_decision", status="draft"),
+        candidate("foreign", "Other project's record.", project_id="project-beta"),
+        candidate("duplicate", " current   canonical fact. "),
+        candidate("oversized", "x" * 2_000),
+    ]
+    budget = build_context_bundle(
+        [records[0]],
+        project_id="project-alpha",
+    ).token_count
+
+    bundle = build_context_bundle(records, project_id="project-alpha", token_budget=budget)
+
+    assert [item.record_id for item in bundle.items] == ["approved"]
+    assert {item.record_id: item.reason for item in bundle.excluded} == {
+        "draft": "draft_status",
+        "duplicate": "duplicate_content",
+        "oversized": "token_budget",
+    }
+    assert [(item.reason, item.count) for item in bundle.excluded_counts] == [
+        ("draft_status", 1),
+        ("duplicate_content", 1),
+        ("project_mismatch", 1),
+        ("token_budget", 1),
+    ]
+    assert len(bundle.items) + sum(item.count for item in bundle.excluded_counts) == len(records)
+    assert "foreign" not in bundle.rendered_context
+    assert all(item.record_id != "foreign" for item in bundle.excluded)
+
+
+def test_byte_estimator_counts_json_metadata_and_serialization_overhead():
+    record = candidate("metadata-heavy", "café 東京")
+
+    bundle = build_context_bundle([record], project_id="project-alpha")
+
+    assert bundle.token_count == len(bundle.rendered_context.encode("utf-8"))
+    assert bundle.token_count > len(record.content.encode("utf-8"))
+
+
+def test_injected_falsy_counter_is_used_and_its_estimate_flag_is_reported():
+    bundle = build_context_bundle(
+        [candidate("counter-test", "a few words")],
+        project_id="project-alpha",
+        token_counter=FalsyCounter(),
+    )
+
+    assert bundle.token_counter == "test-counter"
+    assert bundle.token_count_is_estimate is True
+    assert bundle.token_count == len(bundle.rendered_context.split())
 
 
 def test_duplicate_content_is_included_once_and_exclusion_is_traceable():

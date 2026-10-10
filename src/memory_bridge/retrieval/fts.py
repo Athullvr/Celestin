@@ -8,6 +8,10 @@ from dataclasses import dataclass
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
+_FTS5_VIRTUAL_TABLE = re.compile(
+    r"^\s*create\s+virtual\s+table\b[^()]*\busing\s+fts5\s*\(",
+    re.IGNORECASE,
+)
 
 
 class SearchIndexUnavailable(RuntimeError):
@@ -51,7 +55,7 @@ class SearchResult:
     project_id: str
     source_id: str
     content: str
-    timestamp: str
+    timestamp: str | None
     relevance_score: float
 
 
@@ -117,9 +121,34 @@ class FtsMessageSearch:
             f"SELECT {fields}, bm25({table}) "
             f'FROM {table} WHERE "{schema.content}" MATCH ? '
             f'AND "{schema.project_id}" = ? '
-            f"ORDER BY 6 ASC, 4 DESC LIMIT ?"
+            f'ORDER BY 6 ASC, julianday("{schema.created_at}") DESC, 1 ASC, 3 ASC LIMIT ?'
         )
         try:
+            table_row = self._connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (schema.table,),
+            ).fetchone()
+            if table_row is None or not isinstance(table_row[0], str) or not _FTS5_VIRTUAL_TABLE.search(table_row[0]):
+                raise SearchIndexUnavailable(
+                    f"Configured FTS5 table {schema.table!r} is missing or incompatible"
+                )
+            table_columns = {
+                row[1]
+                for row in self._connection.execute(
+                    f'PRAGMA table_info("{schema.table}")'
+                )
+            }
+            required_columns = {
+                schema.message_id,
+                schema.project_id,
+                schema.source_id,
+                schema.created_at,
+                schema.content,
+            }
+            if not required_columns.issubset(table_columns):
+                raise SearchIndexUnavailable(
+                    f"Configured FTS5 table {schema.table!r} is missing or incompatible"
+                )
             rows = self._connection.execute(sql, (match_query, project_id, limit))
             return [
                 SearchResult(

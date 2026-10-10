@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-from .ranking import RankingPolicy, RetrievalCandidate, rank_candidates
+from .ranking import RankingPolicy, RetrievalCandidate, _rank_candidates_with_exclusions
 
 DEFAULT_TOKEN_BUDGET = 2_000
 _WHITESPACE = re.compile(r"\s+")
@@ -39,7 +40,7 @@ class ContextItem:
     record_id: str
     project_id: str
     source_id: str
-    timestamp: str
+    timestamp: str | None
     record_kind: str
     status: str | None
     relevance_score: float
@@ -76,7 +77,7 @@ class ExcludedRecord:
     record_id: str
     project_id: str
     source_id: str
-    timestamp: str
+    timestamp: str | None
     record_kind: str
     status: str | None
     reason: str
@@ -95,10 +96,17 @@ class ExcludedRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ExclusionCount:
+    reason: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ContextBundle:
     project_id: str
     items: tuple[ContextItem, ...]
     excluded: tuple[ExcludedRecord, ...]
+    excluded_counts: tuple[ExclusionCount, ...]
     rendered_context: str
     token_count: int
     token_budget: int
@@ -143,7 +151,7 @@ def build_context_bundle(
     if not isinstance(candidates, Sequence):
         raise TypeError("candidates must be a sequence of RetrievalCandidate values")
 
-    counter = token_counter or Utf8ByteTokenEstimator()
+    counter = token_counter if token_counter is not None else Utf8ByteTokenEstimator()
     if not callable(getattr(counter, "count_tokens", None)):
         raise TypeError("token_counter must provide count_tokens(text)")
     if not isinstance(getattr(counter, "name", None), str):
@@ -151,15 +159,25 @@ def build_context_bundle(
     if not isinstance(getattr(counter, "is_estimate", None), bool):
         raise TypeError("token_counter must provide a boolean is_estimate")
 
-    ranked = rank_candidates(candidates, project_id=project_id, policy=ranking_policy)
+    ranked, policy_excluded = _rank_candidates_with_exclusions(
+        candidates,
+        project_id=project_id,
+        policy=ranking_policy,
+    )
     selected: list[ContextItem] = []
     excluded: list[ExcludedRecord] = []
+    excluded_reason_counts: Counter[str] = Counter()
+    for candidate, reason in policy_excluded:
+        excluded_reason_counts[reason] += 1
+        if reason != "project_mismatch":
+            excluded.append(_excluded(candidate, reason))
     seen_content: set[str] = set()
 
     for candidate in ranked:
         duplicate_key = _duplicate_key(candidate.content)
-        if duplicate_key in seen_content:
+        if duplicate_key and duplicate_key in seen_content:
             excluded.append(_excluded(candidate, "duplicate_content"))
+            excluded_reason_counts["duplicate_content"] += 1
             continue
 
         proposed_items = [*selected, ContextItem.from_candidate(candidate)]
@@ -169,10 +187,12 @@ def build_context_bundle(
             raise ValueError("token_counter must return a non-negative integer")
         if token_count > token_budget:
             excluded.append(_excluded(candidate, "token_budget"))
+            excluded_reason_counts["token_budget"] += 1
             continue
 
         selected = proposed_items
-        seen_content.add(duplicate_key)
+        if duplicate_key:
+            seen_content.add(duplicate_key)
 
     rendered_context = _render(selected)
     final_token_count = counter.count_tokens(rendered_context) if rendered_context else 0
@@ -185,6 +205,10 @@ def build_context_bundle(
         project_id=project_id,
         items=tuple(selected),
         excluded=tuple(excluded),
+        excluded_counts=tuple(
+            ExclusionCount(reason, count)
+            for reason, count in sorted(excluded_reason_counts.items())
+        ),
         rendered_context=rendered_context,
         token_count=final_token_count,
         token_budget=token_budget,

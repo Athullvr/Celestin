@@ -18,13 +18,13 @@ class RetrievalCandidate:
     project_id: str
     source_id: str
     content: str
-    timestamp: str
+    timestamp: str | None
     relevance_score: float
     record_kind: str
     status: str | None = None
 
     def __post_init__(self) -> None:
-        for field_name in ("record_id", "project_id", "source_id", "content", "timestamp"):
+        for field_name in ("record_id", "project_id", "source_id", "content"):
             value = getattr(self, field_name)
             if not isinstance(value, str):
                 raise TypeError(f"{field_name} must be a string")
@@ -44,6 +44,8 @@ class RetrievalCandidate:
             raise TypeError("relevance_score must be a number")
         if not math.isfinite(self.relevance_score):
             raise ValueError("relevance_score must be finite")
+        if self.timestamp is not None and not isinstance(self.timestamp, str):
+            raise TypeError("timestamp must be a string or None")
         _timestamp_key(self.timestamp)
 
     @classmethod
@@ -72,7 +74,9 @@ class RankingPolicy:
     recency_tiebreaker: bool = True
 
 
-def _timestamp_key(timestamp: str) -> float:
+def _timestamp_key(timestamp: str | None) -> float | None:
+    if timestamp is None:
+        return None
     normalized = timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp
     try:
         parsed = datetime.fromisoformat(normalized)
@@ -89,7 +93,21 @@ def rank_candidates(
     project_id: str,
     policy: RankingPolicy = RankingPolicy(),
 ) -> list[RetrievalCandidate]:
-    """Filter and rank candidates under an explicit project and status policy.
+    ranked, _ = _rank_candidates_with_exclusions(
+        candidates,
+        project_id=project_id,
+        policy=policy,
+    )
+    return ranked
+
+
+def _rank_candidates_with_exclusions(
+    candidates: Iterable[RetrievalCandidate],
+    *,
+    project_id: str,
+    policy: RankingPolicy = RankingPolicy(),
+) -> tuple[list[RetrievalCandidate], list[tuple[RetrievalCandidate, str]]]:
+    """Rank eligible records and report candidates removed by project/status filters.
 
     Ordering is lexicographic: approved canonical decision priority (when
     enabled), FTS relevance, optional recency tie-break, then stable record and
@@ -103,15 +121,19 @@ def rank_candidates(
         raise TypeError("policy must be a RankingPolicy")
 
     eligible = []
+    excluded: list[tuple[RetrievalCandidate, str]] = []
     for candidate in candidates:
         if not isinstance(candidate, RetrievalCandidate):
             raise TypeError("candidates must contain RetrievalCandidate values")
         if candidate.project_id != project_id:
+            excluded.append((candidate, "project_mismatch"))
             continue
         if candidate.record_kind == "canonical_decision":
             if candidate.status == "deprecated" and not policy.include_deprecated:
+                excluded.append((candidate, "deprecated_status"))
                 continue
             if candidate.status == "draft" and not policy.include_drafts:
+                excluded.append((candidate, "draft_status"))
                 continue
         eligible.append(candidate)
 
@@ -125,7 +147,10 @@ def rank_candidates(
                 category = 3
         else:
             category = 1 if policy.approved_decisions_first else 0
-        recency = -_timestamp_key(candidate.timestamp) if policy.recency_tiebreaker else 0
+        timestamp_key = _timestamp_key(candidate.timestamp)
+        recency = -timestamp_key if policy.recency_tiebreaker and timestamp_key is not None else (
+            math.inf if policy.recency_tiebreaker else 0
+        )
         return (
             category,
             candidate.relevance_score,
@@ -134,4 +159,4 @@ def rank_candidates(
             candidate.source_id,
         )
 
-    return sorted(eligible, key=ordering)
+    return sorted(eligible, key=ordering), excluded

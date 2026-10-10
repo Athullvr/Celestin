@@ -163,3 +163,32 @@ def test_message_search_result_maps_without_losing_traceability():
             record_kind="chat_message",
         )
     ]
+
+
+def test_missing_timestamps_rank_after_known_times_and_ties_stay_stable():
+    missing_z = candidate("z-missing", timestamp=None)
+    missing_a = candidate("a-missing", timestamp=None)
+    known = candidate("known", timestamp="2026-01-01T00:00:00Z")
+
+    results = rank_candidates(
+        [missing_z, known, missing_a],
+        project_id="project-alpha",
+    )
+
+    assert [result.record_id for result in results] == ["known", "a-missing", "z-missing"]
+
+
+def test_missing_timestamp_is_preserved_from_fts_search_result():
+    result = SearchResult(
+        message_id="message-no-date",
+        project_id="project-alpha",
+        source_id="source-no-date",
+        content="An undated message.",
+        timestamp=None,
+        relevance_score=-0.2,
+    )
+
+    candidate_result = RetrievalCandidate.from_message_search_result(result)
+
+    assert candidate_result.timestamp is None
+    assert rank_candidates([candidate_result], project_id="project-alpha") == [candidate_result]

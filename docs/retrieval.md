@@ -4,9 +4,11 @@
 
 `memory_bridge.retrieval.FtsMessageSearch` queries an existing FTS5 message
 table and returns `SearchResult` values with message ID, project ID, source ID,
-content, timestamp, and BM25 relevance score. Lower (typically more negative)
-BM25 scores rank ahead of higher scores. Ties are ordered by timestamp
-descending.
+content, optional timestamp, and BM25 relevance score. Lower (typically more
+negative) BM25 scores rank ahead of higher scores. Ties use SQLite's parsed
+timestamp descending, then message ID and source ID ascending. Missing or
+unparseable SQLite timestamps sort after valid timestamps and remain available
+as returned values.
 
 The component does not create, migrate, rebuild, or delete database objects.
 The test suite creates a temporary FTS5 table using fixture-only columns. This
@@ -21,12 +23,20 @@ configured with the actual names supplied by Member 1 before integration.
   content and retrievable message ID, project ID, source ID, and timestamp
   columns. These metadata columns can be unindexed FTS5 columns or available
   columns on the agreed table design.
+- For a non-empty query, the adapter checks `sqlite_master` for a virtual table
+  declared with FTS5 before searching. Missing tables, ordinary tables, and
+  incompatible column declarations raise `SearchIndexUnavailable`. An empty
+  or punctuation-only query returns immediately without checking the table.
 - Identifiers are validated and quoted. Query text, project ID, and limit are
   SQL parameters. Every search includes a project ID predicate.
 - Query text is matched against the configured content column and treated as
   plain Unicode word terms joined with `AND`.
   Punctuation is discarded; FTS operators, prefixes, and phrase syntax are not
   exposed. Empty and punctuation-only queries return an empty list.
+- Unicode word matching uses Python's Unicode word-character pattern to prepare
+  terms and SQLite FTS5's configured tokenizer to index/match content. Exact
+  tokenization behavior can differ across tokenizer options; those options are
+  not configured by this adapter.
 - A missing or incompatible configured FTS table raises
   `SearchIndexUnavailable`. Invalid Python input raises `TypeError` or
   `ValueError` as appropriate. Other SQLite operational errors propagate.
@@ -47,6 +57,9 @@ before sorting. Its provisional default rules are:
    default): newer ISO 8601 timestamps precede older ones only when relevance
    scores tie. No arbitrary relevance/recency weights are combined.
 4. Record ID and source ID provide deterministic final tie-breaks.
+   Known ISO 8601 timestamps rank ahead of missing timestamps; naive ISO
+   datetimes are interpreted as UTC. Non-ISO timestamp values are rejected by
+   the ranking DTO until Member 1's timestamp representation is known.
 5. Draft and deprecated decisions are excluded by default. Explicit
    `include_drafts=True` includes drafts in a separate tier after messages;
    they retain `status="draft"`. Explicit `include_deprecated=True` includes
@@ -78,9 +91,13 @@ record only if the full rendered bundle remains within budget; it never clips
 content. An oversized candidate is reported with reason `token_budget` and the
 scan continues, so a later smaller record may fit. Exact duplicate content
 (case-insensitive after whitespace normalization) is included once; later
-copies are reported as `duplicate_content`. Exclusions keep record, project,
-source, timestamp, type, and status metadata. Duplicate detection is textual,
-not semantic.
+copies are reported as `duplicate_content`. Empty content is not used as a
+deduplication key. Same-project exclusions keep record, project, source,
+timestamp, type, and status metadata. Project-mismatched records are never
+included in per-record exclusion details; only their count appears in
+`excluded_counts`, avoiding cross-project metadata disclosure. Exclusion counts
+cover all rejected inputs by reason. Duplicate detection is textual, not
+semantic.
 
 The 2,000 default and approved-decision priority are Member 2 adapter defaults.
 Member 1's actual row/repository contract and the agreed project-level context
@@ -92,4 +109,22 @@ Member 1 must provide the real message schema, FTS table/index lifecycle, and
 repository/connection access method. This implementation currently accepts a
 `sqlite3.Connection` directly for isolated tests; it does not claim that this
 is Member 1's production repository API. Member 3's MCP request and response
-contract also remains pending.
+contract also remains pending. The approved-decision priority tier, status
+mapping, and optional overrides are Member 2 proposals pending agreement. The
+model-specific tokenizer is also unknown; token counts remain estimates unless
+the caller injects and identifies a compatible `TokenCounter`.
+
+## Tests and dependencies
+
+Run the retrieval suite with:
+
+```sh
+python3 -m pytest -q
+```
+
+The current test environment uses Python 3.12, pytest 7.4, SQLite with FTS5,
+and the Python standard library in production code. This workspace has no
+`pyproject.toml`, setup configuration, or dependency declaration. The retrieval
+test `conftest.py` adds `src/` to `sys.path`; production code does not import
+test helpers. There is no embeddings package/provider implementation yet; that
+abstraction remains a later planned phase.
