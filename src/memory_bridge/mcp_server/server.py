@@ -1,4 +1,4 @@
-"""FastMCP public tools for the Memory Bridge."""
+"""FastMCP public tools for Orbit."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from memory_bridge.retrieval import SearchIndexUnavailable
 from .persistence_services import PersistenceServices, SourceMessageNotFoundError
 from .retrieval_services import RetrievalServices
 
-mcp = FastMCP("memory-bridge")
+mcp = FastMCP("Orbit")
 logger = logging.getLogger(__name__)
 
 
@@ -187,10 +187,10 @@ def retrieve_context(project: str, query: str, token_budget: int) -> dict[str, A
     )
 
 
-@mcp.tool(description="Confirm that the Memory Bridge MCP server is responding.")
+@mcp.tool(description="Confirm that the Orbit MCP server is responding.")
 def ping() -> str:
-    """Confirm that the Memory Bridge MCP server is responding."""
-    return "MCP Memory Bridge is running."
+    """Confirm that the Orbit MCP server is responding."""
+    return "Orbit MCP server is running."
 
 
 def main() -> None:

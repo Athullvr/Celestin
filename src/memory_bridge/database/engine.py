@@ -190,7 +190,7 @@ def _apply_migration(conn: sqlite3.Connection, version: int, script: str) -> Non
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
-    """Open (and create if needed) the memory-bridge database.
+    """Open (and create if needed) the Orbit database.
 
     Applies any pending schema migrations. Returns an open ``sqlite3``
     connection in autocommit mode (``isolation_level=None``); callers who

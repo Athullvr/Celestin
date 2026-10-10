@@ -1,4 +1,4 @@
-"""SQLite persistence layer for the MCP Memory Bridge.
+"""SQLite persistence layer for Orbit.
 
 This package owns the schema and all DDL. Repositories in
 ``memory_bridge.repositories`` build on top of it and are the public

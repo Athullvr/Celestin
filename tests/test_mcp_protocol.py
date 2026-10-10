@@ -18,7 +18,7 @@ class StdioProtocolTests(unittest.TestCase):
         async def exercise_protocol() -> None:
             # Exercise the installed entry point when available, with a module
             # invocation fallback for environments that have not installed it.
-            executable = shutil.which("memory-bridge")
+            executable = shutil.which("orbit")
             if executable:
                 command, args = executable, []
             else:
@@ -31,7 +31,8 @@ class StdioProtocolTests(unittest.TestCase):
             )
             async with stdio_client(parameters) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
+                    initialized = await session.initialize()
+                    self.assertEqual(initialized.serverInfo.name, "Orbit")
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}
                     self.assertTrue(
@@ -48,7 +49,7 @@ class StdioProtocolTests(unittest.TestCase):
                     self.assertFalse(ping_result.isError)
                     self.assertEqual(
                         [item.text for item in ping_result.content if hasattr(item, "text")],
-                        ["MCP Memory Bridge is running."],
+                        ["Orbit MCP server is running."],
                     )
 
                     # Invalid role fails at the MCP tool boundary before any

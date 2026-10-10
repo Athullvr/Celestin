@@ -1,6 +1,6 @@
-# MCP Memory Bridge
+# Orbit — Persistent Memory for AI Agents
 
-MCP server for shared, searchable project memory.
+An MCP-powered persistent memory system for AI agents and coding assistants.
 
 ## Local setup
 
@@ -16,25 +16,27 @@ python -m pip install -e .
 Run the server over stdio:
 
 ```powershell
-memory-bridge
+orbit
 ```
 
 For Codex CLI, register the local stdio server from the repository environment:
 
 ```powershell
-codex mcp add memory-bridge --env 'MEMORY_BRIDGE_DB_PATH=C:\path\to\memory_bridge.db' -- memory-bridge
+codex mcp add orbit --env 'MEMORY_BRIDGE_DB_PATH=C:\path\to\memory_bridge.db' -- orbit
 codex mcp list
 ```
 
 Replace the example database path with an absolute writable path. The server
-must be installed in the environment where `memory-bridge` resolves. If needed,
-use the absolute path to `.venv\Scripts\memory-bridge.exe` in place of
-`memory-bridge`. Codex stores this server in the user's MCP configuration;
-restart the Codex client after registration if it is already running. To remove
-it later, run `codex mcp remove memory-bridge`.
+must be installed in the environment where `orbit` resolves. If needed, use the
+absolute path to `.venv\Scripts\orbit.exe` in place of `orbit`. Codex stores
+this server in the user's MCP configuration; restart the Codex client after
+registration if it is already running. If you previously registered the old
+server, remove it with `codex mcp remove memory-bridge` before registering
+Orbit. To remove Orbit later, run `codex mcp remove orbit`. Quote the absolute
+executable path if it contains spaces.
 
-Other local MCP clients can launch `memory-bridge` directly (or use the
-environment's absolute path to `.venv\Scripts\memory-bridge.exe`).
+Other local MCP clients can launch `orbit` directly (or use the environment's
+absolute path to `.venv\Scripts\orbit.exe`).
 The server exposes `ingest_chat_message`, `save_decision`,
 `search_chat_history`, `retrieve_context`, and `ping`.
 
@@ -52,16 +54,17 @@ Connect another MCP-compatible client over stdio using this command configuratio
 ```json
 {
   "mcpServers": {
-    "memory-bridge": {
-      "command": "memory-bridge",
+    "orbit": {
+      "command": "orbit",
       "args": []
     }
   }
 }
 ```
 
-The client should discover the four memory tools through MCP `tools/list` and
-invoke them through `tools/call`. For example, call `ingest_chat_message` with
+The client should discover the four memory tools and the `ping` health check
+through MCP `tools/list` and invoke them through `tools/call`. For example, call
+`ingest_chat_message` with
 `{"project":"demo","conversation_id":"conv-1","role":"user","content":"We chose Python."}`.
 Use its returned `message_id` as `source_message_id` when calling
 `save_decision`. Search reads persisted messages and returns the matching

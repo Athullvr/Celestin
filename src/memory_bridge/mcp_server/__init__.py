@@ -1,2 +1,2 @@
-"""MCP server entry points for Memory Bridge."""
+"""MCP server entry points for Orbit."""
 

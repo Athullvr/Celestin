@@ -1,2 +1,2 @@
-"""MCP Memory Bridge package."""
+"""Orbit persistent memory system for AI agents."""
 
