@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
@@ -14,7 +15,9 @@ from memory_bridge.mcp_server import server
 from memory_bridge.mcp_server.persistence_services import PersistenceServices
 from memory_bridge.mcp_server.retrieval_services import RetrievalServices
 from memory_bridge.database.engine import connect
+from memory_bridge.retrieval import SearchIndexUnavailable
 from memory_bridge.repositories.decisions import DecisionRepository
+from memory_bridge.repositories._validation import ValidationError
 from memory_bridge.mcp_server.server import (
     MAX_TOKEN_BUDGET,
     ingest_chat_message,
@@ -106,6 +109,17 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(len(search_chat_history("alpha", "telescope")["results"]), 1)
         self.assertEqual(search_chat_history("missing", "telescope")["results"], [])
 
+    def test_source_message_must_belong_to_requested_project(self) -> None:
+        message = ingest_chat_message("alpha", "conv-a", "user", "source text")
+        with self.assertRaises(ToolError) as raised:
+            save_decision("beta", "key", "value", message["message_id"])
+        self.assertEqual(json.loads(str(raised.exception))["error"]["code"], "SOURCE_MESSAGE_NOT_FOUND")
+
+    def test_invalid_decision_status_is_rejected_by_repository(self) -> None:
+        with closing(connect(self.db_path)) as connection:
+            with self.assertRaises(ValidationError):
+                DecisionRepository(connection).update_status("alpha", "key", "published")
+
     def test_retrieve_context_shape_and_budget(self) -> None:
         message = ingest_chat_message("alpha", "conv-1", "user", "Python runtime decision")
         save_decision("alpha", "runtime", "Python runtime", message["message_id"])
@@ -165,6 +179,65 @@ class ToolContractTests(unittest.TestCase):
             self.assert_invalid(search_chat_history, "p", "query", limit)
         for budget in (0, -1, True, 1.5, MAX_TOKEN_BUDGET + 1):
             self.assert_invalid(retrieve_context, "p", "query", budget)
+
+    def test_missing_required_arguments_are_safe(self) -> None:
+        import asyncio
+
+        # Omit the required `project` to exercise FastMCP's argument validation.
+        async def invoke_missing():
+            return await mcp._tool_manager.call_tool(
+                "ingest_chat_message",
+                {"conversation_id": "conv", "role": "user", "content": "SENSITIVE TEXT"},
+            )
+
+        with self.assertRaises(ToolError) as raised:
+            asyncio.run(invoke_missing())
+        message = str(raised.exception)
+        self.assertNotIn("SENSITIVE TEXT", message)
+        self.assertNotIn("input_value", message)
+        self.assertEqual(json.loads(message)["error"]["code"], "INVALID_ARGUMENT")
+
+    def test_database_and_retrieval_failures_are_sanitized(self) -> None:
+        with patch.object(
+            server.persistence_services,
+            "ingest_chat_message",
+            side_effect=sqlite3.OperationalError("C:/private/db.sqlite credential=secret"),
+        ):
+            with self.assertLogs(server.logger, level="ERROR") as captured:
+                with self.assertRaises(ToolError) as raised:
+                    ingest_chat_message("alpha", "conv", "user", "private content")
+        message = str(raised.exception)
+        self.assertEqual(json.loads(message)["error"]["code"], "STORAGE_ERROR")
+        self.assertNotIn("private", message)
+        self.assertNotIn("db.sqlite", message)
+        self.assertNotIn("secret", message)
+        self.assertNotIn("private content", "\n".join(captured.output))
+
+        with patch.object(
+            server.retrieval_services,
+            "search_chat_history",
+            side_effect=RuntimeError("provider key=secret /private/index.sqlite"),
+        ):
+            with self.assertLogs(server.logger, level="ERROR") as captured:
+                with self.assertRaises(ToolError) as raised:
+                    search_chat_history("alpha", "query")
+        message = str(raised.exception)
+        self.assertEqual(json.loads(message)["error"]["code"], "INTERNAL_ERROR")
+        self.assertNotIn("secret", message)
+        self.assertNotIn("index.sqlite", message)
+        self.assertNotIn("secret", "\n".join(captured.output))
+
+    def test_unavailable_retrieval_dependency_has_distinct_error(self) -> None:
+        with patch.object(
+            server.retrieval_services,
+            "search_chat_history",
+            side_effect=SearchIndexUnavailable("index path /private/index.sqlite"),
+        ):
+            with self.assertRaises(ToolError) as raised:
+                search_chat_history("alpha", "query")
+        payload = json.loads(str(raised.exception))
+        self.assertEqual(payload["error"]["code"], "RETRIEVAL_UNAVAILABLE")
+        self.assertNotIn("private", str(raised.exception))
 
 
 if __name__ == "__main__":
