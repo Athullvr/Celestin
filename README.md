@@ -19,8 +19,22 @@ Run the server over stdio:
 memory-bridge
 ```
 
-For an MCP client that launches local processes, configure the command as
-`memory-bridge` (or use the environment's absolute path to `.venv\Scripts\memory-bridge.exe`).
+For Codex CLI, register the local stdio server from the repository environment:
+
+```powershell
+codex mcp add memory-bridge --env 'MEMORY_BRIDGE_DB_PATH=C:\path\to\memory_bridge.db' -- memory-bridge
+codex mcp list
+```
+
+Replace the example database path with an absolute writable path. The server
+must be installed in the environment where `memory-bridge` resolves. If needed,
+use the absolute path to `.venv\Scripts\memory-bridge.exe` in place of
+`memory-bridge`. Codex stores this server in the user's MCP configuration;
+restart the Codex client after registration if it is already running. To remove
+it later, run `codex mcp remove memory-bridge`.
+
+Other local MCP clients can launch `memory-bridge` directly (or use the
+environment's absolute path to `.venv\Scripts\memory-bridge.exe`).
 The server exposes `ingest_chat_message`, `save_decision`,
 `search_chat_history`, `retrieve_context`, and `ping`.
 
@@ -33,7 +47,7 @@ approved decisions priority and excludes drafts and deprecated decisions.
 
 ### Inspect and invoke the MCP tools
 
-Connect an MCP-compatible client over stdio using this command configuration:
+Connect another MCP-compatible client over stdio using this command configuration:
 
 ```json
 {

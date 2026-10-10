@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 class _SafeToolManager(ToolManager):
     """Keep FastMCP's pre-handler validation errors from echoing arguments."""
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None, context=None):
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context=None,
+        convert_result: bool = False,
+    ):
         try:
-            return await super().call_tool(name, arguments, context)
+            return await super().call_tool(name, arguments, context, convert_result)
         except ToolError as exc:
             # Errors produced by our handlers already use this stable JSON envelope.
             try:
