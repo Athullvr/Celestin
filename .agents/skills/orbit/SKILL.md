@@ -37,4 +37,4 @@ Use only these registered tool contracts:
 - `search_chat_history(project, query, limit?)`
 - `retrieve_context(project, query, token_budget)`
 
-Do not add tools, bypass authorization, or modify database or server configuration as part of a memory request. If Orbit is unavailable or returns `ACCESS_DENIED`, report the actual failure and explain that the operator must configure the local MCP server's database path and project/action allowlist. Do not retry against a different project.
+Do not add tools, bypass authorization, or modify database or server configuration as part of a memory request. If Orbit is unavailable or returns an authorization error, report the actual failure and direct the operator to inspect the configured server and its supported access controls. Do not retry against a different project.

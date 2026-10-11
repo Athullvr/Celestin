@@ -156,3 +156,15 @@ on 10–11 October 2026. See [RULES.md](RULES.md) for event requirements,
 for the Codex usage record, and [CHANGELOG.md](CHANGELOG.md) for the development
 log. The [event and registration page](https://luma.com/z10nz8gp) has the event
 details.
+
+## Codex skill: Orbit project memory
+
+The repository skill at `.agents/skills/orbit/SKILL.md` helps Codex retrieve saved project context and save explicitly approved messages or decisions with the Orbit MCP tools. Invoke it with `$orbit`, add a topic with `$orbit database migration`, or request the save workflow with `$orbit save`. OpenAI documents skill invocation with the `$skill-name` form; this skill does not register a custom `/orbit` slash command. If the skill is missing, pull the repository and restart Codex so it discovers `.agents/skills/`.
+
+This repository does not designate a canonical Orbit project identifier yet. The skill will ask until the team documents one in this README or `AGENTS.md`; do not assume `demo`, `orbit`, or `orbit-demo-2026` is the project. The `project` argument selects a namespace. The current local stdio server does not authenticate individual callers or authorize project membership, so use only data the connected local process is permitted to access; keep the demo synthetic.
+
+### Configure a repository and teammates
+
+Choose one stable project identifier and document it in this repository. Configure each developer's Orbit MCP entry using the setup above and an absolute database path for that machine. To share data between Codex and the tunnel on this PC, configure both processes to use the same local database path. Repeating a path on another computer does not share the SQLite file. Pulling this repository gives teammates the skill; they must configure their own MCP connection and restart Codex if the skill or tools are not discovered. Check `codex mcp list` and `codex mcp get orbit` when tools are unavailable. Report tool errors as returned, and do not retry using a different project.
+
+`$orbit` and topic-specific retrieval are read-only. `$orbit save` uses the existing ingestion and decision tools; a saved decision starts as a draft and is not automatically approved.
