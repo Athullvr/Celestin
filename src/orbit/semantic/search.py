@@ -17,7 +17,7 @@ class SemanticSearch:
         self,
         provider: EmbeddingProvider | None,
         vector_path: str | Path,
-        min_similarity: float = 0.5,
+        min_similarity: float = 0.6,
         *,
         unavailable_reason: str | None = None,
     ) -> None:

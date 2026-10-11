@@ -80,6 +80,9 @@ class RetrievalService:
         if self._semantic is None:
             self.last_retrieval = RetrievalInfo("fts")
             return None
+        if not query.strip():
+            self.last_retrieval = RetrievalInfo("hybrid")
+            return {kind: [] for kind in kinds}
         try:
             hits = self._semantic.search(project, query, kinds=kinds, limit=limit)
         except SemanticUnavailable as exc:

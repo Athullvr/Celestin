@@ -17,11 +17,12 @@ from .indexer import Indexer
 from .vector_index import VectorIndex, VectorIndexError
 
 
-def _open_index(settings, provider, *, check_compat: bool = True) -> VectorIndex:
+def _open_index(settings, provider, *, check_compat: bool = True, create: bool = True) -> VectorIndex:
     return VectorIndex(
         settings.vector_path,
         model_id=provider.model_id,
         dimension=provider.dimension,
+        create=create,
         check_compat=check_compat,
     )
 
@@ -54,17 +55,18 @@ def run(args: argparse.Namespace) -> int:
             except VectorIndexError:
                 settings.vector_path.unlink(missing_ok=True)
         try:
-            index_cm = _open_index(settings, provider)
+            index_cm = _open_index(settings, provider, create=args.command != "status")
         except VectorIndexError as exc:
-            if args.command == "status" and not settings.vector_path.exists():
-                print("index: not created yet; run: celestin-index sync")
-                return 1
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
         with index_cm as index:
             indexer = Indexer(conn, provider, index, batch_size=args.batch_size)
             if args.command == "status":
-                code = _print_report("plan (dry run)", indexer.sync(dry_run=True))
+                plan = indexer.sync(dry_run=True)
+                code = _print_report("plan (dry run)", plan)
+                if plan.embedded or plan.removed_stale:
+                    print("index is out of date; run: celestin-index sync")
+                    code = 1
                 problems = index.health_check(deep=True)
                 for problem in problems:
                     print(f"PROBLEM: {problem}")

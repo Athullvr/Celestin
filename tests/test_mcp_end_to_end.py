@@ -30,10 +30,15 @@ def _tool_payload(result):
     return json.loads(text)
 
 
+def _script(name: str) -> str | None:
+    """Find an installed console script, including one next to this interpreter's venv."""
+    return shutil.which(name, path=f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}")
+
+
 class EndToEndStdioIntegrationTests(unittest.TestCase):
     def test_memory_workflow_across_independent_stdio_sessions(self) -> None:
         async def exercise(database_path: Path) -> None:
-            executable = shutil.which("orbit")
+            executable = _script("celestin")
             if executable:
                 command, args = executable, []
             else:
@@ -62,7 +67,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 message = _tool_payload(await session_one.call_tool(
                     "ingest_chat_message",
                     {
-                        "project": "orbit-e2e-alpha",
+                        "project": "celestin-e2e-alpha",
                         "conversation_id": "synthetic-conversation",
                         "role": "user",
                         "content": "Synthetic policy says use SQLite for local storage.",
@@ -74,7 +79,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 decision = _tool_payload(await session_one.call_tool(
                     "save_decision",
                     {
-                        "project": "orbit-e2e-alpha",
+                        "project": "celestin-e2e-alpha",
                         "key": "storage-policy",
                         "value": "Use SQLite for local storage.",
                         "source_message_id": message["message_id"],
@@ -86,7 +91,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 deprecated = _tool_payload(await session_one.call_tool(
                     "save_decision",
                     {
-                        "project": "orbit-e2e-alpha",
+                        "project": "celestin-e2e-alpha",
                         "key": "retired-policy",
                         "value": "Deprecated synthetic SQLite policy.",
                         "source_message_id": message["message_id"],
@@ -98,13 +103,13 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 # outside the public four-tool MCP API.
                 with closing(connect(database_path)) as connection:
                     repository = DecisionRepository(connection)
-                    repository.update_status("orbit-e2e-alpha", "storage-policy", "approved")
-                    repository.update_status("orbit-e2e-alpha", "retired-policy", "deprecated")
+                    repository.update_status("celestin-e2e-alpha", "storage-policy", "approved")
+                    repository.update_status("celestin-e2e-alpha", "retired-policy", "deprecated")
 
                 other_project_message = _tool_payload(await session_one.call_tool(
                     "ingest_chat_message",
                     {
-                        "project": "orbit-e2e-beta",
+                        "project": "celestin-e2e-beta",
                         "conversation_id": "other-conversation",
                         "role": "assistant",
                         "content": "Synthetic unrelated SQLite record.",
@@ -117,9 +122,9 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
             async with connected_session() as session_two:
                 search = _tool_payload(await session_two.call_tool(
                     "search_chat_history",
-                    {"project": "orbit-e2e-alpha", "query": "SQLite", "limit": 10},
+                    {"project": "celestin-e2e-alpha", "query": "SQLite", "limit": 10},
                 ))
-                self.assertEqual(search["project"], "orbit-e2e-alpha")
+                self.assertEqual(search["project"], "celestin-e2e-alpha")
                 self.assertEqual(len(search["results"]), 1)
                 self.assertEqual(search["results"][0]["message_id"], message["message_id"])
                 self.assertEqual(search["results"][0]["source_message_id"], message["message_id"])
@@ -127,7 +132,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
 
                 context = _tool_payload(await session_two.call_tool(
                     "retrieve_context",
-                    {"project": "orbit-e2e-alpha", "query": "SQLite", "token_budget": 20_000},
+                    {"project": "celestin-e2e-alpha", "query": "SQLite", "token_budget": 20_000},
                 ))
                 self.assertLessEqual(context["token_count"], context["token_budget"])
                 self.assertEqual(context["token_budget"], 20_000)
@@ -139,11 +144,11 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 self.assertEqual(context["items"][0]["source_message_id"], message["message_id"])
                 self.assertTrue(context["items"][0]["created_at"])
                 self.assertNotIn("retired-policy", context["rendered_context"])
-                self.assertNotIn("orbit-e2e-beta", context["rendered_context"])
+                self.assertNotIn("celestin-e2e-beta", context["rendered_context"])
 
                 small_budget = _tool_payload(await session_two.call_tool(
                     "retrieve_context",
-                    {"project": "orbit-e2e-alpha", "query": "SQLite", "token_budget": 1},
+                    {"project": "celestin-e2e-alpha", "query": "SQLite", "token_budget": 1},
                 ))
                 self.assertEqual(small_budget["items"], [])
                 self.assertEqual(small_budget["token_count"], 0)
@@ -151,26 +156,26 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
 
                 beta_search = _tool_payload(await session_two.call_tool(
                     "search_chat_history",
-                    {"project": "orbit-e2e-alpha", "query": "unrelated", "limit": 10},
+                    {"project": "celestin-e2e-alpha", "query": "unrelated", "limit": 10},
                 ))
                 self.assertEqual(beta_search["results"], [])
                 beta_own_search = _tool_payload(await session_two.call_tool(
                     "search_chat_history",
-                    {"project": "orbit-e2e-beta", "query": "unrelated", "limit": 10},
+                    {"project": "celestin-e2e-beta", "query": "unrelated", "limit": 10},
                 ))
                 self.assertEqual(len(beta_own_search["results"]), 1)
-                self.assertEqual(beta_own_search["results"][0]["project"], "orbit-e2e-beta")
+                self.assertEqual(beta_own_search["results"][0]["project"], "celestin-e2e-beta")
 
                 bad_role = await session_two.call_tool(
                     "ingest_chat_message",
-                    {"project": "orbit-e2e-alpha", "conversation_id": "x", "role": "tool", "content": "synthetic"},
+                    {"project": "celestin-e2e-alpha", "conversation_id": "x", "role": "tool", "content": "synthetic"},
                 )
                 self.assertTrue(bad_role.isError)
                 self.assertIn("INVALID_ARGUMENT", " ".join(item.text for item in bad_role.content if hasattr(item, "text")))
 
                 bad_budget = await session_two.call_tool(
                     "retrieve_context",
-                    {"project": "orbit-e2e-alpha", "query": "SQLite", "token_budget": 20_001},
+                    {"project": "celestin-e2e-alpha", "query": "SQLite", "token_budget": 20_001},
                 )
                 self.assertTrue(bad_budget.isError)
                 self.assertIn("INVALID_ARGUMENT", " ".join(item.text for item in bad_budget.content if hasattr(item, "text")))
@@ -178,7 +183,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 cross_project_source = await session_two.call_tool(
                     "save_decision",
                     {
-                        "project": "orbit-e2e-alpha",
+                        "project": "celestin-e2e-alpha",
                         "key": "invalid-cross-source",
                         "value": "Must not save.",
                         "source_message_id": other_project_message["message_id"],
@@ -192,12 +197,12 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                         any(
                             row["key"] == "invalid-cross-source"
                             for row in DecisionRepository(connection).list_for_project(
-                                "orbit-e2e-alpha"
+                                "celestin-e2e-alpha"
                             )
                         )
                     )
 
-        with tempfile.TemporaryDirectory(prefix="orbit-mcp-e2e-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="celestin-mcp-e2e-") as temp_dir:
             asyncio.run(exercise(Path(temp_dir) / "disposable.sqlite"))
 
 

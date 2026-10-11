@@ -10,7 +10,7 @@ Environment variables:
     CELESTIN_EMBEDDING_MODEL          fastembed model id (default BAAI/bge-small-en-v1.5)
     CELESTIN_EMBEDDING_CACHE_DIR      model cache directory (fastembed default if unset)
     CELESTIN_VECTOR_DB_PATH           vector index file (default: <database path>.vectors.db)
-    CELESTIN_SEMANTIC_MIN_SIMILARITY  cosine similarity cut-off, 0..1 (default 0.5)
+    CELESTIN_SEMANTIC_MIN_SIMILARITY  cosine similarity cut-off, 0..1 (default 0.6)
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .vector_index import VectorIndex
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MIN_SIMILARITY = 0.5
+DEFAULT_MIN_SIMILARITY = 0.6
 _TRUE = {"1", "true", "yes", "on"}
 _providers: dict[tuple[str, str | None], EmbeddingProvider] = {}
 

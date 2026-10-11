@@ -1,8 +1,10 @@
-# Orbit — Persistent Memory for AI Agents
+# Celestin — Persistent Memory for AI Agents
 
-Orbit is a local MCP server that gives AI agents project-scoped persistent
+Celestin (formerly Orbit) is a local MCP server that gives AI agents project-scoped persistent
 memory. It stores chat messages and project decisions in SQLite, then provides
 tools to search chat history and retrieve a bounded, traceable context bundle.
+Search is SQLite FTS5 keyword search, optionally combined with local semantic
+(embedding) search; see [Semantic search](#semantic-search-optional).
 The server communicates with MCP clients over stdio.
 
 ## Requirements
@@ -18,7 +20,7 @@ dataset or embedding service.
 ## Install
 
 From the repository root, create and activate a virtual environment, then
-install Orbit in editable mode:
+install Celestin in editable mode:
 
 **macOS / Linux**
 
@@ -36,52 +38,54 @@ py -m venv .venv
 python -m pip install -e .
 ```
 
-Installation provides the `orbit` command. The SQLite database and its schema
+Installation provides the `celestin` command (the pre-rename `orbit` and
+`memory-bridge` commands remain as aliases) and the `celestin-index` command. The SQLite database and its schema
 are created automatically the first time the server connects. By default, the
 database is `data/memory_bridge.db` relative to the process working directory.
-Set `MEMORY_BRIDGE_DB_PATH` to an absolute writable path to choose another
-location.
+Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
+location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
+`CELESTIN_DB_PATH` is unset.
 
 ## Run with Codex CLI
 
-Register Orbit as a local stdio MCP server. Set the database path to a location
+Register Celestin as a local stdio MCP server. Set the database path to a location
 you can write to. Run this from a shell where the virtual environment is
 activated:
 
 **macOS / Linux**
 
 ```sh
-codex mcp add orbit \
-  --env MEMORY_BRIDGE_DB_PATH=/absolute/path/to/orbit.db \
-  -- orbit
+codex mcp add celestin \
+  --env CELESTIN_DB_PATH=/absolute/path/to/celestin.db \
+  -- celestin
 codex mcp list
 ```
 
-If Codex cannot find `orbit`, use the absolute path to `.venv/bin/orbit` after
+If Codex cannot find `celestin`, use the absolute path to `.venv/bin/celestin` after
 the `--` separator.
 
 **Windows PowerShell**
 
 ```powershell
-codex mcp add orbit --env 'MEMORY_BRIDGE_DB_PATH=C:\path\to\orbit.db' -- .venv\Scripts\orbit.exe
+codex mcp add celestin --env 'CELESTIN_DB_PATH=C:\path\to\celestin.db' -- .venv\Scripts\celestin.exe
 codex mcp list
 ```
 
 Use an absolute executable path if needed, and quote it if the path contains
 spaces. Restart Codex after registration if it was already running. To remove
-the server later, run `codex mcp remove orbit`.
+the server later, run `codex mcp remove celestin`.
 
-Other MCP clients can launch `orbit` directly over stdio (or use the absolute
+Other MCP clients can launch `celestin` directly over stdio (or use the absolute
 path to the executable in `.venv`). A minimal client configuration is:
 
 ```json
 {
   "mcpServers": {
-    "orbit": {
-      "command": "orbit",
+    "celestin": {
+      "command": "celestin",
       "args": [],
       "env": {
-        "MEMORY_BRIDGE_DB_PATH": "/absolute/path/to/orbit.db"
+        "CELESTIN_DB_PATH": "/absolute/path/to/celestin.db"
       }
     }
   }
@@ -115,8 +119,73 @@ Use the returned `message_id` in `save_decision`, for example with key
 `storage` and value `Use SQLite for local storage.` Then call
 `search_chat_history` with project `demo` and query `SQLite local`, or call
 `retrieve_context` with the same project and query plus a `token_budget` such
-as `2000`. Each tool call is made through the connected MCP client; Orbit does
+as `2000`. Each tool call is made through the connected MCP client; Celestin does
 not include a separate web UI.
+
+## Semantic search (optional)
+
+Celestin keeps **SQLite as the only source of truth** and **FTS5 for exact
+keyword search** (rare terms, error codes, identifiers, names). Semantic search
+adds a derived vector index so reworded queries ("why did we avoid hosted
+infrastructure?") can find a memory saved as "we chose local persistence to
+avoid deployment overhead". It is **off by default**.
+
+- Vector store: [sqlite-vec](https://github.com/asg017/sqlite-vec) in a *separate*
+  SQLite file (default `<database>.vectors.db`). It holds only source references
+  (`chat_message`/`canonical_decision` + SQLite id), project, a content hash and the
+  vector, never message text. It can be deleted and rebuilt at any time.
+- Embeddings: local `BAAI/bge-small-en-v1.5` (384 dims, MIT) through
+  [fastembed](https://github.com/qdrant/fastembed) (ONNX Runtime, no PyTorch).
+  The first use downloads the model (about 130 MB) from Hugging Face; after that
+  it runs offline (set `HF_HUB_OFFLINE=1` to forbid network access). Your text is
+  never sent to an embedding API.
+- Ranking: FTS5 and vector results are merged with Reciprocal Rank Fusion (k=60),
+  which uses ranks only, since BM25 and cosine scores are not comparable. A record
+  found by both paths appears once and ranks higher. Draft and deprecated decisions
+  are still excluded and approved decisions still come first. With fusion active,
+  `score`/`relevance_score` is `-RRF score` (lower is better, like BM25).
+- Only decisions with status `approved` are embedded (drafts and deprecated
+  decisions are never returned by retrieval).
+
+Enable it:
+
+```sh
+python -m pip install -e ".[semantic]"
+export CELESTIN_SEMANTIC_SEARCH=1          # set this for the server (e.g. in the Codex --env)
+celestin-index sync                        # backfill existing messages and approved decisions
+```
+
+New chat messages are indexed best-effort when they are ingested. Run
+`celestin-index sync` after approving decisions, after an embedding outage, or to
+backfill an existing database. Commands (they only write the vector file, never
+the SQLite database):
+
+- `celestin-index status`: dry run showing what is missing or stale, plus an integrity check.
+- `celestin-index sync`: embed missing or changed records, remove stale entries.
+  Idempotent and resumable; batches of `--batch-size` (default 64).
+- `celestin-index rebuild`: reset the vector file and re-embed everything. Use it after
+  changing `CELESTIN_EMBEDDING_MODEL` or if `status` reports corruption.
+
+Settings (environment variables): `CELESTIN_SEMANTIC_SEARCH`,
+`CELESTIN_EMBEDDING_MODEL`, `CELESTIN_EMBEDDING_CACHE_DIR`,
+`CELESTIN_VECTOR_DB_PATH`, `CELESTIN_SEMANTIC_MIN_SIMILARITY` (cosine cut-off,
+default 0.6). The cut-off keeps unrelated nearest neighbours out; the default was
+chosen from a small probe with the default model (related pairs scored 0.68-0.72,
+unrelated up to 0.58), so tune it for your data.
+
+When semantic search is enabled the tool responses gain a `retrieval` object:
+`{"mode": "hybrid" | "fts_fallback", "warnings": [...]}`. `fts_fallback` means the
+embedding model or vector index was unavailable, so the results are keyword-only;
+`warnings` says why and which command repairs it. Without the setting, responses
+are unchanged.
+
+Verify it end to end (uses a real model, downloads it once):
+
+```sh
+CELESTIN_RUN_MODEL_TESTS=1 python -m pytest tests/semantic/test_real_model.py
+```
+
+More detail: [docs/semantic-search.md](docs/semantic-search.md).
 
 ## Behavior and limitations
 
@@ -126,9 +195,12 @@ not include a separate web UI.
 - Newly saved decisions are drafts. Context retrieval excludes draft and
   deprecated decisions by default and prioritizes approved decisions. The
   current tool set does not include an approval or deprecation operation.
+- Semantic indexing is not atomic with SQLite writes; `celestin-index sync` reconciles.
+  Vector search is exact (brute-force) KNN, suitable for thousands to low
+  hundreds of thousands of records, not millions.
 - Context budgets count UTF-8 bytes as an estimate, not exact tokens for a
   particular model. Records are included whole; oversized records are skipped.
-- Search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
+- Keyword search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
   with AND; punctuation is discarded. Search scores are relevance values, not
   probabilities.
 - The server currently supports local stdio only and has no caller
@@ -137,16 +209,19 @@ not include a separate web UI.
 
 ## Tests
 
-Install the optional test dependency and run the test suite from the repository
-root:
+Install the test dependency and run the test suite from the repository root
+(use `.[test,semantic]` to include the vector-index tests; they are skipped
+without the semantic extra):
 
 ```sh
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,semantic]"
 python -m pytest -q
 ```
 
-The tests use temporary SQLite databases and synthetic records. They do not
-require network access after dependencies are installed.
+The tests use temporary SQLite databases, synthetic records and a deterministic
+fake embedding provider (tests only, not semantic search). They do not require
+network access after dependencies are installed. The real-model test is opt-in
+(see above).
 
 ## Event documentation
 
