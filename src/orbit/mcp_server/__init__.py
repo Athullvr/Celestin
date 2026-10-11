@@ -1,2 +1,2 @@
-"""MCP server entry points for Orbit."""
+"""MCP server entry points for Celestin."""
 

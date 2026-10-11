@@ -1,4 +1,4 @@
-"""FastMCP public tools for Orbit."""
+"""FastMCP public tools for Celestin."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from orbit.retrieval import SearchIndexUnavailable
 from .persistence_services import PersistenceServices, SourceMessageNotFoundError
 from .retrieval_services import RetrievalServices
 
-mcp = FastMCP("Orbit")
+mcp = FastMCP("Celestin")
 logger = logging.getLogger(__name__)
 
 
@@ -192,10 +192,10 @@ def retrieve_context(project: str, query: str, token_budget: int) -> dict[str, A
     )
 
 
-@mcp.tool(description="Confirm that the Orbit MCP server is responding.")
+@mcp.tool(description="Confirm that the Celestin MCP server is responding.")
 def ping() -> str:
-    """Confirm that the Orbit MCP server is responding."""
-    return "Orbit MCP server is running."
+    """Confirm that the Celestin MCP server is responding."""
+    return "Celestin MCP server is running."
 
 
 def main() -> None:

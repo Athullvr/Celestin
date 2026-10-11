@@ -1,4 +1,4 @@
-# Orbit — Public MCP Tool Contracts
+# Celestin — Public MCP Tool Contracts
 
 **Status:** MCP boundary contract. This document defines public tool arguments and response schemas; database and retrieval implementation details are documented in `docs/retrieval_integration.md` and `docs/retrieval.md`.
 

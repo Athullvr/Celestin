@@ -32,7 +32,7 @@ class StdioProtocolTests(unittest.TestCase):
             async with stdio_client(parameters) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     initialized = await session.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "Orbit")
+                    self.assertEqual(initialized.serverInfo.name, "Celestin")
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}
                     self.assertTrue(
@@ -49,7 +49,7 @@ class StdioProtocolTests(unittest.TestCase):
                     self.assertFalse(ping_result.isError)
                     self.assertEqual(
                         [item.text for item in ping_result.content if hasattr(item, "text")],
-                        ["Orbit MCP server is running."],
+                        ["Celestin MCP server is running."],
                     )
 
                     # Invalid role fails at the MCP tool boundary before any
@@ -80,7 +80,7 @@ class StdioProtocolTests(unittest.TestCase):
             ) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     initialized = await session.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "Orbit")
+                    self.assertEqual(initialized.serverInfo.name, "Celestin")
                     ping_result = await session.call_tool("ping", {})
                     self.assertFalse(ping_result.isError)
 

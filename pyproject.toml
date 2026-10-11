@@ -3,19 +3,22 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "orbit-memory-mcp"
-version = "0.1.0"
+name = "celestin-memory"
+version = "0.2.0"
 description = "An MCP-powered persistent memory system for AI agents and coding assistants."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["mcp>=1.0,<2.0"]
 
 [project.scripts]
+celestin = "orbit.mcp_server.server:main"
+celestin-index = "orbit.semantic.cli:main"
+# Compatibility aliases for clients configured before the Celestin rename.
 orbit = "orbit.mcp_server.server:main"
-# Keep the existing command available for already-configured local clients.
 memory-bridge = "orbit.mcp_server.server:main"
 
 [project.optional-dependencies]
+semantic = ["sqlite-vec>=0.1.9,<0.2", "fastembed>=0.9,<1.0"]
 test = ["pytest"]
 
 [tool.setuptools.packages.find]
