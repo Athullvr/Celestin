@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-11T09:06:01+05:30 — Align README with the implemented project
+
+- Changed: Rewrote `README.md` with cross-platform installation, database configuration, Codex CLI setup, MCP tool examples, and current behavior and limitations.
+- Why: The previous setup was Windows-only and omitted important implementation details for running and demonstrating Orbit.
+- Validation: Compared instructions against `pyproject.toml`, the SQLite engine, MCP server, and retrieval documentation; checked Markdown links and `git diff --check`.
+- Limitations: No application UI or hosted demo is implemented; the demo uses a connected local MCP client.
+
 ## 2026-10-11T05:18:21+05:30 — Validate end-to-end MCP memory workflow
 
 - Changed: Added a two-process stdio MCP integration test using a disposable SQLite database; fixed FastMCP error wrapping so `SOURCE_MESSAGE_NOT_FOUND` keeps its stable category over the protocol.
