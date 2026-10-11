@@ -9,6 +9,7 @@ from typing import Any
 from orbit.database.engine import connect
 from orbit.repositories import ChatMessageRepository, DecisionRepository
 from orbit.repositories._validation import NotFoundError
+from orbit.semantic.config import index_after_write
 
 
 class SourceMessageNotFoundError(LookupError):
@@ -41,6 +42,9 @@ class PersistenceServices:
             )
             if row is None:
                 raise RuntimeError("inserted message could not be read back")
+            # SQLite is committed; semantic indexing is best-effort and
+            # repaired by `celestin-index sync` if it fails.
+            index_after_write(conn, "chat_message", message_id, self._db_path)
             return {
                 "project": project,
                 "message_id": str(row["id"]),

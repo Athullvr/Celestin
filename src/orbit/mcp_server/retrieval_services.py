@@ -8,6 +8,7 @@ from typing import Any
 
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
+from orbit.semantic.config import build_semantic_search
 
 
 class RetrievalServices:
@@ -18,8 +19,9 @@ class RetrievalServices:
 
     def search_chat_history(self, project: str, query: str, limit: int) -> dict[str, Any]:
         with closing(connect(self._db_path)) as connection:
-            results = RetrievalService(connection).search_chat_history(project, query, limit)
-        return {
+            service = RetrievalService(connection, semantic=build_semantic_search(self._db_path))
+            results = service.search_chat_history(project, query, limit)
+        response = {
             "project": project,
             "query": query,
             "results": [
@@ -36,10 +38,21 @@ class RetrievalServices:
                 for result in results
             ],
         }
+        return self._with_retrieval_info(response, service)
+
+    @staticmethod
+    def _with_retrieval_info(response: dict[str, Any], service: RetrievalService) -> dict[str, Any]:
+        # Only present when semantic search is enabled, so the FTS5-only
+        # response schema is unchanged. mode "fts_fallback" means semantic
+        # search failed and results are keyword-only (see warnings).
+        if service.semantic_enabled:
+            response["retrieval"] = service.last_retrieval.as_dict()
+        return response
 
     def retrieve_context(self, project: str, query: str, token_budget: int) -> dict[str, Any]:
         with closing(connect(self._db_path)) as connection:
-            bundle = RetrievalService(connection).retrieve_context(project, query, token_budget)
+            service = RetrievalService(connection, semantic=build_semantic_search(self._db_path))
+            bundle = service.retrieve_context(project, query, token_budget)
 
         def public_record(record: Any) -> dict[str, Any]:
             source_message_id = (
@@ -58,7 +71,7 @@ class RetrievalServices:
                 result["content"] = record.content
             return result
 
-        return {
+        response = {
             "project": project,
             "query": query,
             "items": [
@@ -76,3 +89,4 @@ class RetrievalServices:
                 if item.reason in {"token_budget", "duplicate_content"}
             ],
         }
+        return self._with_retrieval_info(response, service)
