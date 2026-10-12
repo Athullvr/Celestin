@@ -118,3 +118,32 @@ def index_after_write(
             "semantic indexing of %s %s deferred (%s); run `celestin-index sync`",
             kind, record_id, type(exc).__name__,
         )
+
+
+def sync_sections_after_index(db_path: str | Path | None = None) -> str | None:
+    """Best-effort: embed new/changed heading sections after ``celestin-docs`` changes the store.
+
+    Returns a short status line, or None when semantic search is disabled. A failure is
+    reported (never raised); ``celestin-index sync`` repairs it later.
+    """
+    from orbit.pageindex.config import load_settings as load_docs_settings
+    from orbit.pageindex.store import PageIndexStore
+
+    try:
+        settings = load_settings(db_path)
+        if not settings.enabled:
+            return None
+        provider = get_provider(settings)
+        with engine.connect(db_path) as conn, PageIndexStore(
+            load_docs_settings(db_path).store_path, create=False
+        ) as store, VectorIndex(
+            settings.vector_path, model_id=provider.model_id, dimension=provider.dimension
+        ) as index:
+            report = Indexer(conn, provider, index, sections_connection=store.connection()).sync(
+                kinds=("document_section",)
+            )
+        if report.error:
+            return f"section embeddings incomplete: {report.error}"
+        return f"section embeddings: embedded={report.embedded} removed_stale={report.removed_stale}"
+    except Exception as exc:
+        return f"section embeddings deferred ({type(exc).__name__}); run: celestin-index sync"

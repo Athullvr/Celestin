@@ -15,6 +15,7 @@ retrieval, so they are not embedded).
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from dataclasses import dataclass
 
@@ -23,13 +24,18 @@ from .vector_index import VectorIndex, VectorRecord
 
 DEFAULT_SYNC_BATCH = 64
 
+# kind -> (table, select, id column in the select, id column in the table, extra eligibility filter, store)
 _TABLES = {
-    "chat_message": ("chat_messages", "SELECT id, project, content, NULL AS key FROM chat_messages", ""),
+    "chat_message": (
+        "chat_messages", "SELECT id, project, content, NULL AS key FROM chat_messages", "id", "id", "", "main"),
     "canonical_decision": (
-        "project_memory",
-        "SELECT id, project, value AS content, key FROM project_memory",
-        " AND status = 'approved'",
-    ),
+        "project_memory", "SELECT id, project, value AS content, key FROM project_memory", "id", "id",
+        " AND status = 'approved'", "main"),
+    "document_section": (
+        "sections",
+        "SELECT s.rowid AS id, d.project AS project, s.text AS content, s.path_json AS key "
+        "FROM sections s JOIN documents d ON d.id = s.doc_id",
+        "s.rowid", "rowid", "", "sections"),
 }
 
 
@@ -37,6 +43,8 @@ def embedding_text(kind: str, content: str, key: str | None = None) -> str:
     """Deterministic embedding input for a record."""
     if kind == "canonical_decision":
         return f"{key}\n{content}".strip()
+    if kind == "document_section":
+        return f"{' > '.join(json.loads(key))}\n{content}".strip()
     return content.strip()
 
 
@@ -65,32 +73,39 @@ class Indexer:
         index: VectorIndex,
         *,
         batch_size: int = DEFAULT_SYNC_BATCH,
+        sections_connection: sqlite3.Connection | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         self._conn = connection
+        self._sections_conn = sections_connection
         self._provider = provider
         self._index = index
         self._batch = batch_size
 
+    def _connection_for(self, kind: str) -> sqlite3.Connection | None:
+        return self._sections_conn if _TABLES[kind][5] == "sections" else self._conn
+
     def _rows(self, kind: str, after_id: int):
-        _, select, extra = _TABLES[kind]
-        return self._conn.execute(
-            f"{select} WHERE id > ?{extra} ORDER BY id LIMIT ?", (after_id, self._batch)
+        _, select, id_sel, _, extra, _ = _TABLES[kind]
+        return self._connection_for(kind).execute(
+            f"{select} WHERE {id_sel} > ?{extra} ORDER BY {id_sel} LIMIT ?", (after_id, self._batch)
         ).fetchall()
 
     def _desired(self, kind: str, row) -> tuple[str, str]:
         text = embedding_text(kind, row["content"], row["key"])
         return text, content_hash(self._provider.model_id, text)
 
-    def sync(self, *, dry_run: bool = False) -> SyncReport:
+    def sync(self, *, dry_run: bool = False, kinds: tuple[str, ...] | None = None) -> SyncReport:
         """Index missing/changed records and drop stale ones.
 
         With ``dry_run`` nothing is embedded or written: ``embedded`` and
         ``removed_stale`` count what a real run would do.
         """
         report = SyncReport()
-        for kind in _TABLES:
+        for kind in kinds or _TABLES:
+            if self._connection_for(kind) is None:
+                continue  # no document store configured: nothing to index for this kind
             try:
                 self._sync_kind(kind, report, dry_run)
             except EmbeddingError as exc:
@@ -126,15 +141,15 @@ class Indexer:
             )
 
     def _remove_stale(self, kind: str, report: SyncReport, dry_run: bool) -> None:
-        table, _, extra = _TABLES[kind]
+        table, _, _, id_col, extra, _ = _TABLES[kind]
         last_id = 0
         while ids := self._index.ids_after(kind, last_id, self._batch):
             last_id = ids[-1]
             marks = ",".join("?" * len(ids))
             live = {
                 r[0]
-                for r in self._conn.execute(
-                    f"SELECT id FROM {table} WHERE id IN ({marks}){extra}", ids
+                for r in self._connection_for(kind).execute(
+                    f"SELECT {id_col} FROM {table} WHERE {id_col} IN ({marks}){extra}", ids
                 )
             }
             for record_id in ids:
@@ -145,9 +160,9 @@ class Indexer:
 
     def index_record(self, kind: str, record_id: int) -> None:
         """Index (or remove) one record; used for best-effort incremental updates."""
-        table, select, extra = _TABLES[kind]
-        row = self._conn.execute(
-            f"{select} WHERE id = ?{extra}", (record_id,)
+        _, select, id_sel, _, extra, _ = _TABLES[kind]
+        row = self._connection_for(kind).execute(
+            f"{select} WHERE {id_sel} = ?{extra}", (record_id,)
         ).fetchone()
         if row is None or not row["content"].strip():
             self._index.delete(kind, record_id)

@@ -15,6 +15,8 @@ from .config import get_provider, load_settings
 from .embeddings import EmbeddingError
 from .indexer import Indexer
 from .vector_index import VectorIndex, VectorIndexError
+from orbit.pageindex.config import load_settings as load_pageindex_settings
+from orbit.pageindex.store import PageIndexStore
 
 
 def _open_index(settings, provider, *, check_compat: bool = True, create: bool = True) -> VectorIndex:
@@ -59,8 +61,14 @@ def run(args: argparse.Namespace) -> int:
         except VectorIndexError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
+        # Heading sections live in the optional document store; index them when it exists.
+        doc_path = load_pageindex_settings().store_path
+        doc_store = PageIndexStore(doc_path, create=False) if doc_path.exists() else None
         with index_cm as index:
-            indexer = Indexer(conn, provider, index, batch_size=args.batch_size)
+            indexer = Indexer(
+                conn, provider, index, batch_size=args.batch_size,
+                sections_connection=doc_store.connection() if doc_store else None,
+            )
             if args.command == "status":
                 plan = indexer.sync(dry_run=True)
                 code = _print_report("plan (dry run)", plan)
@@ -72,7 +80,11 @@ def run(args: argparse.Namespace) -> int:
                     print(f"PROBLEM: {problem}")
                 print(f"indexed: {index.count()} records")
                 return code or (1 if problems else 0)
-            return _print_report(args.command, indexer.sync())
+            try:
+                return _print_report(args.command, indexer.sync())
+            finally:
+                if doc_store:
+                    doc_store.close()
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -14,7 +14,9 @@ from typing import Iterable, Sequence
 
 from .embeddings import validate_vector
 
-KINDS = ("chat_message", "canonical_decision")
+KINDS = ("chat_message", "canonical_decision", "document_section")
+# Section ids live in their own row-id range so indexes built before sections existed stay valid.
+SECTION_ROWID_BASE = 1 << 40
 SCHEMA_VERSION = "1"
 
 
@@ -40,6 +42,8 @@ class VectorHit:
 
 
 def _rowid(kind: str, record_id: int) -> int:
+    if kind == "document_section":
+        return SECTION_ROWID_BASE + record_id
     # Messages and decisions have independent id spaces; interleave them.
     return record_id * 2 + (0 if kind == "chat_message" else 1)
 
