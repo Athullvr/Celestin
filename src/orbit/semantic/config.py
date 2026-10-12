@@ -11,6 +11,7 @@ Environment variables:
     CELESTIN_EMBEDDING_CACHE_DIR      model cache directory (fastembed default if unset)
     CELESTIN_VECTOR_DB_PATH           vector index file (default: <database path>.vectors.db)
     CELESTIN_SEMANTIC_MIN_SIMILARITY  cosine similarity cut-off, 0..1 (default 0.6)
+    CELESTIN_SEMANTIC_RELATIVE_MARGIN also drop hits this far below the best hit (default: off)
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ class SemanticSettings:
     cache_dir: str | None
     vector_path: Path
     min_similarity: float
+    relative_margin: float | None = None
 
 
 def load_settings(db_path: str | Path | None = None) -> SemanticSettings:
@@ -54,12 +56,20 @@ def load_settings(db_path: str | Path | None = None) -> SemanticSettings:
         raise ValueError("CELESTIN_SEMANTIC_MIN_SIMILARITY must be a number") from None
     if not 0.0 <= min_similarity <= 1.0:
         raise ValueError("CELESTIN_SEMANTIC_MIN_SIMILARITY must be between 0 and 1")
+    margin_raw = env.get("CELESTIN_SEMANTIC_RELATIVE_MARGIN")
+    try:
+        margin = float(margin_raw) if margin_raw else None
+    except ValueError:
+        raise ValueError("CELESTIN_SEMANTIC_RELATIVE_MARGIN must be a number") from None
+    if margin is not None and not 0.0 <= margin <= 1.0:
+        raise ValueError("CELESTIN_SEMANTIC_RELATIVE_MARGIN must be between 0 and 1")
     return SemanticSettings(
         enabled=env.get("CELESTIN_SEMANTIC_SEARCH", "").strip().lower() in _TRUE,
         model_id=env.get("CELESTIN_EMBEDDING_MODEL") or DEFAULT_MODEL_ID,
         cache_dir=env.get("CELESTIN_EMBEDDING_CACHE_DIR") or None,
         vector_path=Path(env.get("CELESTIN_VECTOR_DB_PATH") or f"{database}.vectors.db"),
         min_similarity=min_similarity,
+        relative_margin=margin,
     )
 
 
@@ -81,7 +91,9 @@ def build_semantic_search(db_path: str | Path | None = None) -> SemanticSearch |
         provider = get_provider(settings)
     except EmbeddingError as exc:
         return SemanticSearch.unavailable(str(exc))
-    return SemanticSearch(provider, settings.vector_path, settings.min_similarity)
+    return SemanticSearch(
+        provider, settings.vector_path, settings.min_similarity, relative_margin=settings.relative_margin
+    )
 
 
 def index_after_write(

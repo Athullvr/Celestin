@@ -19,11 +19,13 @@ class SemanticSearch:
         vector_path: str | Path,
         min_similarity: float = 0.6,
         *,
+        relative_margin: float | None = None,
         unavailable_reason: str | None = None,
     ) -> None:
         self._provider = provider
         self._path = Path(vector_path)
         self._min_similarity = min_similarity
+        self._margin = relative_margin
         self._reason = unavailable_reason
 
     @classmethod
@@ -34,6 +36,9 @@ class SemanticSearch:
         self, project: str, query: str, *, kinds: tuple[str, ...], limit: int
     ) -> dict[str, list[VectorHit]]:
         """Return hits per kind with similarity >= the configured minimum.
+
+        With ``relative_margin`` set, hits more than that far below the best hit of
+        their kind are also dropped, so weak neighbours do not fill the context.
 
         Raises SemanticUnavailable on any provider or index failure; never
         returns made-up results.
@@ -55,12 +60,15 @@ class SemanticSearch:
                         + "); run: celestin-index rebuild"
                     )
                 return {
-                    kind: [
-                        hit
-                        for hit in index.search(vector, project=project, kind=kind, limit=limit)
-                        if hit.similarity >= self._min_similarity
-                    ]
+                    kind: self._select(index.search(vector, project=project, kind=kind, limit=limit))
                     for kind in kinds
                 }
         except (EmbeddingError, VectorIndexError) as exc:
             raise SemanticUnavailable(str(exc)) from exc
+
+    def _select(self, hits: list[VectorHit]) -> list[VectorHit]:
+        hits = [h for h in hits if h.similarity >= self._min_similarity]
+        if self._margin is not None and hits:
+            best = max(h.similarity for h in hits)
+            hits = [h for h in hits if h.similarity >= best - self._margin]
+        return hits

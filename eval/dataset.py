@@ -4,6 +4,9 @@ Gold labels are content-based: a section is relevant when it lives in one of the
 listed documents and its text contains the ``evidence`` string (case-insensitive).
 """
 
+DATASET_VERSION = "1"
+CORPUS_DIR = "corpus"  # frozen snapshot of the documents at commit 4d40315 (eval/corpus/)
+
 DOCS = [
     "README.md",
     "docs/interfaces.md",
