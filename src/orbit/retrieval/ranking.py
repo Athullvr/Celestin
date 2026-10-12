@@ -34,10 +34,10 @@ class RetrievalCandidate:
             not isinstance(self.source_id, str) or not self.source_id
         ):
             raise ValueError("source_id must be a non-empty string or None")
-        if self.record_kind not in {"chat_message", "canonical_decision"}:
-            raise ValueError("record_kind must be chat_message or canonical_decision")
-        if self.record_kind == "chat_message" and self.status is not None:
-            raise ValueError("chat_message status must be None")
+        if self.record_kind not in {"chat_message", "canonical_decision", "document_section"}:
+            raise ValueError("record_kind must be chat_message, canonical_decision, or document_section")
+        if self.record_kind != "canonical_decision" and self.status is not None:
+            raise ValueError(f"{self.record_kind} status must be None")
         if self.record_kind == "canonical_decision" and self.status not in {
             "approved",
             "draft",

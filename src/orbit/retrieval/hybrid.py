@@ -14,13 +14,19 @@ class RetrievalInfo:
 
     mode: ``fts`` (semantic disabled), ``hybrid``, or ``fts_fallback``
     (semantic enabled but unavailable; results are FTS5-only).
+    pageindex (only when document retrieval is enabled): ``used``, ``no_documents``,
+    ``skipped: <reason>`` or ``unavailable: <reason>``.
     """
 
     mode: str = "fts"
     warnings: tuple[str, ...] = ()
+    pageindex: str | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {"mode": self.mode, "warnings": list(self.warnings)}
+        info: dict[str, object] = {"mode": self.mode, "warnings": list(self.warnings)}
+        if self.pageindex is not None:
+            info["pageindex"] = self.pageindex
+        return info
 
 
 def reciprocal_rank_fusion(

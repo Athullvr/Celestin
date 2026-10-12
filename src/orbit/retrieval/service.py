@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from orbit.database.engine import connect
@@ -14,11 +14,14 @@ from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
 from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
 from orbit.retrieval.hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
+from orbit.pageindex.backend import PageIndexBackend, route
+from orbit.pageindex.errors import PageIndexUnavailable
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
 logger = logging.getLogger(__name__)
 MESSAGE_KIND = "chat_message"
 DECISION_KIND = "canonical_decision"
+DOCUMENT_KIND = "document_section"
 
 
 MESSAGE_FTS_SCHEMA = FtsSchema(
@@ -53,6 +56,7 @@ class RetrievalService:
         *,
         candidate_limit: int = 100,
         semantic: SemanticSearch | None = None,
+        documents: PageIndexBackend | None = None,
         rrf_k: int = RRF_K,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
@@ -69,11 +73,34 @@ class RetrievalService:
         self._candidate_limit = candidate_limit
         self._semantic = semantic
         self._rrf_k = rrf_k
+        self._documents = documents
         self.last_retrieval = RetrievalInfo()
+        # record_id -> source reference for document_section items of the last retrieve_context.
+        self.last_sources: dict[str, dict[str, Any]] = {}
 
     @property
     def semantic_enabled(self) -> bool:
         return self._semantic is not None
+
+    @property
+    def documents_enabled(self) -> bool:
+        return self._documents is not None
+
+    def _document_sections(self, project: str, query: str) -> tuple[list, str | None, str | None]:
+        """PageIndex sections for the query, a status string, and an optional warning."""
+        if self._documents is None:
+            return [], None, None
+        skip = route(query)
+        if skip:
+            return [], f"skipped: {skip}", None
+        try:
+            sections = self._documents.retrieve(project, query)
+        except PageIndexUnavailable as exc:
+            logger.warning("PageIndex unavailable, continuing without documents: %s", exc)
+            return [], f"unavailable: {exc}", f"document retrieval unavailable: {exc}"
+        if sections is None:
+            return [], "no_documents", None
+        return sections, "used", None
 
     def _semantic_hits(self, project: str, query: str, kinds: tuple[str, ...], limit: int):
         """Vector hits per kind, or None when degraded to FTS5 (reason recorded)."""
@@ -180,10 +207,14 @@ class RetrievalService:
         hits = self._semantic_hits(
             project, query, (MESSAGE_KIND, DECISION_KIND), self._candidate_limit
         )
+        doc_sections, doc_status, doc_warning = self._document_sections(project, query)
+        # Scores from different engines are not comparable: once anything is
+        # fused, every candidate uses RRF scores (-score, lower is better).
+        fused = hits is not None or bool(doc_sections)
         stale = 0
-        if hits is not None:
+        if fused:
             message_results, stale = self._fuse_messages(
-                project, message_results, hits[MESSAGE_KIND]
+                project, message_results, hits[MESSAGE_KIND] if hits is not None else []
             )
         decision_results = self._decision_search.search(
             query,
@@ -200,17 +231,17 @@ class RetrievalService:
         decision_scores = [
             (int(r.message_id), r.relevance_score) for r in decision_results
         ]
-        if hits is not None:
+        if fused:
             fts_ids = [i for i, _ in decision_scores]
-            semantic_ids = [
-                h.record_id for h in hits[DECISION_KIND] if h.record_id in decisions_by_id
-            ]
-            stale += len(hits[DECISION_KIND]) - len(semantic_ids)
+            decision_hits = hits[DECISION_KIND] if hits is not None else []
+            semantic_ids = [h.record_id for h in decision_hits if h.record_id in decisions_by_id]
+            stale += len(decision_hits) - len(semantic_ids)
             decision_scores = [
                 (i, -score)
                 for i, score in reciprocal_rank_fusion([fts_ids, semantic_ids], self._rrf_k)
             ]
-            self._note_stale(stale)
+            if hits is not None:
+                self._note_stale(stale)
 
         candidates: list[RetrievalCandidate] = [
             RetrievalCandidate(
@@ -245,6 +276,36 @@ class RetrievalService:
                     record_kind="canonical_decision",
                     status=decision["status"],
                 )
+            )
+
+        self.last_sources = {}
+        for rank, section in enumerate(doc_sections, start=1):
+            record_id = f"doc:{section.doc_key}#{section.node_id}"
+            self.last_sources[record_id] = {
+                "document": section.doc_key,
+                "section": " > ".join(section.path),
+                "node_id": section.node_id,
+                "line": section.line_num,
+                "source_path": section.source_path,
+                "content_hash": section.content_hash,
+            }
+            candidates.append(
+                RetrievalCandidate(
+                    record_id=record_id,
+                    project_id=section.project,
+                    source_id=section.doc_key,
+                    content=section.text,
+                    timestamp=section.indexed_at,
+                    relevance_score=-1.0 / (self._rrf_k + rank),
+                    record_kind=DOCUMENT_KIND,
+                )
+            )
+        if self._documents is not None:
+            info = self.last_retrieval
+            self.last_retrieval = replace(
+                info,
+                warnings=info.warnings + ((doc_warning,) if doc_warning else ()),
+                pageindex=doc_status,
             )
 
         return build_context_bundle(
