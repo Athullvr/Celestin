@@ -84,6 +84,7 @@ class PageIndexStore:
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.execute("PRAGMA busy_timeout = 5000")
             if create:
+                self._conn.execute("PRAGMA journal_mode = WAL")
                 self._conn.executescript(SCHEMA)
             else:
                 self._conn.execute("SELECT 1 FROM documents LIMIT 1")
@@ -170,6 +171,28 @@ class PageIndexStore:
             "WHERE d.project = ? AND d.doc_key = ? AND s.node_id = ?", (project, doc_key, node_id)
         )
         return found[0] if found else None
+
+    def fingerprint(self, project: str) -> str:
+        """Changes whenever any indexed document of the project is added, replaced or removed."""
+        rows = self._conn.execute(
+            "SELECT doc_key, content_hash, tree_schema FROM documents WHERE project = ? ORDER BY doc_key",
+            (project,),
+        ).fetchall()
+        return hashlib.sha256(json.dumps([tuple(r) for r in rows]).encode()).hexdigest()
+
+    def missing_sources(self, project: str) -> list[str]:
+        """doc_keys whose recorded source file no longer exists (never deleted implicitly)."""
+        rows = self._conn.execute(
+            "SELECT doc_key, source_path FROM documents WHERE project = ? AND source_path IS NOT NULL ORDER BY doc_key",
+            (project,),
+        )
+        return [r["doc_key"] for r in rows if not Path(r["source_path"]).exists()]
+
+    def source_path(self, project: str, doc_key: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT source_path FROM documents WHERE project = ? AND doc_key = ?", (project, doc_key)
+        ).fetchone()
+        return row[0] if row else None
 
     def source_text(self, project: str, doc_key: str) -> str | None:
         row = self._conn.execute(

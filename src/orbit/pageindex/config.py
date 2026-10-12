@@ -7,6 +7,8 @@ Environment variables:
     CELESTIN_PAGEINDEX_TIMEOUT     seconds per model call (default 30)
     CELESTIN_PAGEINDEX_MAX_SECTIONS  sections returned per query (default 5)
     CELESTIN_PAGEINDEX_MAX_OUTLINE   largest outline sent to the model (default 400 sections)
+    CELESTIN_PAGEINDEX_RETRIES     extra attempts for transient model errors (default 0)
+    CELESTIN_PAGEINDEX_CACHE       navigation results cached in memory (default 64; 0 disables)
 
 The outline (section paths and opening text) and the query are sent to the
 configured model provider for every routed query. Provider credentials use
@@ -21,7 +23,7 @@ from pathlib import Path
 
 from orbit.database import engine
 
-from .backend import PageIndexBackend
+from .backend import DEFAULT_CACHE_SIZE, PageIndexBackend
 from .errors import PageIndexUnavailable
 from .navigator import LLMTreeNavigator, litellm_chat
 
@@ -36,6 +38,8 @@ class PageIndexSettings:
     timeout: float
     max_sections: int
     max_outline: int
+    retries: int
+    cache_size: int
 
 
 def _number(name: str, default: float, cast):
@@ -49,6 +53,17 @@ def _number(name: str, default: float, cast):
     return value
 
 
+def _non_negative(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
+    if value < 0:
+        raise ValueError(f"{name} must not be negative")
+    return value
+
+
 def load_settings(db_path: str | Path | None = None) -> PageIndexSettings:
     env = os.environ
     database = engine._resolve_path(db_path)
@@ -59,6 +74,8 @@ def load_settings(db_path: str | Path | None = None) -> PageIndexSettings:
         timeout=_number("CELESTIN_PAGEINDEX_TIMEOUT", 30.0, float),
         max_sections=_number("CELESTIN_PAGEINDEX_MAX_SECTIONS", 5, int),
         max_outline=_number("CELESTIN_PAGEINDEX_MAX_OUTLINE", 400, int),
+        retries=_non_negative("CELESTIN_PAGEINDEX_RETRIES", 0),
+        cache_size=_non_negative("CELESTIN_PAGEINDEX_CACHE", DEFAULT_CACHE_SIZE),
     )
 
 
@@ -74,8 +91,11 @@ def build_pageindex_backend(db_path: str | Path | None = None) -> PageIndexBacke
         return PageIndexBackend.unavailable("CELESTIN_PAGEINDEX_MODEL is not set")
     try:
         navigator = LLMTreeNavigator(
-            litellm_chat(settings.model, timeout=settings.timeout), max_outline=settings.max_outline
+            litellm_chat(settings.model, timeout=settings.timeout, retries=settings.retries), max_outline=settings.max_outline
         )
     except PageIndexUnavailable as exc:
         return PageIndexBackend.unavailable(str(exc))
-    return PageIndexBackend(settings.store_path, navigator, max_sections=settings.max_sections)
+    return PageIndexBackend(
+        settings.store_path, navigator, max_sections=settings.max_sections,
+        cache_size=settings.cache_size, cache_namespace=settings.model,
+    )

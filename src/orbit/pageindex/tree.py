@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .errors import PageIndexError
 
-TREE_SCHEMA = "pageindex-md-v1"
+TREE_SCHEMA = "pageindex-md-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,9 +23,9 @@ class Section:
 def build_sections(markdown: str, title: str) -> list[Section]:
     """Return sections in document order.
 
-    The parser is ``pageindex.page_index_md`` (heading levels 1-6, bold-only
-    headings, code fences ignored). Celestin adds two things it lacks so no
-    source text is lost: text before the first heading becomes a ``(preamble)``
+    The parser is ``pageindex.page_index_md`` (heading levels 1-6, code fences
+    ignored; bold-only lines count as headings only in documents without ``#``
+    headings). Celestin adds two things it lacks so no source text is lost: text before the first heading becomes a ``(preamble)``
     section, and a document without headings becomes one section titled ``title``.
     """
     try:
@@ -40,6 +40,11 @@ def build_sections(markdown: str, title: str) -> list[Section]:
         ) from exc
 
     nodes, lines = extract_nodes_from_markdown(markdown)
+    # PageIndex treats a bold-only line (**Windows PowerShell**) as a level-1 heading, which
+    # distorts section paths. When the document has real # headings, keep bold-only lines as
+    # ordinary text of the enclosing section; nothing is removed from the content.
+    if any(lines[n["line_num"] - 1].lstrip().startswith("#") for n in nodes):
+        nodes = [n for n in nodes if lines[n["line_num"] - 1].lstrip().startswith("#")]
     if not nodes:
         return [Section("0001", None, title, (title,), 1, 1, markdown.strip())] if markdown.strip() else []
     flat = extract_node_text_content(nodes, lines)
