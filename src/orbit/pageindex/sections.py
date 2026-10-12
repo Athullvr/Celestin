@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-from orbit.retrieval.fts import tiered_match
-
 from .errors import PageIndexUnavailable
 from .store import PageIndexStore, StoredSection
 
@@ -18,6 +16,8 @@ def search_sections(
     Uses the same strict-then-bounded-relaxed tiers as chat search. Project filtering happens in
     the SQL join, so sections of other projects can never be returned.
     """
+    from orbit.retrieval.fts import tiered_match  # imported here: orbit.retrieval imports this package
+
     if not store.has_section_index():
         raise PageIndexUnavailable("section index missing; run: celestin-docs rebuild")
     conn = store.connection()

@@ -9,7 +9,7 @@ from typing import Any
 
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
-from orbit.pageindex.config import build_pageindex_backend
+from orbit.pageindex.config import build_pageindex_backend, sections_store_path, selector_mode
 from orbit.semantic.config import build_semantic_search
 
 
@@ -65,6 +65,8 @@ class RetrievalServices:
                 semantic=build_semantic_search(self._db_path),
                 documents=build_pageindex_backend(self._db_path),
                 fts_relax=_fts_relax_enabled(),
+                sections=sections_store_path(self._db_path),
+                selector=selector_mode(),
             )
             bundle = service.retrieve_context(project, query, token_budget)
 

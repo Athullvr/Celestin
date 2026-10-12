@@ -76,7 +76,9 @@ def test_other_tools_unaffected_and_survive_navigation_failure(docs_env, monkeyp
     assert "retrieval" not in found
     context = server.retrieve_context("demo", QUERY, 2000)
     assert context["retrieval"]["pageindex"].startswith("unavailable")
-    assert [i["record_kind"] for i in context["items"]] == ["chat_message"]
+    kinds = {i["record_kind"] for i in context["items"]}
+    assert "chat_message" in kinds  # ordinary retrieval is unaffected; heading sections may also match
+    assert context["retrieval"]["sections"] == "used"
     assert server.ping() == "Celestin MCP server is running."
 
 
@@ -88,6 +90,7 @@ def test_missing_model_reports_unavailable_without_breaking(docs_env, monkeypatc
 
 def test_response_schema_unchanged_when_disabled(docs_env, monkeypatch):
     monkeypatch.delenv("CELESTIN_PAGEINDEX")
+    monkeypatch.setenv("CELESTIN_DOC_SECTIONS", "0")
     assert "retrieval" not in server.retrieve_context("demo", QUERY, 2000)
 
 

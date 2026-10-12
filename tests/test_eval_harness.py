@@ -46,6 +46,10 @@ def test_default_run_skips_the_real_llm_system_and_labels_diagnostics(tmp_path, 
     assert run_eval.main(["--budgets", "20000", "--fts-relax", "off", "--out", str(tmp_path)]) == 0
     data = json.loads((tmp_path / "results_strict_fts.json").read_text())
     assert data["systems"]["N"]["skipped"].startswith("no model")
+    assert data["systems"]["SN"]["skipped"].startswith("no model")
+    assert {data["systems"][k]["kind"] for k in "HS"} == {"baseline"}
+    assert data["systems"]["S"]["budgets"]["20000"]["mean_strategies_run"] <= 3
+    assert "fallback_rate" in data["systems"]["S"]["budgets"]["20000"]
     assert data["meta"]["dataset_sha256"] == FROZEN_DATASET_SHA256
     assert data["meta"]["navigation_model"] is None and data["meta"]["fts_relax"] is False
     assert {data["systems"][k]["kind"] for k in "CE"} == {"diagnostic"}

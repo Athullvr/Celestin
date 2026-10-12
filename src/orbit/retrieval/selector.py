@@ -113,12 +113,18 @@ def plan_query(query: str, ctx: SelectorContext) -> Plan:
     elif "doc_intent" in f and "multi_section" in f and _navigation_ok(query, ctx):
         plan = Plan("pageindex", cheapest("sections", "fts"),
                     "documentation question spanning sections: hierarchical navigation", f)
-    elif "doc_intent" in f and sections:
-        plan = Plan("sections", "pageindex" if _navigation_ok(query, ctx) else cheapest("semantic", "fts"),
-                    "documentation question: heading-section retrieval", f)
-    elif "discussion" in f or ("question" in f and semantic):
+    elif "discussion" in f:
         plan = Plan("semantic" if semantic else "fts", cheapest("sections" if docs else "fts", "fts"),
-                    "conceptual question or earlier discussion: semantic retrieval", f)
+                    "question about an earlier discussion or decision: semantic retrieval over memory", f)
+    elif sections and ("doc_intent" in f or "question" in f):
+        # Indexed documents are the likeliest source of a factual question that does not refer to a
+        # past discussion; semantic memory search is the fallback (found by failure analysis of
+        # an earlier rule that sent such questions to chat memory first and almost always fell back).
+        plan = Plan("sections", "pageindex" if "doc_intent" in f and _navigation_ok(query, ctx)
+                    else cheapest("semantic", "fts"),
+                    "question with indexed documents: heading-section retrieval", f)
+    elif "question" in f and semantic:
+        plan = Plan("semantic", "fts", "conceptual question: semantic retrieval", f)
     else:
         plan = Plan("fts", cheapest("semantic", "sections" if docs else "fts"),
                     "default: keyword retrieval", f)

@@ -14,10 +14,16 @@ Systems
   B  baseline+semantic same, plus semantic search (real embedding model; needs the cached model)
   F  sections+semantic every heading section ingested as its own message; FTS5 + semantic
                        (no PageIndex; the strongest practical baseline so far)
+  H  heading sections  PRODUCT path: documents indexed with celestin-docs, FTS5 + semantic over
+                       sections, all strategies run (no PageIndex)
+  S  adaptive selector PRODUCT path: as H but CELESTIN_RETRIEVAL_SELECTOR=adaptive (one primary
+                       strategy + at most one fallback, no PageIndex)
   N  PageIndex, real LLM navigation + FTS5 + semantic         [real-LLM evidence]
+  SN adaptive selector with real-LLM PageIndex available as primary/fallback  [real-LLM evidence]
   C  DIAGNOSTIC: PageIndex plumbing with a lexical stand-in navigator, FTS5 only
   D  DIAGNOSTIC: as C plus semantic
   E  DIAGNOSTIC: oracle navigator told the answer (upper bound, not achievable)
+  Sd DIAGNOSTIC: adaptive selector with the lexical stand-in navigator as PageIndex
 C, D and E are NOT evidence of LLM performance. Chat memories are ingested in every system.
 Corpus: eval/corpus (frozen). Questions: eval/dataset.py (frozen, hashed into the results).
 """
@@ -67,6 +73,7 @@ class Spec:
     navigator: str = "none"  # none | standin | oracle | llm
     candidate_limit: int = 100
     margin: float | None = None
+    selector: str = "all"
 
 
 SPECS = {s.key: s for s in [
@@ -74,6 +81,13 @@ SPECS = {s.key: s for s in [
     Spec("B", "B A + semantic", "baseline", "whole", semantic=True),
     Spec("F", "F sections as messages + semantic (no PageIndex)", "baseline", "sections", semantic=True),
     Spec("N", "N PageIndex, REAL LLM + FTS5 + semantic", "real_llm", "tree", semantic=True, navigator="llm"),
+    Spec("H", "H heading sections: FTS5 + semantic (product, no PageIndex)", "baseline", "store", semantic=True),
+    Spec("S", "S deterministic adaptive selector (product, no PageIndex)", "baseline", "store", semantic=True,
+         selector="adaptive"),
+    Spec("SN", "SN adaptive selector + REAL LLM PageIndex", "real_llm", "store", semantic=True, selector="adaptive",
+         navigator="llm"),
+    Spec("Sd", "Sd diagnostic: adaptive selector + stand-in navigator", "diagnostic", "store", semantic=True,
+         selector="adaptive", navigator="standin"),
     Spec("C", "C diagnostic: stand-in navigator + FTS5", "diagnostic", "tree", navigator="standin"),
     Spec("D", "D diagnostic: stand-in navigator + semantic", "diagnostic", "tree", semantic=True, navigator="standin"),
     Spec("E", "E diagnostic: oracle navigator (upper bound)", "diagnostic", "tree", navigator="oracle"),
@@ -104,7 +118,7 @@ def git_sha() -> str:
         return "unknown"
 
 
-def semantic_for(db_dir: Path, conn, spec: Spec):
+def semantic_for(db_dir: Path, conn, spec: Spec, docs_path: Path | None = None):
     from orbit.semantic.config import get_provider, load_settings
     from orbit.semantic.indexer import Indexer
     from orbit.semantic.search import SemanticSearch
@@ -112,8 +126,11 @@ def semantic_for(db_dir: Path, conn, spec: Spec):
 
     settings = load_settings(db_dir / "main.db")
     provider = get_provider(settings)
+    store = PageIndexStore(docs_path, create=False) if docs_path else None
     with VectorIndex(db_dir / "v.db", model_id=provider.model_id, dimension=provider.dimension) as index:
-        report = Indexer(conn, provider, index).sync()
+        report = Indexer(conn, provider, index, sections_connection=store.connection() if store else None).sync()
+    if store:
+        store.close()
     return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin), report
 
 
@@ -142,21 +159,25 @@ def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict
         with PageIndexStore(tmp / "docs.db") as store:
             for d in DOCS:
                 index_markdown_text(store, PROJECT, d, read_doc(d))
-        if spec.navigator == "llm":
+        if spec.navigator == "none":
+            navigator = None
+        elif spec.navigator == "llm":
             llm = litellm_chat(model, timeout=60.0)
             navigator = LLMTreeNavigator(llm)
         elif spec.navigator == "oracle":
             navigator = OracleNavigator(sections_by_key)
         else:
             navigator = StandInNavigator()
-        backend = PageIndexBackend(tmp / "docs.db", navigator, max_sections=MAX_SECTIONS, cache_size=0)
+        if navigator is not None:
+            backend = PageIndexBackend(tmp / "docs.db", navigator, max_sections=MAX_SECTIONS, cache_size=0)
         records += len(sections_by_key)
     semantic = None
     if spec.semantic:
-        semantic, _ = semantic_for(tmp, conn, spec)
+        semantic, _ = semantic_for(tmp, conn, spec, tmp / "docs.db" if spec.docs == "store" else None)
     index_secs = time.perf_counter() - t0
     service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit,
-                               fts_relax=FTS_RELAX)
+                               fts_relax=FTS_RELAX, selector=spec.selector,
+                               sections=tmp / "docs.db" if spec.docs == "store" else None)
     return service, ids, index_secs, navigator, records
 
 
@@ -200,6 +221,7 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
     answering = [i for i in bundle.items if evidence.lower() in i.content.lower()]
     covered = sum(any(sn in i.content for i in bundle.items) for sn in snippets)
     status = info.pageindex or "n/a"
+    sel = info.selector or {}
     return {
         "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
         "gold_recall": covered / len(snippets) if snippets else 0.0,
@@ -212,6 +234,9 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
         "pageindex_failed": status.startswith("unavailable"),
         "pageindex_timeout": status.startswith("unavailable") and "timeout" in status.lower(),
         "usage": nav.get("usage"), "est_prompt_tokens": nav.get("est_prompt_tokens"),
+        "primary": sel.get("primary"), "fallback_used": bool(sel.get("fallback_used")),
+        "strategies_run": len(service._executed),
+        "context_bytes": len(bundle.rendered_context.encode()),
     }
 
 
@@ -223,12 +248,15 @@ def aggregate(rows, chat_hits, model):
     out = {
         "answer_in_context": mean("answered"), "doc_source_accuracy": mean("doc_ok"),
         "section_source_accuracy": mean("sec_ok"), "gold_section_recall": mean("gold_recall"), "mrr": mean("rr"),
-        "mean_context_bytes": mean("tokens"), "mean_items": mean("items"),
+        "mean_context_bytes": mean("tokens"), "median_context_bytes": statistics.median(r["tokens"] for r in rows),
+        "mean_items": mean("items"),
         "unrelated_item_rate": mean("unrelated_item_rate"), "answer_share_of_context": mean("density"),
         "queries_with_budget_exclusions": sum(r["budget_excluded"] > 0 for r in rows),
         "mean_total_latency_ms": mean("total_ms"),
         "mean_local_latency_ms": statistics.mean(r["total_ms"] - r["model_ms"] for r in rows),
         "chat_recall": sum(chat_hits) / len(chat_hits),
+        "fallback_rate": mean("fallback_used"), "mean_strategies_run": mean("strategies_run"),
+        "primary_strategies": {p: sum(r["primary"] == p for r in rows) for p in sorted({r["primary"] for r in rows if r["primary"]})},
         "pageindex_routed": len(routed), "pageindex_skipped": sum(r["pageindex"] == "skipped" for r in rows),
         "pageindex_failures": sum(r["pageindex_failed"] for r in rows),
         "pageindex_timeouts": sum(r["pageindex_timeout"] for r in rows),
@@ -292,12 +320,13 @@ def render(results, meta, budgets) -> str:
     skipped = {k: v["skipped"] for k, v in results.items() if "skipped" in v}
     rows = [("answer_in_context", "answer text in context"), ("gold_section_recall", "gold-section recall"),
             ("doc_source_accuracy", "document source correct"), ("section_source_accuracy", "section source correct"),
-            ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"),
+            ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"), ("median_context_bytes", "median context bytes"),
             ("mean_items", "mean items"), ("unrelated_item_rate", "unrelated item rate"),
             ("answer_share_of_context", "answer-bearing share of context"),
             ("queries_with_budget_exclusions", "queries dropping a record for budget"),
             ("mean_total_latency_ms", "mean total latency (ms)"), ("mean_local_latency_ms", "mean local latency (ms)"),
-            ("chat_recall", "chat recall (5 queries)"), ("pageindex_routed", "navigation calls"),
+            ("chat_recall", "chat recall (5 queries)"), ("fallback_rate", "fallback frequency"),
+            ("mean_strategies_run", "mean strategies run per query"), ("pageindex_routed", "navigation calls"),
             ("pageindex_failures", "navigation failures"), ("pageindex_timeouts", "navigation timeouts"),
             ("model_latency_ms_mean", "model latency mean (ms, observed)"),
             ("model_latency_ms_p95", "model latency p95 (ms, observed)"),
@@ -339,16 +368,18 @@ def main(argv=None) -> int:
     FTS_RELAX = args.fts_relax == "on"
     budgets = tuple(int(b) for b in args.budgets.split(","))
     explicit = args.systems is not None
-    keys = SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,C,D,E,N").split(",")
+    keys = SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
     unknown = [k for k in keys if k not in SPECS]
     if unknown:
         sys.exit(f"ERROR: unknown systems {unknown}; choose from {sorted(SPECS)}")
     results: dict = {}
-    if "N" in keys:
-        reason = check_llm(args.model, required=args.require_llm or (explicit and "N" in args.systems.split(",")))
+    llm_keys = [k for k in keys if SPECS[k].navigator == "llm"]
+    if llm_keys:
+        reason = check_llm(args.model, required=args.require_llm or (explicit and bool(set(llm_keys) & set(args.systems.split(",")))))
         if reason:
-            results["N"] = {"skipped": reason}
-            keys = [k for k in keys if k != "N"]
+            for k in llm_keys:
+                results[k] = {"skipped": reason}
+            keys = [k for k in keys if k not in llm_keys]
         else:
             calls = len(budgets) * len(DOC_QUERIES)
             print(f"NOTE: system N will make up to {calls} model calls to {args.model} (outlines and questions "
@@ -372,7 +403,7 @@ def main(argv=None) -> int:
     meta = {
         "dataset_version": DATASET_VERSION, "dataset_sha256": dataset_hash(), "git_sha": git_sha(),
         "python": platform.python_version(), "pageindex_version": pi_version,
-        "navigation_model": args.model if "N" in results and "budgets" in results["N"] else None,
+        "navigation_model": args.model if any("budgets" in results.get(k, {}) for k in ("N", "SN")) else None,
         "embedding_model": sem.model_id, "semantic_min_similarity": sem.min_similarity,
         "fts_relax": FTS_RELAX, "budgets": list(budgets), "max_sections_per_navigation": MAX_SECTIONS,
         "doc_queries": len(DOC_QUERIES), "chat_queries": len(CHAT_QUERIES), "documents": len(DOCS),
