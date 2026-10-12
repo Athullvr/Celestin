@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import closing
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -134,7 +135,7 @@ def sync_sections_after_index(db_path: str | Path | None = None) -> str | None:
         if not settings.enabled:
             return None
         provider = get_provider(settings)
-        with engine.connect(db_path) as conn, PageIndexStore(
+        with closing(engine.connect(db_path)) as conn, PageIndexStore(
             load_docs_settings(db_path).store_path, create=False
         ) as store, VectorIndex(
             settings.vector_path, model_id=provider.model_id, dimension=provider.dimension
