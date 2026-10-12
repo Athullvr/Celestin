@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -12,6 +13,20 @@ _FTS5_VIRTUAL_TABLE = re.compile(
     r"^\s*create\s+virtual\s+table\b[^()]*\busing\s+fts5\s*\(",
     re.IGNORECASE,
 )
+
+
+_QUOTED = re.compile(r'"([^"]+)"')
+_STOPWORDS = frozenset(
+    "a an the of to in on for and or is are was were be been being how what which who whom whose why "
+    "when where does do did can could may might must should would will shall by with from that this "
+    "these those it its as at after before over under between about into than then there their they "
+    "we our us you your i me my he she his her not no if so but also just".split()
+)
+# Terms that look like identifiers (error codes, versions, paths, snake_case) must keep matching exactly.
+_IDENTIFIER_LIKE = re.compile(r"[0-9_]|\.\w|\w[/\\]\w")
+MIN_RELAXED_TERMS = 3
+RELAXED_MATCH_RATIO = 0.6
+RELAXED_POOL_FACTOR = 5
 
 
 class SearchIndexUnavailable(RuntimeError):
@@ -60,10 +75,48 @@ class SearchResult:
 
 
 def _fts_terms(query: str) -> str:
-    terms = _WORD.findall(query)
-    if not terms:
+    """Strict query: every word (and every "quoted phrase") must match."""
+    phrases = [_WORD.findall(p) for p in _QUOTED.findall(query)]
+    terms = _WORD.findall(_QUOTED.sub(" ", query))
+    parts = [f'"{" ".join(words)}"' for words in phrases if words]
+    parts += [f'"{term}"' for term in terms]
+    return " AND ".join(parts)
+
+
+def _relaxed_plan(query: str) -> tuple[str, list[str], int] | None:
+    """Plan for the OR fallback, or None when the query is too short to relax safely.
+
+    Returns (match query, content terms, minimum terms a result must contain).
+    Identifier-like raw tokens (``ERR_4471``, ``v1.2``, ``src/app.py``) are required
+    to match, so relaxation never loosens an exact lookup.
+    """
+    raw = [t for t in re.findall(r"\S+", _QUOTED.sub(lambda m: m.group(1), query))]
+    required: list[str] = []
+    optional: list[str] = []
+    for token in raw:
+        words = _WORD.findall(token)
+        if not words:
+            continue
+        if _IDENTIFIER_LIKE.search(token):
+            required += [w for w in words if w not in required]
+        else:
+            optional += [w for w in words if w.casefold() not in _STOPWORDS and w not in optional and w not in required]
+    content = required + optional
+    if len(content) < MIN_RELAXED_TERMS or not optional:
+        return None
+    min_match = max(len(required) + 1, math.ceil(len(content) * RELAXED_MATCH_RATIO))
+    optional_expr = "(" + " OR ".join(f'"{w}"' for w in optional) + ")"
+    required_expr = " AND ".join(f'"{w}"' for w in required)
+    return (f"{required_expr} AND {optional_expr}" if required else optional_expr), content, min_match
+
+
+def _without_stopwords(query: str) -> str:
+    """Strict AND over the non-stopword terms, or "" when nothing would change."""
+    terms = _WORD.findall(_QUOTED.sub(lambda m: m.group(1), query))
+    kept = [t for t in terms if t.casefold() not in _STOPWORDS]
+    if not kept or len(kept) == len(terms):
         return ""
-    return " AND ".join(f'"{term}"' for term in terms)
+    return " AND ".join(f'"{t}"' for t in kept)
 
 
 class FtsMessageSearch:
@@ -74,6 +127,7 @@ class FtsMessageSearch:
             raise TypeError("connection must be a sqlite3.Connection")
         self._connection = connection
         self._schema = schema
+        self.last_tier = "strict"
 
     def search(
         self,
@@ -81,13 +135,23 @@ class FtsMessageSearch:
         *,
         project_id: str,
         limit: int = 10,
+        relax: bool = False,
     ) -> list[SearchResult]:
         """Return project-scoped FTS matches, ordered by BM25 then recency.
 
-        Query text is treated as plain terms joined with AND. FTS operators and
-        punctuation are not exposed as query syntax. Empty or punctuation-only
-        queries return an empty list without touching the database.
+        Query text is treated as plain terms joined with AND (a ``"quoted phrase"``
+        must match adjacently). FTS operators and punctuation are not exposed as
+        query syntax. Empty or punctuation-only queries return an empty list
+        without touching the database.
+
+        With ``relax=True``, a query whose strict form finds nothing is retried in
+        bounded steps, and the first step with results wins (``last_tier`` records
+        which): 1) strict AND without stopwords; 2) for queries with at least
+        three content terms, an OR query where a result must contain at least 60%
+        of the terms plus every identifier-like term. Queries that match strictly
+        are never changed.
         """
+        self.last_tier = "strict"
         if not isinstance(query, str):
             raise TypeError("query must be a string")
         if "\x00" in query:
@@ -104,6 +168,7 @@ class FtsMessageSearch:
         match_query = _fts_terms(query)
         if not match_query:
             return []
+        self.last_tier = "strict"
 
         schema = self._schema
         table = f'"{schema.table}"'
@@ -149,18 +214,43 @@ class FtsMessageSearch:
                 raise SearchIndexUnavailable(
                     f"Configured FTS5 table {schema.table!r} is missing or incompatible"
                 )
-            rows = self._connection.execute(sql, (match_query, project_id, limit))
-            return [
-                SearchResult(
-                    message_id=str(row[0]),
-                    project_id=str(row[1]),
-                    source_id=str(row[2]),
-                    timestamp=str(row[3]) if row[3] is not None else None,
-                    content=str(row[4]),
-                    relevance_score=float(row[5]),
-                )
-                for row in rows
-            ]
+            def run(match: str, row_limit: int) -> list[SearchResult]:
+                rows = self._connection.execute(sql, (match, project_id, row_limit))
+                return [
+                    SearchResult(
+                        message_id=str(row[0]),
+                        project_id=str(row[1]),
+                        source_id=str(row[2]),
+                        timestamp=str(row[3]) if row[3] is not None else None,
+                        content=str(row[4]),
+                        relevance_score=float(row[5]),
+                    )
+                    for row in rows
+                ]
+
+            results = run(match_query, limit)
+            if results or not relax:
+                return results
+            stopless = _without_stopwords(query)
+            if stopless:
+                results = run(stopless, limit)
+                if results:
+                    self.last_tier = "no_stopwords"
+                    return results
+            plan = _relaxed_plan(query)
+            if plan is None:
+                return []
+            relaxed_query, terms, min_match = plan
+            wanted = [t.casefold() for t in terms]
+            candidates = run(relaxed_query, limit * RELAXED_POOL_FACTOR)
+            kept = []
+            for result in candidates:
+                words = {w.casefold() for w in _WORD.findall(result.content)}
+                if sum(t in words for t in wanted) >= min_match:
+                    kept.append(result)
+            if kept:
+                self.last_tier = "relaxed_or"
+            return kept[:limit]
         except sqlite3.OperationalError as exc:
             message = str(exc).lower()
             if "no such table" in message or "no such column" in message or "match" in message:

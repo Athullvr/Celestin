@@ -58,6 +58,7 @@ class RetrievalService:
         semantic: SemanticSearch | None = None,
         documents: PageIndexBackend | None = None,
         rrf_k: int = RRF_K,
+        fts_relax: bool = True,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -73,6 +74,7 @@ class RetrievalService:
         self._candidate_limit = candidate_limit
         self._semantic = semantic
         self._rrf_k = rrf_k
+        self._fts_relax = fts_relax
         self._documents = documents
         self.last_retrieval = RetrievalInfo()
         # record_id -> source reference for document_section items of the last retrieve_context.
@@ -182,6 +184,7 @@ class RetrievalService:
         fts = self._message_search.search(
             query, project_id=project, limit=max(limit, self._candidate_limit)
             if self._semantic is not None else limit,
+            relax=self._fts_relax,
         )
         hits = self._semantic_hits(project, query, (MESSAGE_KIND,), self._candidate_limit)
         if hits is None:
@@ -203,6 +206,7 @@ class RetrievalService:
             query,
             project_id=project,
             limit=self._candidate_limit,
+            relax=self._fts_relax,
         )
         hits = self._semantic_hits(
             project, query, (MESSAGE_KIND, DECISION_KIND), self._candidate_limit
@@ -220,6 +224,7 @@ class RetrievalService:
             query,
             project_id=project,
             limit=self._candidate_limit,
+            relax=self._fts_relax,
         )
         decisions_by_id = {
             int(row["id"]): row

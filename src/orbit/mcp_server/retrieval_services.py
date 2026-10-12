@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,11 @@ from orbit.pageindex.config import build_pageindex_backend
 from orbit.semantic.config import build_semantic_search
 
 
+def _fts_relax_enabled() -> bool:
+    """CELESTIN_FTS_RELAX=0/false/no/off disables bounded FTS5 query relaxation (default on)."""
+    return os.environ.get("CELESTIN_FTS_RELAX", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 class RetrievalServices:
     """Open a project database per call and delegate all ranking to retrieval."""
 
@@ -20,7 +26,9 @@ class RetrievalServices:
 
     def search_chat_history(self, project: str, query: str, limit: int) -> dict[str, Any]:
         with closing(connect(self._db_path)) as connection:
-            service = RetrievalService(connection, semantic=build_semantic_search(self._db_path))
+            service = RetrievalService(
+                connection, semantic=build_semantic_search(self._db_path), fts_relax=_fts_relax_enabled()
+            )
             results = service.search_chat_history(project, query, limit)
         response = {
             "project": project,
@@ -56,6 +64,7 @@ class RetrievalServices:
                 connection,
                 semantic=build_semantic_search(self._db_path),
                 documents=build_pageindex_backend(self._db_path),
+                fts_relax=_fts_relax_enabled(),
             )
             bundle = service.retrieve_context(project, query, token_budget)
 
