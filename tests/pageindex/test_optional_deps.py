@@ -23,7 +23,7 @@ def test_indexing_without_pageindex_gives_install_hint(tmp_path, monkeypatch):
 def test_cli_index_without_pageindex_fails_cleanly(tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "pageindex.page_index_md", None)
     monkeypatch.setitem(sys.modules, "pageindex", None)
-    monkeypatch.setenv("CELESTIN_DB_PATH", str(tmp_path / "m.db"))
+    monkeypatch.setattr("orbit.database.engine.DB_PATH", tmp_path / "m.db")
     (tmp_path / "a.md").write_text("# T\n\nbody")
     assert cli.main(["index", "--project", "p", str(tmp_path / "a.md")]) == 1
     assert "pip install" in capsys.readouterr().err
@@ -36,7 +36,7 @@ def test_litellm_missing_is_unavailable(monkeypatch):
 
 
 def test_backend_builder_states(monkeypatch, tmp_path):
-    monkeypatch.setenv("CELESTIN_DB_PATH", str(tmp_path / "m.db"))
+    monkeypatch.setattr("orbit.database.engine.DB_PATH", tmp_path / "m.db")
     monkeypatch.delenv("CELESTIN_PAGEINDEX", raising=False)
     assert config.build_pageindex_backend() is None
     monkeypatch.setenv("CELESTIN_PAGEINDEX", "1")

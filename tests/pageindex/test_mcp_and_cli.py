@@ -113,7 +113,7 @@ def test_cli_search_prints_sections(docs_env, capsys):
 
 
 def test_cli_status_without_index_is_an_error(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("CELESTIN_DB_PATH", str(tmp_path / "x.db"))
+    monkeypatch.setattr("orbit.database.engine.DB_PATH", tmp_path / "x.db")
     assert cli.main(["status", "--project", "demo"]) == 1
     assert "celestin-docs index" in capsys.readouterr().err
 

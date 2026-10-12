@@ -187,6 +187,18 @@ CELESTIN_RUN_MODEL_TESTS=1 python -m pytest tests/semantic/test_real_model.py
 
 More detail: [docs/semantic-search.md](docs/semantic-search.md).
 
+## Document retrieval with PageIndex (optional, experimental)
+
+Long Markdown documents (specs, design notes) can be indexed into heading-section trees and searched by having an LLM pick sections from the outline, the approach of [PageIndex](https://github.com/VectifyAI/PageIndex). It is off by default, needs a model API key and sends the query and the outline to that provider. **It has been tested only with a fake navigation model; it has not been shown to improve retrieval with a real LLM.**
+
+```sh
+python -m pip install -e ".[pageindex]"
+celestin-docs index --project my-project docs/
+export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus the provider's key variable
+```
+
+`retrieve_context` then also returns `document_section` items with a `source` (document, section, line, content hash); a failure of this backend only adds a warning. Details, evaluation and limits: [docs/pageindex.md](docs/pageindex.md).
+
 ## Behavior and limitations
 
 - Every read and write is scoped to the supplied project name. There is no
