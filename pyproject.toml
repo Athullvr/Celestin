@@ -13,12 +13,14 @@ dependencies = ["mcp>=1.0,<2.0"]
 [project.scripts]
 celestin = "orbit.mcp_server.server:main"
 celestin-index = "orbit.semantic.cli:main"
+celestin-docs = "orbit.pageindex.cli:main"
 # Compatibility aliases for clients configured before the Celestin rename.
 orbit = "orbit.mcp_server.server:main"
 memory-bridge = "orbit.mcp_server.server:main"
 
 [project.optional-dependencies]
 semantic = ["sqlite-vec>=0.1.9,<0.2", "fastembed>=0.9,<1.0"]
+pageindex = ["pageindex>=0.4,<0.5"]
 test = ["pytest"]
 
 [tool.setuptools.packages.find]
