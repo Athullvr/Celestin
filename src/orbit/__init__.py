@@ -1,2 +1,2 @@
-"""Orbit persistent memory system for AI agents."""
+"""Celestin persistent memory system for AI agents."""
 

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
+from orbit.pageindex.config import build_pageindex_backend
+from orbit.semantic.config import build_semantic_search
+
+
+def _fts_relax_enabled() -> bool:
+    """CELESTIN_FTS_RELAX=0/false/no/off disables bounded FTS5 query relaxation (default on)."""
+    return os.environ.get("CELESTIN_FTS_RELAX", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 class RetrievalServices:
@@ -18,8 +26,11 @@ class RetrievalServices:
 
     def search_chat_history(self, project: str, query: str, limit: int) -> dict[str, Any]:
         with closing(connect(self._db_path)) as connection:
-            results = RetrievalService(connection).search_chat_history(project, query, limit)
-        return {
+            service = RetrievalService(
+                connection, semantic=build_semantic_search(self._db_path), fts_relax=_fts_relax_enabled()
+            )
+            results = service.search_chat_history(project, query, limit)
+        response = {
             "project": project,
             "query": query,
             "results": [
@@ -36,10 +47,26 @@ class RetrievalServices:
                 for result in results
             ],
         }
+        return self._with_retrieval_info(response, service)
+
+    @staticmethod
+    def _with_retrieval_info(response: dict[str, Any], service: RetrievalService) -> dict[str, Any]:
+        # Only present when semantic search is enabled, so the FTS5-only
+        # response schema is unchanged. mode "fts_fallback" means semantic
+        # search failed and results are keyword-only (see warnings).
+        if service.semantic_enabled or service.documents_enabled:
+            response["retrieval"] = service.last_retrieval.as_dict()
+        return response
 
     def retrieve_context(self, project: str, query: str, token_budget: int) -> dict[str, Any]:
         with closing(connect(self._db_path)) as connection:
-            bundle = RetrievalService(connection).retrieve_context(project, query, token_budget)
+            service = RetrievalService(
+                connection,
+                semantic=build_semantic_search(self._db_path),
+                documents=build_pageindex_backend(self._db_path),
+                fts_relax=_fts_relax_enabled(),
+            )
+            bundle = service.retrieve_context(project, query, token_budget)
 
         def public_record(record: Any) -> dict[str, Any]:
             source_message_id = (
@@ -47,6 +74,10 @@ class RetrievalServices:
                 if record.record_kind == "chat_message"
                 else record.source_id
             )
+            source = service.last_sources.get(record.record_id)
+            if source is not None:
+                # Document sections have no source message; `source` names the document and section.
+                source_message_id = None
             result = {
                 "record_id": record.record_id,
                 "source_message_id": source_message_id,
@@ -54,11 +85,13 @@ class RetrievalServices:
                 "record_kind": record.record_kind,
                 "status": record.status,
             }
+            if source is not None:
+                result["source"] = source
             if hasattr(record, "content"):
                 result["content"] = record.content
             return result
 
-        return {
+        response = {
             "project": project,
             "query": query,
             "items": [
@@ -76,3 +109,4 @@ class RetrievalServices:
                 if item.reason in {"token_budget", "duplicate_content"}
             ],
         }
+        return self._with_retrieval_info(response, service)

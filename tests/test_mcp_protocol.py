@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import sys
 import unittest
@@ -13,12 +14,17 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _script(name: str) -> str | None:
+    """Find an installed console script, including one next to this interpreter's venv."""
+    return shutil.which(name, path=f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}")
+
+
 class StdioProtocolTests(unittest.TestCase):
     def test_startup_tool_discovery_ping_and_safe_validation(self) -> None:
         async def exercise_protocol() -> None:
             # Exercise the installed entry point when available, with a module
             # invocation fallback for environments that have not installed it.
-            executable = shutil.which("orbit")
+            executable = _script("celestin")
             if executable:
                 command, args = executable, []
             else:
@@ -32,7 +38,7 @@ class StdioProtocolTests(unittest.TestCase):
             async with stdio_client(parameters) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     initialized = await session.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "Orbit")
+                    self.assertEqual(initialized.serverInfo.name, "Celestin")
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}
                     self.assertTrue(
@@ -49,7 +55,7 @@ class StdioProtocolTests(unittest.TestCase):
                     self.assertFalse(ping_result.isError)
                     self.assertEqual(
                         [item.text for item in ping_result.content if hasattr(item, "text")],
-                        ["Orbit MCP server is running."],
+                        ["Celestin MCP server is running."],
                     )
 
                     # Invalid role fails at the MCP tool boundary before any
@@ -70,19 +76,17 @@ class StdioProtocolTests(unittest.TestCase):
                     self.assertIn("INVALID_ARGUMENT", error_text)
                     self.assertNotIn("private sample text", error_text)
 
-            legacy_executable = shutil.which("memory-bridge")
-            self.assertIsNotNone(legacy_executable)
-            async with stdio_client(
-                StdioServerParameters(
-                    command=legacy_executable,
-                    cwd=REPOSITORY_ROOT,
-                )
-            ) as (read_stream, write_stream):
-                async with ClientSession(read_stream, write_stream) as session:
-                    initialized = await session.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "Orbit")
-                    ping_result = await session.call_tool("ping", {})
-                    self.assertFalse(ping_result.isError)
+            # Pre-rename aliases must keep launching the same server.
+            for alias in ("memory-bridge", "orbit"):
+                legacy_executable = _script(alias)
+                self.assertIsNotNone(legacy_executable)
+                legacy_parameters = StdioServerParameters(command=legacy_executable, cwd=REPOSITORY_ROOT)
+                async with stdio_client(legacy_parameters) as (read_stream, write_stream):
+                    async with ClientSession(read_stream, write_stream) as session:
+                        initialized = await session.initialize()
+                        self.assertEqual(initialized.serverInfo.name, "Celestin")
+                        ping_result = await session.call_tool("ping", {})
+                        self.assertFalse(ping_result.isError)
 
         asyncio.run(exercise_protocol())
 

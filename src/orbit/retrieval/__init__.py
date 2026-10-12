@@ -15,6 +15,7 @@ from .fts import (
     SearchIndexUnavailable,
     SearchResult,
 )
+from .hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from .ranking import (
     RankingPolicy,
     RetrievalCandidate,
@@ -29,6 +30,9 @@ from .service import (
 )
 
 __all__ = [
+    "RRF_K",
+    "RetrievalInfo",
+    "reciprocal_rank_fusion",
     "FtsMessageSearch",
     "FtsSchema",
     "SearchIndexUnavailable",

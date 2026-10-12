@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from orbit.database.engine import connect
 from orbit.repositories.decisions import DecisionRepository
 from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
 from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
+from orbit.retrieval.hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
+from orbit.pageindex.backend import PageIndexBackend
+from orbit.pageindex.routing import decide_route
+from orbit.pageindex.errors import PageIndexUnavailable
+from orbit.semantic.search import SemanticSearch, SemanticUnavailable
+
+logger = logging.getLogger(__name__)
+MESSAGE_KIND = "chat_message"
+DECISION_KIND = "canonical_decision"
+DOCUMENT_KIND = "document_section"
 
 
 MESSAGE_FTS_SCHEMA = FtsSchema(
@@ -45,6 +56,10 @@ class RetrievalService:
         connection: sqlite3.Connection,
         *,
         candidate_limit: int = 100,
+        semantic: SemanticSearch | None = None,
+        documents: PageIndexBackend | None = None,
+        rrf_k: int = RRF_K,
+        fts_relax: bool = True,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -56,7 +71,122 @@ class RetrievalService:
         self._message_search = FtsMessageSearch(connection, MESSAGE_FTS_SCHEMA)
         self._decision_search = FtsMessageSearch(connection, DECISION_FTS_SCHEMA)
         self._decisions = DecisionRepository(connection)
+        self._connection = connection
         self._candidate_limit = candidate_limit
+        self._semantic = semantic
+        self._rrf_k = rrf_k
+        self._fts_relax = fts_relax
+        self._documents = documents
+        self.last_retrieval = RetrievalInfo()
+        # record_id -> source reference for document_section items of the last retrieve_context.
+        self.last_sources: dict[str, dict[str, Any]] = {}
+        self._navigation: dict | None = None
+
+    @property
+    def semantic_enabled(self) -> bool:
+        return self._semantic is not None
+
+    @property
+    def documents_enabled(self) -> bool:
+        return self._documents is not None
+
+    def _document_sections(
+        self, project: str, query: str, token_budget: int, approved_strict_hit: bool
+    ) -> tuple[list, str | None, str | None]:
+        """PageIndex sections for the query, a status string, and an optional warning."""
+        self._navigation = None
+        if self._documents is None:
+            return [], None, None
+        try:
+            prepared = self._documents.prepare(project)
+            if prepared is None:
+                return [], "no_documents", None
+            decision = decide_route(
+                query,
+                token_budget=token_budget,
+                approved_strict_hit=approved_strict_hit,
+                outline_tokens=prepared.est_prompt_tokens,
+            )
+            if not decision.use:
+                return [], f"skipped: {decision.reason}", None
+            sections = self._documents.navigate(prepared, query)
+        except PageIndexUnavailable as exc:
+            logger.warning("PageIndex unavailable, continuing without documents: %s", exc)
+            stats = self._documents.last_stats
+            self._navigation = stats.as_dict() if stats else None
+            return [], f"unavailable: {exc}", f"document retrieval unavailable: {exc}"
+        stats = self._documents.last_stats
+        self._navigation = stats.as_dict() if stats else None
+        return sections, "used", None
+
+    def _semantic_hits(self, project: str, query: str, kinds: tuple[str, ...], limit: int):
+        """Vector hits per kind, or None when degraded to FTS5 (reason recorded)."""
+        if self._semantic is None:
+            self.last_retrieval = RetrievalInfo("fts")
+            return None
+        if not query.strip():
+            self.last_retrieval = RetrievalInfo("hybrid")
+            return {kind: [] for kind in kinds}
+        try:
+            hits = self._semantic.search(project, query, kinds=kinds, limit=limit)
+        except SemanticUnavailable as exc:
+            logger.warning("semantic search unavailable, using FTS5 only: %s", exc)
+            self.last_retrieval = RetrievalInfo(
+                "fts_fallback", (f"semantic search unavailable: {exc}",)
+            )
+            return None
+        self.last_retrieval = RetrievalInfo("hybrid")
+        return hits
+
+    def _note_stale(self, count: int) -> None:
+        if count:
+            self.last_retrieval = RetrievalInfo(
+                "hybrid",
+                (f"ignored {count} vector hit(s) with no matching SQLite record; "
+                 "run: celestin-index sync",),
+            )
+
+    def _load_messages(self, project: str, ids: list[int]) -> dict[int, sqlite3.Row]:
+        """Authoritative message rows, re-filtered by project."""
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        rows = self._connection.execute(
+            f"SELECT * FROM chat_messages WHERE project = ? AND id IN ({marks})",
+            (project, *ids),
+        )
+        return {int(row["id"]): row for row in rows}
+
+    def _fuse_messages(
+        self, project: str, fts: list[SearchResult], vector_hits
+    ) -> tuple[list[SearchResult], int]:
+        """Merge FTS5 and vector message hits with RRF into SearchResults.
+
+        ``relevance_score`` of fused results is ``-rrf_score`` so that, like
+        BM25, a lower value is better.
+        """
+        by_id = {int(r.message_id): r for r in fts}
+        rows = self._load_messages(
+            project, [h.record_id for h in vector_hits if h.record_id not in by_id]
+        )
+        semantic_ids = [h.record_id for h in vector_hits if h.record_id in by_id or h.record_id in rows]
+        stale = len(vector_hits) - len(semantic_ids)
+        fused = reciprocal_rank_fusion([list(by_id), semantic_ids], self._rrf_k)
+        results = []
+        for record_id, score in fused:
+            if record_id in by_id:
+                base = by_id[record_id]
+                results.append(SearchResult(
+                    base.message_id, base.project_id, base.source_id,
+                    base.content, base.timestamp, -score,
+                ))
+            else:
+                row = rows[record_id]
+                results.append(SearchResult(
+                    str(record_id), row["project"], row["conversation_id"],
+                    row["content"], row["created_at"], -score,
+                ))
+        return results, stale
 
     def search_chat_history(
         self, project: str, query: str, limit: int = 10
@@ -66,9 +196,17 @@ class RetrievalService:
         Each result includes the chat message ID, project, conversation ID in
         ``source_id``, content, timestamp, and relevance score.
         """
-        return self._message_search.search(
-            query, project_id=project, limit=limit
+        fts = self._message_search.search(
+            query, project_id=project, limit=max(limit, self._candidate_limit)
+            if self._semantic is not None else limit,
+            relax=self._fts_relax,
         )
+        hits = self._semantic_hits(project, query, (MESSAGE_KIND,), self._candidate_limit)
+        if hits is None:
+            return fts[:limit]
+        fused, stale = self._fuse_messages(project, fts, hits[MESSAGE_KIND])
+        self._note_stale(stale)
+        return fused[:limit]
 
     def retrieve_context(
         self, project: str, query: str, token_budget: int = 2_000
@@ -83,11 +221,16 @@ class RetrievalService:
             query,
             project_id=project,
             limit=self._candidate_limit,
+            relax=self._fts_relax,
+        )
+        hits = self._semantic_hits(
+            project, query, (MESSAGE_KIND, DECISION_KIND), self._candidate_limit
         )
         decision_results = self._decision_search.search(
             query,
             project_id=project,
             limit=self._candidate_limit,
+            relax=self._fts_relax,
         )
         decisions_by_id = {
             int(row["id"]): row
@@ -95,6 +238,36 @@ class RetrievalService:
                 project, include_deprecated=True
             )
         }
+
+        approved_strict_hit = self._decision_search.last_tier == "strict" and any(
+            (row := decisions_by_id.get(int(r.message_id))) is not None and row["status"] == "approved"
+            for r in decision_results
+        )
+        doc_sections, doc_status, doc_warning = self._document_sections(
+            project, query, token_budget, approved_strict_hit
+        )
+        # Scores from different engines are not comparable: once anything is
+        # fused, every candidate uses RRF scores (-score, lower is better).
+        fused = hits is not None or bool(doc_sections)
+        stale = 0
+        if fused:
+            message_results, stale = self._fuse_messages(
+                project, message_results, hits[MESSAGE_KIND] if hits is not None else []
+            )
+        decision_scores = [
+            (int(r.message_id), r.relevance_score) for r in decision_results
+        ]
+        if fused:
+            fts_ids = [i for i, _ in decision_scores]
+            decision_hits = hits[DECISION_KIND] if hits is not None else []
+            semantic_ids = [h.record_id for h in decision_hits if h.record_id in decisions_by_id]
+            stale += len(decision_hits) - len(semantic_ids)
+            decision_scores = [
+                (i, -score)
+                for i, score in reciprocal_rank_fusion([fts_ids, semantic_ids], self._rrf_k)
+            ]
+            if hits is not None:
+                self._note_stale(stale)
 
         candidates: list[RetrievalCandidate] = [
             RetrievalCandidate(
@@ -108,8 +281,8 @@ class RetrievalService:
             )
             for result in message_results
         ]
-        for result in decision_results:
-            decision = decisions_by_id.get(int(result.message_id))
+        for decision_id, decision_score in decision_scores:
+            decision = decisions_by_id.get(decision_id)
             if decision is None:
                 # This should only occur if an index is manually modified;
                 # don't emit a candidate without authoritative status data.
@@ -125,10 +298,41 @@ class RetrievalService:
                     ),
                     content=decision["value"],
                     timestamp=decision["updated_at"],
-                    relevance_score=result.relevance_score,
+                    relevance_score=decision_score,
                     record_kind="canonical_decision",
                     status=decision["status"],
                 )
+            )
+
+        self.last_sources = {}
+        for rank, section in enumerate(doc_sections, start=1):
+            record_id = f"doc:{section.doc_key}#{section.node_id}"
+            self.last_sources[record_id] = {
+                "document": section.doc_key,
+                "section": " > ".join(section.path),
+                "node_id": section.node_id,
+                "line": section.line_num,
+                "source_path": section.source_path,
+                "content_hash": section.content_hash,
+            }
+            candidates.append(
+                RetrievalCandidate(
+                    record_id=record_id,
+                    project_id=section.project,
+                    source_id=section.doc_key,
+                    content=section.text,
+                    timestamp=section.indexed_at,
+                    relevance_score=-1.0 / (self._rrf_k + rank),
+                    record_kind=DOCUMENT_KIND,
+                )
+            )
+        if self._documents is not None:
+            info = self.last_retrieval
+            self.last_retrieval = replace(
+                info,
+                warnings=info.warnings + ((doc_warning,) if doc_warning else ()),
+                pageindex=doc_status,
+                navigation=self._navigation,
             )
 
         return build_context_bundle(

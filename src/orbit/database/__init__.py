@@ -1,4 +1,4 @@
-"""SQLite persistence layer for Orbit.
+"""SQLite persistence layer for Celestin.
 
 This package owns the schema and all DDL. Repositories in
 ``orbit.repositories`` build on top of it and are the public

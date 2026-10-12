@@ -1,4 +1,4 @@
-# Phase 8 — Orbit remote MCP connectivity investigation
+# Phase 8 — Celestin remote MCP connectivity investigation
 
 **Status:** Investigation only. No remote transport, tunnel, deployment, or authentication code has been enabled. The local stdio workflow remains the supported implementation.
 

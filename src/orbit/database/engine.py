@@ -11,8 +11,9 @@ is applied, each inside its own transaction. A clean checkout therefore
 initializes itself on first connect with no manual steps.
 
 Environment:
-    ``MEMORY_BRIDGE_DB_PATH`` overrides the database location (used by
-    tests and anyone running an isolated instance).
+    ``CELESTIN_DB_PATH`` overrides the database location. The legacy
+    ``MEMORY_BRIDGE_DB_PATH`` is still honored when ``CELESTIN_DB_PATH`` is
+    unset, so existing Orbit-era client configurations keep working.
 """
 
 from __future__ import annotations
@@ -24,7 +25,9 @@ from pathlib import Path
 DEFAULT_DB_PATH = Path("data/memory_bridge.db")
 
 DB_PATH = Path(
-    os.environ.get("MEMORY_BRIDGE_DB_PATH", str(DEFAULT_DB_PATH))
+    os.environ.get("CELESTIN_DB_PATH")
+    or os.environ.get("MEMORY_BRIDGE_DB_PATH")
+    or str(DEFAULT_DB_PATH)
 )
 
 # Every key in this dict is a schema version. Applying a migration bumps
@@ -190,7 +193,7 @@ def _apply_migration(conn: sqlite3.Connection, version: int, script: str) -> Non
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
-    """Open (and create if needed) the Orbit database.
+    """Open (and create if needed) the Celestin database.
 
     Applies any pending schema migrations. Returns an open ``sqlite3``
     connection in autocommit mode (``isolation_level=None``); callers who

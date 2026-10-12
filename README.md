@@ -1,8 +1,10 @@
-# Orbit — Persistent Memory for AI Agents
+# Celestin — Persistent Memory for AI Agents
 
-Orbit is a local MCP server that gives AI agents project-scoped persistent
+Celestin (formerly Orbit) is a local MCP server that gives AI agents project-scoped persistent
 memory. It stores chat messages and project decisions in SQLite, then provides
 tools to search chat history and retrieve a bounded, traceable context bundle.
+Search is SQLite FTS5 keyword search, optionally combined with local semantic
+(embedding) search; see [Semantic search](#semantic-search-optional).
 The server communicates with MCP clients over stdio.
 
 ## Requirements
@@ -18,7 +20,7 @@ dataset or embedding service.
 ## Install
 
 From the repository root, create and activate a virtual environment, then
-install Orbit in editable mode:
+install Celestin in editable mode:
 
 **macOS / Linux**
 
@@ -36,52 +38,54 @@ py -m venv .venv
 python -m pip install -e .
 ```
 
-Installation provides the `orbit` command. The SQLite database and its schema
+Installation provides the `celestin` command (the pre-rename `orbit` and
+`memory-bridge` commands remain as aliases) and the `celestin-index` command. The SQLite database and its schema
 are created automatically the first time the server connects. By default, the
 database is `data/memory_bridge.db` relative to the process working directory.
-Set `MEMORY_BRIDGE_DB_PATH` to an absolute writable path to choose another
-location.
+Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
+location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
+`CELESTIN_DB_PATH` is unset.
 
 ## Run with Codex CLI
 
-Register Orbit as a local stdio MCP server. Set the database path to a location
+Register Celestin as a local stdio MCP server. Set the database path to a location
 you can write to. Run this from a shell where the virtual environment is
 activated:
 
 **macOS / Linux**
 
 ```sh
-codex mcp add orbit \
-  --env MEMORY_BRIDGE_DB_PATH=/absolute/path/to/orbit.db \
-  -- orbit
+codex mcp add celestin \
+  --env CELESTIN_DB_PATH=/absolute/path/to/celestin.db \
+  -- celestin
 codex mcp list
 ```
 
-If Codex cannot find `orbit`, use the absolute path to `.venv/bin/orbit` after
+If Codex cannot find `celestin`, use the absolute path to `.venv/bin/celestin` after
 the `--` separator.
 
 **Windows PowerShell**
 
 ```powershell
-codex mcp add orbit --env 'MEMORY_BRIDGE_DB_PATH=C:\path\to\orbit.db' -- .venv\Scripts\orbit.exe
+codex mcp add celestin --env 'CELESTIN_DB_PATH=C:\path\to\celestin.db' -- .venv\Scripts\celestin.exe
 codex mcp list
 ```
 
 Use an absolute executable path if needed, and quote it if the path contains
 spaces. Restart Codex after registration if it was already running. To remove
-the server later, run `codex mcp remove orbit`.
+the server later, run `codex mcp remove celestin`.
 
-Other MCP clients can launch `orbit` directly over stdio (or use the absolute
+Other MCP clients can launch `celestin` directly over stdio (or use the absolute
 path to the executable in `.venv`). A minimal client configuration is:
 
 ```json
 {
   "mcpServers": {
-    "orbit": {
-      "command": "orbit",
+    "celestin": {
+      "command": "celestin",
       "args": [],
       "env": {
-        "MEMORY_BRIDGE_DB_PATH": "/absolute/path/to/orbit.db"
+        "CELESTIN_DB_PATH": "/absolute/path/to/celestin.db"
       }
     }
   }
@@ -115,8 +119,85 @@ Use the returned `message_id` in `save_decision`, for example with key
 `storage` and value `Use SQLite for local storage.` Then call
 `search_chat_history` with project `demo` and query `SQLite local`, or call
 `retrieve_context` with the same project and query plus a `token_budget` such
-as `2000`. Each tool call is made through the connected MCP client; Orbit does
+as `2000`. Each tool call is made through the connected MCP client; Celestin does
 not include a separate web UI.
+
+## Semantic search (optional)
+
+Celestin keeps **SQLite as the only source of truth** and **FTS5 for exact
+keyword search** (rare terms, error codes, identifiers, names). Semantic search
+adds a derived vector index so reworded queries ("why did we avoid hosted
+infrastructure?") can find a memory saved as "we chose local persistence to
+avoid deployment overhead". It is **off by default**.
+
+- Vector store: [sqlite-vec](https://github.com/asg017/sqlite-vec) in a *separate*
+  SQLite file (default `<database>.vectors.db`). It holds only source references
+  (`chat_message`/`canonical_decision` + SQLite id), project, a content hash and the
+  vector, never message text. It can be deleted and rebuilt at any time.
+- Embeddings: local `BAAI/bge-small-en-v1.5` (384 dims, MIT) through
+  [fastembed](https://github.com/qdrant/fastembed) (ONNX Runtime, no PyTorch).
+  The first use downloads the model (about 130 MB) from Hugging Face; after that
+  it runs offline (set `HF_HUB_OFFLINE=1` to forbid network access). Your text is
+  never sent to an embedding API.
+- Ranking: FTS5 and vector results are merged with Reciprocal Rank Fusion (k=60),
+  which uses ranks only, since BM25 and cosine scores are not comparable. A record
+  found by both paths appears once and ranks higher. Draft and deprecated decisions
+  are still excluded and approved decisions still come first. With fusion active,
+  `score`/`relevance_score` is `-RRF score` (lower is better, like BM25).
+- Only decisions with status `approved` are embedded (drafts and deprecated
+  decisions are never returned by retrieval).
+
+Enable it:
+
+```sh
+python -m pip install -e ".[semantic]"
+export CELESTIN_SEMANTIC_SEARCH=1          # set this for the server (e.g. in the Codex --env)
+celestin-index sync                        # backfill existing messages and approved decisions
+```
+
+New chat messages are indexed best-effort when they are ingested. Run
+`celestin-index sync` after approving decisions, after an embedding outage, or to
+backfill an existing database. Commands (they only write the vector file, never
+the SQLite database):
+
+- `celestin-index status`: dry run showing what is missing or stale, plus an integrity check.
+- `celestin-index sync`: embed missing or changed records, remove stale entries.
+  Idempotent and resumable; batches of `--batch-size` (default 64).
+- `celestin-index rebuild`: reset the vector file and re-embed everything. Use it after
+  changing `CELESTIN_EMBEDDING_MODEL` or if `status` reports corruption.
+
+Settings (environment variables): `CELESTIN_SEMANTIC_SEARCH`,
+`CELESTIN_EMBEDDING_MODEL`, `CELESTIN_EMBEDDING_CACHE_DIR`,
+`CELESTIN_VECTOR_DB_PATH`, `CELESTIN_SEMANTIC_RELATIVE_MARGIN` (optional: drop hits this far below the best one; see docs/pageindex.md), `CELESTIN_SEMANTIC_MIN_SIMILARITY` (cosine cut-off,
+default 0.6). The cut-off keeps unrelated nearest neighbours out; the default was
+chosen from a small probe with the default model (related pairs scored 0.68-0.72,
+unrelated up to 0.58), so tune it for your data.
+
+When semantic search is enabled the tool responses gain a `retrieval` object:
+`{"mode": "hybrid" | "fts_fallback", "warnings": [...]}`. `fts_fallback` means the
+embedding model or vector index was unavailable, so the results are keyword-only;
+`warnings` says why and which command repairs it. Without the setting, responses
+are unchanged.
+
+Verify it end to end (uses a real model, downloads it once):
+
+```sh
+CELESTIN_RUN_MODEL_TESTS=1 python -m pytest tests/semantic/test_real_model.py
+```
+
+More detail: [docs/semantic-search.md](docs/semantic-search.md).
+
+## Document retrieval with PageIndex (optional, experimental)
+
+Long Markdown documents (specs, design notes) can be indexed into heading-section trees and searched by having an LLM pick sections from the outline, the approach of [PageIndex](https://github.com/VectifyAI/PageIndex). It is off by default, needs a model API key and sends the query and the outline to that provider. **It has been tested only with a fake navigation model; it has not been shown to improve retrieval with a real LLM.**
+
+```sh
+python -m pip install -e ".[pageindex]"
+celestin-docs index --project my-project docs/
+export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus the provider's key variable
+```
+
+`retrieve_context` then also returns `document_section` items with a `source` (document, section, line, content hash) and `retrieval.navigation` (latency, estimated and observed tokens, cache hit); a failure of this backend only adds a warning. Maintenance: `celestin-docs status|rebuild|prune|remove`. Routing, cost, caching, security notes, evaluation (`python eval/run_eval.py`) and limits: [docs/pageindex.md](docs/pageindex.md).
 
 ## Behavior and limitations
 
@@ -126,9 +207,13 @@ not include a separate web UI.
 - Newly saved decisions are drafts. Context retrieval excludes draft and
   deprecated decisions by default and prioritizes approved decisions. The
   current tool set does not include an approval or deprecation operation.
+- Semantic indexing is not atomic with SQLite writes; `celestin-index sync` reconciles.
+  Vector search is exact (brute-force) KNN, suitable for thousands to low
+  hundreds of thousands of records, not millions.
+- FTS5 tries the strict AND query first; only if it finds nothing, bounded fallbacks run (stopwords removed, then an OR query that needs 60% of the terms and always requires identifier-like terms, for queries with 3+ content terms). Quoted phrases must match adjacently. Set `CELESTIN_FTS_RELAX=0` to disable the fallbacks.
 - Context budgets count UTF-8 bytes as an estimate, not exact tokens for a
   particular model. Records are included whole; oversized records are skipped.
-- Search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
+- Keyword search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
   with AND; punctuation is discarded. Search scores are relevance values, not
   probabilities.
 - The server currently supports local stdio only and has no caller
@@ -137,16 +222,19 @@ not include a separate web UI.
 
 ## Tests
 
-Install the optional test dependency and run the test suite from the repository
-root:
+Install the test dependency and run the test suite from the repository root
+(use `.[test,semantic]` to include the vector-index tests; they are skipped
+without the semantic extra):
 
 ```sh
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,semantic]"
 python -m pytest -q
 ```
 
-The tests use temporary SQLite databases and synthetic records. They do not
-require network access after dependencies are installed.
+The tests use temporary SQLite databases, synthetic records and a deterministic
+fake embedding provider (tests only, not semantic search). They do not require
+network access after dependencies are installed. The real-model test is opt-in
+(see above).
 
 ## Event documentation
 
@@ -157,14 +245,14 @@ for the Codex usage record, and [CHANGELOG.md](CHANGELOG.md) for the development
 log. The [event and registration page](https://luma.com/z10nz8gp) has the event
 details.
 
-## Codex skill: Orbit project memory
+## Codex skill: Celestin project memory
 
-The repository skill at `.agents/skills/orbit/SKILL.md` helps Codex retrieve saved project context and save explicitly approved messages or decisions with the Orbit MCP tools. Invoke it with `$orbit`, add a topic with `$orbit database migration`, or request the save workflow with `$orbit save`. OpenAI documents skill invocation with the `$skill-name` form; this skill does not register a custom `/orbit` slash command. If the skill is missing, pull the repository and restart Codex so it discovers `.agents/skills/`.
+The repository skill at `.agents/skills/orbit/SKILL.md` helps Codex retrieve saved project context and save explicitly approved messages or decisions with the Celestin MCP tools. Invoke it with `$orbit`, add a topic with `$orbit database migration`, or request the save workflow with `$orbit save`. OpenAI documents skill invocation with the `$skill-name` form; this skill does not register a custom `/orbit` slash command. If the skill is missing, pull the repository and restart Codex so it discovers `.agents/skills/`.
 
-This repository does not designate a canonical Orbit project identifier yet. The skill will ask until the team documents one in this README or `AGENTS.md`; do not assume `demo`, `orbit`, or `orbit-demo-2026` is the project. The `project` argument selects a namespace. The current local stdio server does not authenticate individual callers or authorize project membership, so use only data the connected local process is permitted to access; keep the demo synthetic.
+This repository does not designate a canonical Celestin project identifier yet. The skill will ask until the team documents one in this README or `AGENTS.md`; do not assume `demo`, `orbit`, or `orbit-demo-2026` is the project. The `project` argument selects a namespace. The current local stdio server does not authenticate individual callers or authorize project membership, so use only data the connected local process is permitted to access; keep the demo synthetic.
 
 ### Configure a repository and teammates
 
-Choose one stable project identifier and document it in this repository. Configure each developer's Orbit MCP entry using the setup above and an absolute database path for that machine. To share data between Codex and the tunnel on this PC, configure both processes to use the same local database path. Repeating a path on another computer does not share the SQLite file. Pulling this repository gives teammates the skill; they must configure their own MCP connection and restart Codex if the skill or tools are not discovered. Check `codex mcp list` and `codex mcp get orbit` when tools are unavailable. Report tool errors as returned, and do not retry using a different project.
+Choose one stable project identifier and document it in this repository. Configure each developer's Celestin MCP entry using the setup above and an absolute database path for that machine. To share data between Codex and the tunnel on this PC, configure both processes to use the same local database path. Repeating a path on another computer does not share the SQLite file. Pulling this repository gives teammates the skill; they must configure their own MCP connection and restart Codex if the skill or tools are not discovered. Check `codex mcp list` and `codex mcp get celestin` when tools are unavailable. Report tool errors as returned, and do not retry using a different project.
 
 `$orbit` and topic-specific retrieval are read-only. `$orbit save` uses the existing ingestion and decision tools; a saved decision starts as a draft and is not automatically approved.

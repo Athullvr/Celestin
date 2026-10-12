@@ -1,4 +1,4 @@
-# Orbit remote MCP authorization design proposal
+# Celestin remote MCP authorization design proposal
 
 **Status:** Design proposal only. It does not enable authentication, HTTP transport, a tunnel, or remote access. The existing local stdio workflow and its client configuration remain unchanged.
 
