@@ -168,7 +168,7 @@ the SQLite database):
 
 Settings (environment variables): `CELESTIN_SEMANTIC_SEARCH`,
 `CELESTIN_EMBEDDING_MODEL`, `CELESTIN_EMBEDDING_CACHE_DIR`,
-`CELESTIN_VECTOR_DB_PATH`, `CELESTIN_SEMANTIC_MIN_SIMILARITY` (cosine cut-off,
+`CELESTIN_VECTOR_DB_PATH`, `CELESTIN_SEMANTIC_RELATIVE_MARGIN` (optional: drop hits this far below the best one; see docs/pageindex.md), `CELESTIN_SEMANTIC_MIN_SIMILARITY` (cosine cut-off,
 default 0.6). The cut-off keeps unrelated nearest neighbours out; the default was
 chosen from a small probe with the default model (related pairs scored 0.68-0.72,
 unrelated up to 0.58), so tune it for your data.
@@ -197,7 +197,7 @@ celestin-docs index --project my-project docs/
 export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus the provider's key variable
 ```
 
-`retrieve_context` then also returns `document_section` items with a `source` (document, section, line, content hash); a failure of this backend only adds a warning. Details, evaluation and limits: [docs/pageindex.md](docs/pageindex.md).
+`retrieve_context` then also returns `document_section` items with a `source` (document, section, line, content hash) and `retrieval.navigation` (latency, estimated and observed tokens, cache hit); a failure of this backend only adds a warning. Maintenance: `celestin-docs status|rebuild|prune|remove`. Routing, cost, caching, security notes, evaluation (`python eval/run_eval.py`) and limits: [docs/pageindex.md](docs/pageindex.md).
 
 ## Behavior and limitations
 
@@ -210,6 +210,7 @@ export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus th
 - Semantic indexing is not atomic with SQLite writes; `celestin-index sync` reconciles.
   Vector search is exact (brute-force) KNN, suitable for thousands to low
   hundreds of thousands of records, not millions.
+- FTS5 tries the strict AND query first; only if it finds nothing, bounded fallbacks run (stopwords removed, then an OR query that needs 60% of the terms and always requires identifier-like terms, for queries with 3+ content terms). Quoted phrases must match adjacently. Set `CELESTIN_FTS_RELAX=0` to disable the fallbacks.
 - Context budgets count UTF-8 bytes as an estimate, not exact tokens for a
   particular model. Records are included whole; oversized records are skipped.
 - Keyword search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
@@ -244,11 +245,11 @@ for the Codex usage record, and [CHANGELOG.md](CHANGELOG.md) for the development
 log. The [event and registration page](https://luma.com/z10nz8gp) has the event
 details.
 
-## Codex skill: Orbit project memory
+## Codex skill: Celestin project memory
 
-The repository skill at `.agents/skills/orbit/SKILL.md` helps Codex retrieve saved project context and save explicitly approved messages or decisions with the Orbit MCP tools. Invoke it with `$orbit`, add a topic with `$orbit database migration`, or request the save workflow with `$orbit save`. OpenAI documents skill invocation with the `$skill-name` form; this skill does not register a custom `/orbit` slash command. If the skill is missing, pull the repository and restart Codex so it discovers `.agents/skills/`.
+The repository skill at `.agents/skills/orbit/SKILL.md` helps Codex retrieve saved project context and save explicitly approved messages or decisions with the Celestin MCP tools. Invoke it with `$orbit`, add a topic with `$orbit database migration`, or request the save workflow with `$orbit save`. OpenAI documents skill invocation with the `$skill-name` form; this skill does not register a custom `/orbit` slash command. If the skill is missing, pull the repository and restart Codex so it discovers `.agents/skills/`.
 
-This repository does not designate a canonical Orbit project identifier yet. The skill will ask until the team documents one in this README or `AGENTS.md`; do not assume `demo`, `orbit`, or `orbit-demo-2026` is the project. The `project` argument selects a namespace. The current local stdio server does not authenticate individual callers or authorize project membership, so use only data the connected local process is permitted to access; keep the demo synthetic.
+This repository does not designate a canonical Celestin project identifier yet. The skill will ask until the team documents one in this README or `AGENTS.md`; do not assume `demo`, `orbit`, or `orbit-demo-2026` is the project. The `project` argument selects a namespace. The current local stdio server does not authenticate individual callers or authorize project membership, so use only data the connected local process is permitted to access; keep the demo synthetic.
 
 ### Configure a repository and teammates
 

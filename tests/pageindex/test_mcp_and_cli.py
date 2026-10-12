@@ -34,6 +34,8 @@ def docs_env(tmp_path, monkeypatch):
     monkeypatch.setattr("orbit.database.engine.DB_PATH", db)
     monkeypatch.setattr(server, "persistence_services", PersistenceServices(db))
     monkeypatch.setattr(server, "retrieval_services", RetrievalServices(db))
+    from orbit.pageindex.backend import clear_navigation_cache
+    clear_navigation_cache()
     (tmp_path / "guide.md").write_text(DOC)
     assert cli.main(["index", "--project", "demo", str(tmp_path / "guide.md")]) == 0
     return db, llm, tmp_path
@@ -53,6 +55,14 @@ def test_retrieve_context_tool_returns_document_sections_with_source(docs_env):
     assert by_kind["chat_message"]["source_message_id"] == message["message_id"]
     assert "source" not in by_kind["chat_message"]
     assert result["token_count"] <= result["token_budget"]
+
+
+def test_navigation_stats_are_reported_and_cache_hits_are_visible(docs_env):
+    first = server.retrieve_context("demo", QUERY, 2000)["retrieval"]["navigation"]
+    assert first["outcome"] == "ok" and first["elapsed_ms"] >= 0 and first["est_prompt_tokens"] > 0
+    assert first["cache_hit"] is False
+    second = server.retrieve_context("demo", QUERY, 2000)["retrieval"]["navigation"]
+    assert second["cache_hit"] is True
 
 
 def test_other_tools_unaffected_and_survive_navigation_failure(docs_env, monkeypatch):

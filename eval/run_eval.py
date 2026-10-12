@@ -117,6 +117,9 @@ def semantic_for(db_dir: Path, conn, spec: Spec):
     return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin), report
 
 
+FTS_RELAX = True
+
+
 def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict):
     conn = connect(tmp / "main.db")
     messages = ChatMessageRepository(conn)
@@ -152,7 +155,8 @@ def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict
     if spec.semantic:
         semantic, _ = semantic_for(tmp, conn, spec)
     index_secs = time.perf_counter() - t0
-    service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit)
+    service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit,
+                               fts_relax=FTS_RELAX)
     return service, ids, index_secs, navigator, records
 
 
@@ -327,8 +331,12 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default=os.environ.get("CELESTIN_PAGEINDEX_MODEL"))
     ap.add_argument("--f-sweep", action="store_true", help="evaluate selectivity variants of system F")
     ap.add_argument("--require-llm", action="store_true", help="fail instead of skipping N when no model/credentials")
+    ap.add_argument("--fts-relax", choices=["on", "off"], default="on",
+                    help="bounded FTS5 query relaxation (product default on; off reproduces the first evaluation)")
     ap.add_argument("--out", default=str(HERE), help="directory for results.md / results.json")
     args = ap.parse_args(argv)
+    global FTS_RELAX
+    FTS_RELAX = args.fts_relax == "on"
     budgets = tuple(int(b) for b in args.budgets.split(","))
     explicit = args.systems is not None
     keys = SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,C,D,E,N").split(",")
@@ -366,14 +374,14 @@ def main(argv=None) -> int:
         "python": platform.python_version(), "pageindex_version": pi_version,
         "navigation_model": args.model if "N" in results and "budgets" in results["N"] else None,
         "embedding_model": sem.model_id, "semantic_min_similarity": sem.min_similarity,
-        "budgets": list(budgets), "max_sections_per_navigation": MAX_SECTIONS,
+        "fts_relax": FTS_RELAX, "budgets": list(budgets), "max_sections_per_navigation": MAX_SECTIONS,
         "doc_queries": len(DOC_QUERIES), "chat_queries": len(CHAT_QUERIES), "documents": len(DOCS),
         "systems_run": [k for k in results if "budgets" in results[k]],
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    suffix = "_f_sweep" if args.f_sweep and not explicit else ""
+    suffix = ("_f_sweep" if args.f_sweep and not explicit else "") + ("" if FTS_RELAX else "_strict_fts")
     (out / f"results{suffix}.json").write_text(json.dumps({"meta": meta, "systems": results}, indent=2, default=str))
     text = render(results, meta, budgets)
     (out / f"results{suffix}.md").write_text(text)

@@ -240,3 +240,14 @@ def test_unavailable_provider_object_reports_reason(env):
     service = RetrievalService(env.conn, semantic=SemanticSearch.unavailable("fastembed is not installed"))
     assert ids(service.search_chat_history("p", "hosted")) == [str(target)]
     assert "fastembed is not installed" in service.last_retrieval.warnings[0]
+
+
+def test_relative_margin_drops_weak_neighbours(tmp_path):
+    env = Env(tmp_path, min_similarity=0.1)
+    strong = env.message("hosted cloud server deployment")
+    weak = env.message("hosted pasta recipe tomato")
+    env.sync()
+    query = "hosted cloud server deployment"
+    assert set(ids(env.service().search_chat_history("p", query))) == {str(strong), str(weak)}
+    narrow = RetrievalService(env.conn, semantic=SemanticSearch(env.provider, env.vpath, 0.1, relative_margin=0.2))
+    assert ids(narrow.search_chat_history("p", query)) == [str(strong)]
