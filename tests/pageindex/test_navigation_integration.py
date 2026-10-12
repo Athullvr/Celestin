@@ -102,9 +102,9 @@ def test_document_section_enters_context_with_source_reference(env):
 
 def test_documents_combine_with_messages_and_decisions_without_losing_policy(env):
     m = env.messages.insert("p", "c", "user", "we talked about the database storage choice")
-    env.decisions.save(project="p", key="k", value="database storage choice approved", source_message_id=m, status="draft")
+    env.decisions.save(project="p", key="k", value="database storage approved", source_message_id=m, status="draft")
     env.decisions.update_status("p", "k", "approved")
-    env.decisions.save(project="p", key="d", value="database storage choice draft idea", source_message_id=m, status="draft")
+    env.decisions.save(project="p", key="d", value="database storage draft idea", source_message_id=m, status="draft")
     service, _ = env.service()
     bundle = service.retrieve_context("p", QUERY, 5000)
     kinds = [i.record_kind for i in bundle.items]
@@ -122,10 +122,37 @@ def test_project_isolation_and_unknown_project(env):
 
 
 def test_budget_is_enforced_for_document_sections(env):
-    service, _ = env.service()
-    bundle = service.retrieve_context("p", QUERY, 100)
-    assert bundle.token_count <= 100 and bundle.items == ()
+    with PageIndexStore(env.store_path) as store:
+        big = [Section("0001", None, "Big", ("Big",), 1, 1, "# Big\n\n" + "database storage choice " * 200)]
+        store.upsert_document("p", "big.md", None, "src", "big", big, "t1")
+    service, _ = env.service(FakeLLM(want=["big"]))
+    bundle = service.retrieve_context("p", QUERY, 600)
+    assert bundle.token_count <= 600 and bundle.items == ()
     assert any(e.reason == "token_budget" for e in bundle.excluded)
+
+
+def test_tiny_budget_skips_navigation(env):
+    service, llm = env.service()
+    service.retrieve_context("p", QUERY, 100)
+    assert llm.prompts == [] and "budget" in service.last_retrieval.pageindex
+
+
+def test_approved_strict_decision_match_skips_navigation(env):
+    m = env.messages.insert("p", "c", "user", "context")
+    env.decisions.save(project="p", key="k", value="database storage choice settled", source_message_id=m, status="draft")
+    env.decisions.update_status("p", "k", "approved")
+    service, llm = env.service()
+    bundle = service.retrieve_context("p", QUERY, 5000)
+    assert llm.prompts == [] and "approved decision" in service.last_retrieval.pageindex
+    assert [i.record_kind for i in bundle.items] == ["canonical_decision"]
+
+
+def test_draft_strict_match_does_not_skip_navigation(env):
+    m = env.messages.insert("p", "c", "user", "context")
+    env.decisions.save(project="p", key="k", value="database storage choice maybe", source_message_id=m, status="draft")
+    service, llm = env.service()
+    service.retrieve_context("p", QUERY, 5000)
+    assert len(llm.prompts) == 1
 
 
 def test_short_query_skips_the_model_call(env):

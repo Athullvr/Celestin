@@ -26,7 +26,8 @@ class IndexReport:
 
 
 def index_markdown_text(
-    store: PageIndexStore, project: str, doc_key: str, text: str, *, source_path: str | None = None
+    store: PageIndexStore, project: str, doc_key: str, text: str, *,
+    source_path: str | None = None, force: bool = False,
 ) -> str:
     """Index one document's text under a stable ``doc_key``. Returns added|updated|unchanged."""
     if not project.strip() or not doc_key.strip():
@@ -39,7 +40,7 @@ def index_markdown_text(
     sections = build_sections(text, title)
     if not sections:
         raise PageIndexError("document has no indexable content")
-    return store.upsert_document(project, doc_key, source_path, text, title, sections, TREE_SCHEMA)
+    return store.upsert_document(project, doc_key, source_path, text, title, sections, TREE_SCHEMA, force=force)
 
 
 def _files(paths: list[Path]) -> list[tuple[Path, Path]]:
@@ -75,4 +76,19 @@ def index_paths(store: PageIndexStore, project: str, paths: list[str | Path]) ->
             getattr(report, status).append(key)
         except PageIndexError as exc:
             report.failed[key if key else str(file)] = str(exc)
+    return report
+
+
+def rebuild_project(store: PageIndexStore, project: str) -> IndexReport:
+    """Re-derive every tree of the project from the stored original text (no source files needed)."""
+    report = IndexReport()
+    for doc in store.documents(project):
+        try:
+            text = store.source_text(project, doc.doc_key) or ""
+            index_markdown_text(
+                store, project, doc.doc_key, text, source_path=doc.source_path, force=True
+            )
+            report.updated.append(doc.doc_key)
+        except PageIndexError as exc:
+            report.failed[doc.doc_key] = str(exc)
     return report

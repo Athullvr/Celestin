@@ -11,7 +11,7 @@ import sys
 from .backend import PageIndexBackend, route
 from .config import build_pageindex_backend, load_settings
 from .errors import PageIndexError, PageIndexUnavailable
-from .indexer import index_paths
+from .indexer import index_paths, rebuild_project
 from .store import PageIndexStore
 
 
@@ -36,9 +36,12 @@ def _status(args, settings) -> int:
     except PageIndexUnavailable as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    with PageIndexStore(settings.store_path, create=False) as store:
+        missing = set(store.missing_sources(args.project))
     print(f"document index: {settings.store_path}")
     for d in docs:
-        print(f"{d.doc_key}  sections={d.sections}  indexed={d.indexed_at}  sha256={d.content_hash[:12]}")
+        flag = "  MISSING SOURCE (see: celestin-docs prune)" if d.doc_key in missing else ""
+        print(f"{d.doc_key}  sections={d.sections}  indexed={d.indexed_at}  sha256={d.content_hash[:12]}{flag}")
     print(f"{len(docs)} document(s) in project {args.project!r}")
     return 0
 
@@ -48,6 +51,30 @@ def _remove(args, settings) -> int:
         removed = store.remove_document(args.project, args.doc_key)
     print("removed" if removed else "not found")
     return 0 if removed else 1
+
+
+def _prune(args, settings) -> int:
+    with PageIndexStore(settings.store_path, create=False) as store:
+        missing = store.missing_sources(args.project)
+        for key in missing:
+            if args.yes:
+                store.remove_document(args.project, key)
+            print(f"{'removed' if args.yes else 'would remove'}: {key}")
+    if missing and not args.yes:
+        print("re-run with --yes to remove them from the index (source files are never touched)")
+    if not missing:
+        print("no documents with missing sources")
+    return 0
+
+
+def _rebuild(args, settings) -> int:
+    with PageIndexStore(settings.store_path, create=False) as store:
+        report = rebuild_project(store, args.project)
+    for key in report.updated:
+        print(f"rebuilt: {key}")
+    for key, reason in report.failed.items():
+        print(f"FAILED: {key}: {reason}", file=sys.stderr)
+    return 0 if report.ok else 1
 
 
 def _search(args, settings) -> int:
@@ -81,11 +108,17 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("remove", help="remove one document from the index")
     p.add_argument("--project", required=True)
     p.add_argument("doc_key")
+    p = sub.add_parser("prune", help="remove documents whose source file is gone (dry run unless --yes)")
+    p.add_argument("--project", required=True)
+    p.add_argument("--yes", action="store_true")
+    p = sub.add_parser("rebuild", help="re-derive all trees from the stored original text")
+    p.add_argument("--project", required=True)
     p = sub.add_parser("search", help="ask the navigation model which sections answer a query (needs a model)")
     p.add_argument("--project", required=True)
     p.add_argument("query")
     args = parser.parse_args(argv)
-    handlers = {"index": _index, "status": _status, "remove": _remove, "search": _search}
+    handlers = {"index": _index, "status": _status, "remove": _remove, "search": _search,
+                "prune": _prune, "rebuild": _rebuild}
     try:
         return handlers[args.command](args, load_settings())
     except (PageIndexError, PageIndexUnavailable, ValueError) as exc:

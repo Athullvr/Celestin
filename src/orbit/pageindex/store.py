@@ -109,6 +109,8 @@ class PageIndexStore:
         title: str,
         sections: Sequence[Section],
         tree_schema: str,
+        *,
+        force: bool = False,
     ) -> str:
         """Insert or replace one document atomically. Returns added|updated|unchanged."""
         digest = content_hash(source_text)
@@ -116,7 +118,7 @@ class PageIndexStore:
             "SELECT id, content_hash, tree_schema FROM documents WHERE project = ? AND doc_key = ?",
             (project, doc_key),
         ).fetchone()
-        if row and row["content_hash"] == digest and row["tree_schema"] == tree_schema:
+        if not force and row and row["content_hash"] == digest and row["tree_schema"] == tree_schema:
             return "unchanged"
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         try:

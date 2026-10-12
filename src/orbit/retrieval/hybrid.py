@@ -21,11 +21,14 @@ class RetrievalInfo:
     mode: str = "fts"
     warnings: tuple[str, ...] = ()
     pageindex: str | None = None
+    navigation: dict | None = None
 
     def as_dict(self) -> dict[str, object]:
         info: dict[str, object] = {"mode": self.mode, "warnings": list(self.warnings)}
         if self.pageindex is not None:
             info["pageindex"] = self.pageindex
+        if self.navigation is not None:
+            info["navigation"] = self.navigation
         return info
 
 

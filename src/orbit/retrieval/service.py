@@ -14,7 +14,8 @@ from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
 from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
 from orbit.retrieval.hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
-from orbit.pageindex.backend import PageIndexBackend, route
+from orbit.pageindex.backend import PageIndexBackend
+from orbit.pageindex.routing import decide_route
 from orbit.pageindex.errors import PageIndexUnavailable
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
@@ -79,6 +80,7 @@ class RetrievalService:
         self.last_retrieval = RetrievalInfo()
         # record_id -> source reference for document_section items of the last retrieve_context.
         self.last_sources: dict[str, dict[str, Any]] = {}
+        self._navigation: dict | None = None
 
     @property
     def semantic_enabled(self) -> bool:
@@ -88,20 +90,33 @@ class RetrievalService:
     def documents_enabled(self) -> bool:
         return self._documents is not None
 
-    def _document_sections(self, project: str, query: str) -> tuple[list, str | None, str | None]:
+    def _document_sections(
+        self, project: str, query: str, token_budget: int, approved_strict_hit: bool
+    ) -> tuple[list, str | None, str | None]:
         """PageIndex sections for the query, a status string, and an optional warning."""
+        self._navigation = None
         if self._documents is None:
             return [], None, None
-        skip = route(query)
-        if skip:
-            return [], f"skipped: {skip}", None
         try:
-            sections = self._documents.retrieve(project, query)
+            prepared = self._documents.prepare(project)
+            if prepared is None:
+                return [], "no_documents", None
+            decision = decide_route(
+                query,
+                token_budget=token_budget,
+                approved_strict_hit=approved_strict_hit,
+                outline_tokens=prepared.est_prompt_tokens,
+            )
+            if not decision.use:
+                return [], f"skipped: {decision.reason}", None
+            sections = self._documents.navigate(prepared, query)
         except PageIndexUnavailable as exc:
             logger.warning("PageIndex unavailable, continuing without documents: %s", exc)
+            stats = self._documents.last_stats
+            self._navigation = stats.as_dict() if stats else None
             return [], f"unavailable: {exc}", f"document retrieval unavailable: {exc}"
-        if sections is None:
-            return [], "no_documents", None
+        stats = self._documents.last_stats
+        self._navigation = stats.as_dict() if stats else None
         return sections, "used", None
 
     def _semantic_hits(self, project: str, query: str, kinds: tuple[str, ...], limit: int):
@@ -211,15 +226,6 @@ class RetrievalService:
         hits = self._semantic_hits(
             project, query, (MESSAGE_KIND, DECISION_KIND), self._candidate_limit
         )
-        doc_sections, doc_status, doc_warning = self._document_sections(project, query)
-        # Scores from different engines are not comparable: once anything is
-        # fused, every candidate uses RRF scores (-score, lower is better).
-        fused = hits is not None or bool(doc_sections)
-        stale = 0
-        if fused:
-            message_results, stale = self._fuse_messages(
-                project, message_results, hits[MESSAGE_KIND] if hits is not None else []
-            )
         decision_results = self._decision_search.search(
             query,
             project_id=project,
@@ -233,6 +239,21 @@ class RetrievalService:
             )
         }
 
+        approved_strict_hit = self._decision_search.last_tier == "strict" and any(
+            (row := decisions_by_id.get(int(r.message_id))) is not None and row["status"] == "approved"
+            for r in decision_results
+        )
+        doc_sections, doc_status, doc_warning = self._document_sections(
+            project, query, token_budget, approved_strict_hit
+        )
+        # Scores from different engines are not comparable: once anything is
+        # fused, every candidate uses RRF scores (-score, lower is better).
+        fused = hits is not None or bool(doc_sections)
+        stale = 0
+        if fused:
+            message_results, stale = self._fuse_messages(
+                project, message_results, hits[MESSAGE_KIND] if hits is not None else []
+            )
         decision_scores = [
             (int(r.message_id), r.relevance_score) for r in decision_results
         ]
@@ -311,6 +332,7 @@ class RetrievalService:
                 info,
                 warnings=info.warnings + ((doc_warning,) if doc_warning else ()),
                 pageindex=doc_status,
+                navigation=self._navigation,
             )
 
         return build_context_bundle(

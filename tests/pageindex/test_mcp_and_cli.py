@@ -30,7 +30,7 @@ def docs_env(tmp_path, monkeypatch):
     monkeypatch.setenv("CELESTIN_DB_PATH", str(db))
     monkeypatch.setenv("CELESTIN_PAGEINDEX", "1")
     monkeypatch.setenv("CELESTIN_PAGEINDEX_MODEL", "fake/model")
-    monkeypatch.setattr(config, "litellm_chat", lambda model, timeout=30.0: llm)
+    monkeypatch.setattr(config, "litellm_chat", lambda model, timeout=30.0, **kw: llm)
     monkeypatch.setattr("orbit.database.engine.DB_PATH", db)
     monkeypatch.setattr(server, "persistence_services", PersistenceServices(db))
     monkeypatch.setattr(server, "retrieval_services", RetrievalServices(db))
@@ -82,7 +82,7 @@ def test_response_schema_unchanged_when_disabled(docs_env, monkeypatch):
 
 
 def test_missing_litellm_degrades(docs_env, monkeypatch):
-    def boom(model, timeout=30.0):
+    def boom(model, timeout=30.0, **kw):
         from orbit.pageindex.errors import PageIndexUnavailable
         raise PageIndexUnavailable("litellm is not installed")
     monkeypatch.setattr(config, "litellm_chat", boom)
