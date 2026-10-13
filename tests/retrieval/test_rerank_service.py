@@ -14,7 +14,7 @@ from orbit.retrieval.rerank import LexicalReranker, RerankUnavailable
 
 MD = ("# Guide\n\n## Alpha\n\nalpha notes about widgets and gadgets\n\n## Beta\n\nbeta notes about the quartz index size limit\n\n"
       "## Gamma\n\ngamma notes about gadgets\n\n## Delta\n\ndelta notes about widgets\n")
-QUERY = "notes about widgets gadgets"
+QUERY = "notes"
 QUARTZ = "quartz index size limit"
 
 
@@ -112,13 +112,13 @@ def test_chat_decisions_isolation_budget_and_determinism_are_unaffected(env):
     repo.update_status("p", "ok", "approved")
     repo.save(project="p", key="dr", value="quartz index size limit draft", source_message_id=m, status="draft")
     service = env.service(section_reranker=Reverse(), section_top_k=2)
-    first = service.retrieve_context("p", QUERY, 900)
-    again = env.service(section_reranker=Reverse(), section_top_k=2).retrieve_context("p", QUERY, 900)
+    first = service.retrieve_context("p", QUARTZ, 900)
+    again = env.service(section_reranker=Reverse(), section_top_k=2).retrieve_context("p", QUARTZ, 900)
     assert first.rendered_context == again.rendered_context and first.token_count <= 900
     assert first.items[0].record_kind == "canonical_decision" and first.items[0].status == "approved"
     assert all(i.status != "draft" for i in first.items) and all(i.project_id == "p" for i in first.items)
-    assert any(i.record_kind == "chat_message" for i in service.retrieve_context("p", QUERY, 9000).items)
-    assert service.retrieve_context("nobody", QUERY, 9000).items == ()
+    assert any(i.record_kind == "chat_message" for i in service.retrieve_context("p", QUARTZ, 9000).items)
+    assert service.retrieve_context("nobody", QUARTZ, 9000).items == ()
 
 
 def test_empty_candidate_sets_are_safe(env):

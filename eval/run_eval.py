@@ -45,6 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import heldout as _heldout
+import rerank_challenge as _challenge
 from dataset import CHAT_MESSAGES, CHAT_QUERIES, DATASET_VERSION, DOC_QUERIES, DOCS
 from standin import OracleNavigator, StandInNavigator
 
@@ -123,8 +124,10 @@ for k in (5, 8):
     _variant(f"S+r-ce+k{k}", f"S + rerank (cross-encoder) + top-{k}", rerank="cross_encoder", top_k=k)
 _variant("S+m08+r-ce+k8", "S + margin 0.08 + rerank (cross-encoder) + top-8", section_margin=0.08,
          rerank="cross_encoder", top_k=8)
+_variant("S+m08+r-cerrf+k8", "S + margin 0.08 + rerank (cross-encoder + RRF) + top-8", section_margin=0.08,
+         rerank="cross_encoder_rrf", top_k=8)
 RERANK_SWEEP = ["S", "S+m08", "S+r-lex", "S+r-ce", "S+r-cerrf", "S+m08+r-lex", "S+m08+r-ce", "S+m08+r-cerrf",
-                "S+r-ce+k5", "S+r-ce+k8", "S+m08+r-ce+k8"]
+                "S+r-ce+k5", "S+r-ce+k8", "S+m08+r-ce+k8", "S+m08+r-cerrf+k8"]
 NOISE_SWEEP = ["H", "S", "S+m04", "S+m08", "S+m12", "S+k3", "S+k5", "S+k8", "S+x1200", "S+m08+k5", "S+m08+x1200"]
 SWEEP = ["F", "F@10", "F@5", "F@3", "F~0.12", "F~0.08", "F~0.04"]
 
@@ -141,6 +144,8 @@ def use_dataset(name: str) -> None:
     global DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES, DATASET_NAME
     if name == "heldout":
         DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = _heldout.DOC_QUERIES, _heldout.CHAT_MESSAGES, _heldout.CHAT_QUERIES
+    elif name == "rerank_challenge":
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = _challenge.DOC_QUERIES, _challenge.CHAT_MESSAGES, _challenge.CHAT_QUERIES
     elif name == "dev":
         from dataset import CHAT_MESSAGES as cm, CHAT_QUERIES as cq, DOC_QUERIES as dq
         DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = dq, cm, cq
@@ -149,8 +154,19 @@ def use_dataset(name: str) -> None:
     DATASET_NAME = name
 
 
+def corpus_hash() -> str:
+    """Stable hash of the named corpus files, independent of the question set."""
+    files = [(name, hashlib.sha256(read_doc(name).encode()).hexdigest()) for name in DOCS]
+    payload = json.dumps(files, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def dataset_hash() -> str:
-    version = DATASET_VERSION if DATASET_NAME == "dev" else f"heldout-{_heldout.HELDOUT_VERSION}"
+    version = {
+        "dev": DATASET_VERSION,
+        "heldout": f"heldout-{_heldout.HELDOUT_VERSION}",
+        "rerank_challenge": f"rerank-challenge-{_challenge.VERSION}",
+    }[DATASET_NAME]
     payload = json.dumps([version, DOCS, DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES], sort_keys=True)
     corpus = "".join(hashlib.sha256(read_doc(d).encode()).hexdigest() for d in DOCS)
     return hashlib.sha256((payload + corpus).encode()).hexdigest()
@@ -295,6 +311,7 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
     else:
         reason = "unclassified"
     return {
+        "section_order_before": ranked_before, "section_order_after": ranked_after,
         "gold_pos_before": pos_before, "gold_pos_after": pos_after, "miss_reason": reason,
         "rerank_ms": rr.get("ms", 0.0), "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
         "gold_recall": covered / len(snippets) if snippets else 0.0,
@@ -370,15 +387,22 @@ def run_system(spec, sections, budgets, model):
     with tempfile.TemporaryDirectory() as t:
         service, ids, index_secs, navigator, records = build_system(spec, Path(t), model, sections)
         out = {"label": spec.label, "kind": spec.kind, "index_seconds": round(index_secs, 2),
-               "records_indexed": records, "budgets": {}, "queries": {}}
+               "records_indexed": records, "budgets": {}, "queries": {}, "chat_queries": {}}
         for budget in budgets:
             rows = [run_query(service, q, budget, ev, gd, ids, sections, navigator) for q, ev, gd in DOC_QUERIES]
             chat = []
+            chat_rows = []
             for query, evidence in CHAT_QUERIES:
                 bundle = service.retrieve_context(PROJECT, query, budget)
-                chat.append(any(evidence.lower() in i.content.lower() for i in bundle.items if i.record_kind == "chat_message"))
+                answered = any(evidence.lower() in i.content.lower() for i in bundle.items if i.record_kind == "chat_message")
+                chat.append(answered)
+                chat_rows.append({
+                    "query": query, "answered": answered,
+                    "miss_reason": None if answered else "gold chat evidence absent from returned chat items",
+                })
             out["budgets"][budget] = aggregate(rows, chat, model)
             out["queries"][budget] = [{"query": q[0], **r} for q, r in zip(DOC_QUERIES, rows)]
+            out["chat_queries"][budget] = chat_rows
         return out
 
 
@@ -414,7 +438,7 @@ def render(results, meta, budgets) -> str:
             ("answer_share_of_context", "answer-bearing share of context"),
             ("queries_with_budget_exclusions", "queries dropping a record for budget"),
             ("mean_total_latency_ms", "mean total latency (ms)"), ("mean_local_latency_ms", "mean local latency (ms)"),
-            ("chat_recall", "chat recall (5 queries)"), ("fallback_rate", "fallback frequency"),
+            ("chat_recall", f"chat recall ({meta['chat_queries']} queries)"), ("fallback_rate", "fallback frequency"),
             ("mean_strategies_run", "mean strategies run per query"), ("pageindex_routed", "navigation calls"),
             ("pageindex_failures", "navigation failures"), ("pageindex_timeouts", "navigation timeouts"),
             ("model_latency_ms_mean", "model latency mean (ms, observed)"),
@@ -459,8 +483,8 @@ def main(argv=None) -> int:
     ap.add_argument("--require-llm", action="store_true", help="fail instead of skipping N when no model/credentials")
     ap.add_argument("--fts-relax", choices=["on", "off"], default="on",
                     help="bounded FTS5 query relaxation (product default on; off reproduces the first evaluation)")
-    ap.add_argument("--dataset", choices=["dev", "heldout"], default="dev",
-                    help="question set (heldout: written before the context-optimization experiments; do not tune on it)")
+    ap.add_argument("--dataset", choices=["dev", "heldout", "rerank_challenge"], default="dev",
+                    help="question set; rerank_challenge is new and must remain untuned")
     ap.add_argument("--rerank-sweep", action="store_true", help="evaluate section reranking variants of S")
     ap.add_argument("--noise-sweep", action="store_true", help="evaluate relevance-filtering variants of S")
     ap.add_argument("--out", default=str(HERE), help="directory for results.md / results.json")
@@ -508,6 +532,11 @@ def main(argv=None) -> int:
                 str(b): [q["query"] for q, r in zip(base["queries"][b], res["queries"][b]) if r["answered"] and not q["answered"]]
                 for b in base["queries"]
             }
+            res["chat_answers_lost_vs_S"] = {
+                str(b): [q for q, r in zip(base["chat_queries"][b], res["chat_queries"][b])
+                         if q["answered"] and not r["answered"]]
+                for b in base["chat_queries"]
+            }
     try:
         import pageindex
         pi_version = getattr(pageindex, "__version__", None) or __import__("importlib.metadata").metadata.version("pageindex")
@@ -516,7 +545,9 @@ def main(argv=None) -> int:
     from orbit.semantic.config import load_settings
     sem = load_settings()
     meta = {
-        "dataset": args.dataset, "dataset_version": DATASET_VERSION, "dataset_sha256": dataset_hash(), "git_sha": git_sha(),
+        "dataset": args.dataset, "dataset_version": DATASET_VERSION if args.dataset == "dev" else
+        (_heldout.HELDOUT_VERSION if args.dataset == "heldout" else _challenge.VERSION),
+        "dataset_sha256": dataset_hash(), "corpus_sha256": corpus_hash(), "git_sha": git_sha(),
         "python": platform.python_version(), "pageindex_version": pi_version,
         "navigation_model": args.model if any("budgets" in results.get(k, {}) for k in ("N", "SN")) else None,
         "embedding_model": sem.model_id, "semantic_min_similarity": sem.min_similarity,
@@ -528,7 +559,7 @@ def main(argv=None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     suffix = (("_rerank_sweep" if args.rerank_sweep and not explicit else "") + ("_noise_sweep" if args.noise_sweep and not explicit else "") + ("_f_sweep" if args.f_sweep and not explicit else "")
-              + ("" if args.dataset == "dev" else "_heldout") + ("" if FTS_RELAX else "_strict_fts"))
+              + ("" if args.dataset == "dev" else f"_{args.dataset}") + ("" if FTS_RELAX else "_strict_fts"))
     (out / f"results{suffix}.json").write_text(json.dumps({"meta": meta, "systems": results}, indent=2, default=str))
     text = render(results, meta, budgets)
     (out / f"results{suffix}.md").write_text(text)

@@ -15,10 +15,12 @@ from tests.pageindex.fakes import FakeLLM  # noqa: E402
 # Changing the questions, gold evidence or frozen corpus changes this hash. If you change them
 # on purpose, report the old and new comparison side by side (see docs/pageindex.md).
 FROZEN_DATASET_SHA256 = "77679aeea136e222ea56bad811a46acdc1e9955da8b033542b09b9dff0d4af95"
+FROZEN_CORPUS_SHA256 = "6b431edd90640546ed1d27618760709a5ed43270a69d1e7d04427a7203b5fd7d"
 
 
 def test_dataset_and_corpus_are_frozen():
     assert run_eval.dataset_hash() == FROZEN_DATASET_SHA256
+    assert run_eval.corpus_hash() == FROZEN_CORPUS_SHA256
 
 
 def test_every_question_has_gold_evidence_in_its_listed_documents():
@@ -93,6 +95,7 @@ def test_model_failures_are_counted_not_hidden(tmp_path, monkeypatch):
 
 
 FROZEN_HELDOUT_SHA256 = "69e75c0afa5b804672ce202d3145466174c49b2090511ade1b6907ec98603828"
+RERANK_CHALLENGE_SHA256 = "dd1bb3174fa4f32e5e7c4f03d131d024a1685b665873482b9cec037da7521fac"
 
 
 def test_heldout_set_is_frozen_and_dev_set_is_untouched():
@@ -115,12 +118,31 @@ def test_heldout_gold_evidence_exists_in_the_frozen_corpus():
         assert any(evidence.lower() in s.text.lower() for d in docs for s in build_sections(run_eval.read_doc(d), d)), query
 
 
+def test_rerank_challenge_is_separate_from_the_frozen_sets_and_has_gold_evidence():
+    from orbit.pageindex.tree import build_sections
+    try:
+        run_eval.use_dataset("rerank_challenge")
+        assert run_eval.dataset_hash() == RERANK_CHALLENGE_SHA256
+        assert len(run_eval.DOC_QUERIES) == 6 and len(run_eval.CHAT_QUERIES) == 3
+        challenge_questions = {q for q, _, _ in run_eval.DOC_QUERIES}
+        for query, evidence, docs in run_eval.DOC_QUERIES:
+            assert any(evidence.lower() in s.text.lower() for d in docs for s in build_sections(run_eval.read_doc(d), d)), query
+    finally:
+        run_eval.use_dataset("dev")
+    assert not challenge_questions & {q for q, _, _ in run_eval.DOC_QUERIES}
+    run_eval.use_dataset("heldout")
+    assert not challenge_questions & {q for q, _, _ in run_eval.DOC_QUERIES}
+    run_eval.use_dataset("dev")
+
+
 def test_noise_variants_are_registered_as_selector_variants_with_defaults_off():
     for key in ("S+m04", "S+m08", "S+m12", "S+k5", "S+x1200"):
         spec = run_eval.SPECS[key]
         assert spec.selector == "adaptive" and spec.navigator == "none" and spec.kind == "baseline"
     base = run_eval.SPECS["S"]
     assert (base.section_margin, base.top_k, base.excerpt) == (None, None, None)
+    combined = run_eval.SPECS["S+m08+r-cerrf+k8"]
+    assert (combined.section_margin, combined.rerank, combined.top_k) == (0.08, "cross_encoder_rrf", 8)
 
 
 def test_noise_sweep_run_records_answers_lost_and_candidate_counts(tmp_path, monkeypatch):
@@ -130,3 +152,10 @@ def test_noise_sweep_run_records_answers_lost_and_candidate_counts(tmp_path, mon
     assert data["meta"]["dataset"] == "heldout"
     capped = data["systems"]["S+k3"]
     assert "answers_lost_vs_S" in capped and "mean_fused_sections" in capped["budgets"]["20000"]
+    for system in ("S", "S+k3"):
+        for row in data["systems"][system]["queries"]["20000"]:
+            before, after = row["section_order_before"], row["section_order_after"]
+            assert len(before) == len(set(before)) and len(after) == len(set(after))
+            assert set(before) == set(after)
+    assert len(data["systems"]["S"]["chat_queries"]["20000"]) == len(run_eval.CHAT_QUERIES)
+    assert data["systems"]["S+k3"]["chat_answers_lost_vs_S"]["20000"] == []
