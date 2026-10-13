@@ -14,8 +14,9 @@ The server communicates with MCP clients over stdio.
 - An MCP-compatible client for the tools; Codex CLI instructions are below
 
 The project uses the [Python MCP SDK](https://github.com/modelcontextprotocol/python-sdk)
-and Python's standard-library SQLite interface. It does not use an external
-dataset or embedding service.
+and Python's standard-library SQLite interface. It does not bundle an external
+dataset. Optional semantic embeddings run locally; experimental PageIndex can
+send a query and document outline to the configured model provider when enabled.
 
 ## Install
 
@@ -57,6 +58,7 @@ activated:
 ```sh
 codex mcp add celestin \
   --env CELESTIN_DB_PATH=/absolute/path/to/celestin.db \
+  --env 'CELESTIN_LOCAL_PROJECT_ACCESS={"project-name":["read","write"]}' \
   -- celestin
 codex mcp list
 ```
@@ -67,7 +69,7 @@ the `--` separator.
 **Windows PowerShell**
 
 ```powershell
-codex mcp add celestin --env 'CELESTIN_DB_PATH=C:\path\to\celestin.db' -- .venv\Scripts\celestin.exe
+codex mcp add celestin --env 'CELESTIN_DB_PATH=C:\path\to\celestin.db' --env 'CELESTIN_LOCAL_PROJECT_ACCESS={"project-name":["read","write"]}' -- .venv\Scripts\celestin.exe
 codex mcp list
 ```
 
@@ -85,12 +87,27 @@ path to the executable in `.venv`). A minimal client configuration is:
       "command": "celestin",
       "args": [],
       "env": {
-        "CELESTIN_DB_PATH": "/absolute/path/to/celestin.db"
+        "CELESTIN_DB_PATH": "/absolute/path/to/celestin.db",
+        "CELESTIN_LOCAL_PROJECT_ACCESS": "{\"project-name\":[\"read\",\"write\"]}"
       }
     }
   }
 }
 ```
+
+### Local project access
+
+The stdio server requires an explicit process-level project/action allowlist for
+the four data tools. `CELESTIN_LOCAL_PROJECT_ACCESS` is a JSON object whose keys
+are exact project names and whose values contain `read`, `write`, or both. An
+unset policy denies data-tool calls while `ping` remains available. For existing
+client configurations, `ORBIT_LOCAL_PROJECT_ACCESS` remains a fallback; the
+Celestin variable takes precedence if both are set.
+
+This policy grants access to the server process, not to an authenticated user.
+Every MCP client connected to that process inherits the same grants, and it does
+not protect against other untrusted processes running as the same local user.
+Keep the server on local stdio; do not expose it remotely.
 
 ## Available tools
 
@@ -239,9 +256,11 @@ export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus th
 - Keyword search uses SQLite FTS5. Queries are treated as plain Unicode terms joined
   with AND; punctuation is discarded. Search scores are relevance values, not
   probabilities.
-- The server currently supports local stdio only and has no caller
-  authentication or project authorization. Do not expose it as a remote
-  service.
+- The server supports local stdio with a fail-closed process-level project
+  allowlist. Stdio does not authenticate individual callers, so all connected
+  clients share the server process's grants. This does not protect against
+  untrusted same-user processes and is not remote authorization. Do not expose
+  the server remotely.
 
 ## Tests
 

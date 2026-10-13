@@ -12,6 +12,7 @@ from unittest.mock import patch
 from mcp.server.fastmcp.exceptions import ToolError
 
 from orbit.mcp_server import server
+from orbit.mcp_server.authorization import ProjectAccessPolicy
 from orbit.mcp_server.persistence_services import PersistenceServices
 from orbit.mcp_server.retrieval_services import RetrievalServices
 from orbit.database.engine import connect
@@ -32,15 +33,25 @@ class ToolContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temp_dir = tempfile.TemporaryDirectory()
         adapter = PersistenceServices(Path(self._temp_dir.name) / "memory.db")
-        self._service_patch = patch.object(server, "persistence_services", adapter)
+        self._service_patch = patch.object(server, "_persistence_backend", adapter)
         self._service_patch.start()
         self.db_path = Path(self._temp_dir.name) / "memory.db"
-        self._retrieval_patch = patch.object(server, "retrieval_services", RetrievalServices(self.db_path))
+        self._retrieval_patch = patch.object(server, "_retrieval_backend", RetrievalServices(self.db_path))
         self._retrieval_patch.start()
+        self._authorization_patch = patch.object(
+            server,
+            "project_authorizer",
+            ProjectAccessPolicy(local_access={
+                project: ["read", "write"]
+                for project in ("alpha", "beta", "missing", "p", "demo")
+            }),
+        )
+        self._authorization_patch.start()
 
     def tearDown(self) -> None:
         self._service_patch.stop()
         self._retrieval_patch.stop()
+        self._authorization_patch.stop()
         self._temp_dir.cleanup()
 
     def test_all_public_tools_are_registered_once(self) -> None:
@@ -157,8 +168,8 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "RETRIEVAL_UNAVAILABLE")
 
     def test_tools_delegate_to_service_adapters(self) -> None:
-        self.assertIsInstance(server.persistence_services, PersistenceServices)
-        self.assertIsInstance(server.retrieval_services, RetrievalServices)
+        self.assertIsInstance(server._persistence_backend, PersistenceServices)
+        self.assertIsInstance(server._retrieval_backend, RetrievalServices)
 
     def assert_invalid(self, callback, *args, **kwargs) -> None:
         with self.assertRaises(ToolError) as raised:
@@ -199,7 +210,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_database_and_retrieval_failures_are_sanitized(self) -> None:
         with patch.object(
-            server.persistence_services,
+            server._persistence_backend,
             "ingest_chat_message",
             side_effect=sqlite3.OperationalError("C:/private/db.sqlite credential=secret"),
         ):
@@ -214,7 +225,7 @@ class ToolContractTests(unittest.TestCase):
         self.assertNotIn("private content", "\n".join(captured.output))
 
         with patch.object(
-            server.retrieval_services,
+            server._retrieval_backend,
             "search_chat_history",
             side_effect=RuntimeError("provider key=secret /private/index.sqlite"),
         ):
@@ -229,7 +240,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_unavailable_retrieval_dependency_has_distinct_error(self) -> None:
         with patch.object(
-            server.retrieval_services,
+            server._retrieval_backend,
             "search_chat_history",
             side_effect=SearchIndexUnavailable("index path /private/index.sqlite"),
         ):
