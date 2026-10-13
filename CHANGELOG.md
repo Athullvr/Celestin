@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-13T18:23:32+05:30 — Make database-path compatibility checks portable
+
+- Changed: Normalize the displayed database path in `tests/test_celestin_rename.py` before comparing expected environment-variable values.
+- Why: Windows renders path separators differently from the POSIX strings used by the compatibility cases.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_celestin_rename.py` — 7 passed in the Celestin editable environment.
+- Limitations: This changes test comparison only; database path resolution and behavior are unchanged.
+
 ## 2026-10-13T12:03:32+05:30 — Add an untuned reranking challenge set
 
 - Changed: Added six documentation and three chat questions in `eval/rerank_challenge.py`, integrated the set and its pinned hash with the evaluation harness, recorded the full six-variant sweep and a separate four-variant lexical ablation in `eval/results_rerank_challenge*`, and made the chat-recall table labels reflect the set size. Updated the reranking analysis in `docs/context-optimization.md`.

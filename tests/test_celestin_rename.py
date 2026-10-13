@@ -55,4 +55,4 @@ def test_database_path_env_precedence(env, expected):
         [sys.executable, "-c", "from orbit.database.engine import DB_PATH; print(DB_PATH)"],
         env={**clean, **env}, capture_output=True, text=True, check=True,
     )
-    assert out.stdout.strip() == expected
+    assert Path(out.stdout.strip()).as_posix() == Path(expected).as_posix()
