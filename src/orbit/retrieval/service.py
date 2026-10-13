@@ -20,6 +20,7 @@ from pathlib import Path
 from orbit.pageindex.backend import PageIndexBackend
 from orbit.pageindex.errors import PageIndexUnavailable
 from orbit.retrieval.relevance import top_k_with_exemptions
+from orbit.retrieval.rerank import RerankUnavailable
 from orbit.retrieval.selector import SelectorContext, plan_query
 from orbit.retrieval.strategies import (
     Candidate, FtsStrategy, PageIndexStrategy, RetrievalRequest, SectionStrategy, SemanticStrategy, StrategyResult,
@@ -71,6 +72,8 @@ class RetrievalService:
         selector: str = "all",
         section_top_k: int | None = None,
         section_excerpt_bytes: int | None = None,
+        section_reranker=None,
+        rerank_shortlist: int = 20,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -96,6 +99,13 @@ class RetrievalService:
         if section_excerpt_bytes is not None and section_excerpt_bytes < 200:
             raise ValueError("section_excerpt_bytes must be at least 200")
         self._section_top_k = section_top_k
+        if rerank_shortlist < 2:
+            raise ValueError("rerank_shortlist must be at least 2")
+        self._reranker = section_reranker
+        self._rerank_shortlist = rerank_shortlist
+        self._rerank_note: str | None = None
+        self._section_order: list[str] = []
+        self._rerank_trace: dict = {}
         self._sections = SectionStrategy(Path(sections), semantic, section_excerpt_bytes) if sections is not None else None
         self._strategies: dict = {
             "fts": FtsStrategy(self._message_search, self._decision_search, self._decisions),
@@ -299,6 +309,7 @@ class RetrievalService:
         fused = semantic_ok or any(method != "fts" for _, method in lists)
 
         self.last_sources = {}
+        self._rerank_note, self._rerank_trace, self._section_order = None, {}, []
         candidates: list[RetrievalCandidate] = []
         capped = 0
         for record_type, by_id in candidates_by_type.items():
@@ -308,6 +319,10 @@ class RetrievalService:
                 scores = {rid: -score for rid, score in reciprocal_rank_fusion(rankings, self._rrf_k)}
             else:
                 scores = {rid: c.score for rid, c in by_id.items()}
+            if record_type == "document_section":
+                self._section_order = [rid for rid, _ in sorted(scores.items(), key=lambda kv: (kv[1], kv[0]))]
+            if record_type == "document_section" and self._reranker is not None:
+                scores = self._rerank_sections(request.query, by_id, scores, lists)
             if record_type == "document_section" and self._section_top_k is not None:
                 # Rank cap for heading sections only. Sections with a strong keyword hit (all terms or all
                 # non-stopword terms matched) are exempt, so exact lookups are never dropped by the cap.
@@ -341,6 +356,8 @@ class RetrievalService:
             (t_strategies - t_start, t_fused - t_strategies, time.perf_counter() - t_fused),
         )
         self.last_diagnostics["capped_sections"] = capped
+        self.last_diagnostics["rerank"] = self._rerank_trace
+        self.last_diagnostics["section_order"] = list(self._section_order)
         self.last_diagnostics["semantic_filter"] = dict(getattr(self._semantic, "last_filter", {}) or {})
         return bundle
 
@@ -370,6 +387,33 @@ class RetrievalService:
             "context_bytes": len(bundle.rendered_context.encode("utf-8")),
             "stage_ms": {k: round(v * 1000, 2) for k, v in zip(("strategies", "fusion", "build"), stage_seconds)},
         }
+
+    def _rerank_sections(self, query: str, by_id: dict, scores: dict, lists) -> dict:
+        """Reorder the top of the fused section list; scores stay rank-based (-1/(k+position)).
+
+        Only a bounded shortlist is reranked, nothing is dropped, and sections with a strong keyword hit
+        (all terms or all non-stopword terms matched) stay ahead so exact lookups are never demoted.
+        If the reranker is unavailable the original order and scores are kept and a warning is recorded.
+        """
+        ordered = [rid for rid, _ in sorted(scores.items(), key=lambda kv: (kv[1], kv[0]))]
+        shortlist, rest = ordered[: self._rerank_shortlist], ordered[self._rerank_shortlist:]
+        start = time.perf_counter()
+        try:
+            reranked = self._reranker.rerank(query, [by_id[rid] for rid in shortlist])
+        except RerankUnavailable as exc:
+            logger.warning("section reranker unavailable, keeping the original order: %s", exc)
+            self._rerank_note = f"section reranker unavailable: {exc}"
+            return scores
+        if sorted(reranked) != sorted(shortlist):  # a reranker may only reorder
+            self._rerank_note = "section reranker returned an inconsistent order; ignored"
+            return scores
+        strong = {rid for rid in shortlist
+                  if any(c.method == "sections_fts" and c.tier != "relaxed_or" for c in _candidate_hits(lists, rid))}
+        final = [r for r in reranked if r in strong] + [r for r in reranked if r not in strong] + rest
+        self._rerank_trace = {"reranker": self._reranker.name, "shortlist": len(shortlist),
+                              "before": ordered, "after": final,
+                              "ms": round((time.perf_counter() - start) * 1000, 2)}
+        return {rid: -1.0 / (self._rrf_k + pos) for pos, rid in enumerate(final, start=1)}
 
     def _describe(self, results: dict[str, StrategyResult], selector_info: dict | None) -> RetrievalInfo:
         warnings: list[str] = []
@@ -412,6 +456,8 @@ class RetrievalService:
                 if pi.status == "unavailable":
                     warnings.append(f"document retrieval unavailable: {pi.detail}")
             navigation = pi.navigation if pi is not None else None
+        if self._rerank_note:
+            warnings.append(self._rerank_note)
         return RetrievalInfo(mode, tuple(warnings), pageindex, navigation, sections, selector_info)
 
 

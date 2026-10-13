@@ -56,6 +56,7 @@ from orbit.pageindex.store import PageIndexStore
 from orbit.pageindex.tree import build_sections
 from orbit.repositories.messages import ChatMessageRepository
 from orbit.retrieval import RetrievalService
+from orbit.retrieval.rerank import build_reranker
 
 HERE = Path(__file__).parent
 CORPUS = HERE / "corpus"
@@ -78,6 +79,7 @@ class Spec:
     section_margin: float | None = None
     top_k: int | None = None
     excerpt: int | None = None
+    rerank: str | None = None
 
 
 SPECS = {s.key: s for s in [
@@ -113,6 +115,16 @@ _variant("S+x1200", "S + excerpts (1200 B)", excerpt=1200)
 _variant("S+m08+k5", "S + margin 0.08 + top-5", section_margin=0.08, top_k=5)
 _variant("S+m08+x1200", "S + margin 0.08 + excerpts", section_margin=0.08, excerpt=1200)
 _variant("S+m04+x1200", "S + margin 0.04 + excerpts", section_margin=0.04, excerpt=1200)
+for r, label in (("lexical", "lexical"), ("cross_encoder", "cross-encoder"), ("cross_encoder_rrf", "cross-encoder + RRF")):
+    key = {"lexical": "lex", "cross_encoder": "ce", "cross_encoder_rrf": "cerrf"}[r]
+    _variant(f"S+r-{key}", f"S + rerank ({label})", rerank=r)
+    _variant(f"S+m08+r-{key}", f"S + margin 0.08 + rerank ({label})", section_margin=0.08, rerank=r)
+for k in (5, 8):
+    _variant(f"S+r-ce+k{k}", f"S + rerank (cross-encoder) + top-{k}", rerank="cross_encoder", top_k=k)
+_variant("S+m08+r-ce+k8", "S + margin 0.08 + rerank (cross-encoder) + top-8", section_margin=0.08,
+         rerank="cross_encoder", top_k=8)
+RERANK_SWEEP = ["S", "S+m08", "S+r-lex", "S+r-ce", "S+r-cerrf", "S+m08+r-lex", "S+m08+r-ce", "S+m08+r-cerrf",
+                "S+r-ce+k5", "S+r-ce+k8", "S+m08+r-ce+k8"]
 NOISE_SWEEP = ["H", "S", "S+m04", "S+m08", "S+m12", "S+k3", "S+k5", "S+k8", "S+x1200", "S+m08+k5", "S+m08+x1200"]
 SWEEP = ["F", "F@10", "F@5", "F@3", "F~0.12", "F~0.08", "F~0.04"]
 
@@ -213,7 +225,8 @@ def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict
     service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit,
                                fts_relax=FTS_RELAX, selector=spec.selector,
                                sections=tmp / "docs.db" if spec.docs == "store" else None,
-                               section_top_k=spec.top_k, section_excerpt_bytes=spec.excerpt)
+                               section_top_k=spec.top_k, section_excerpt_bytes=spec.excerpt,
+                               section_reranker=build_reranker(spec.rerank))
     return service, ids, index_secs, navigator, records
 
 
@@ -237,6 +250,14 @@ def gold_snippets(evidence, gold_docs, sections):
     return out
 
 
+def _has_evidence(record_id: str, evidence: str, sections) -> bool:
+    if not record_id.startswith("doc:"):
+        return False
+    doc, node = record_id[4:].rsplit("#", 1)
+    sec = sections.get((doc, node))
+    return bool(sec and evidence.lower() in sec.text.lower())
+
+
 def run_query(service, query, budget, evidence, gold_docs, ids, sections, navigator):
     if isinstance(navigator, OracleNavigator):
         navigator.target = (evidence, gold_docs)
@@ -258,8 +279,24 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
     covered = sum(any(sn in i.content for i in bundle.items) for sn in snippets)
     status = info.pageindex or "n/a"
     sel = info.selector or {}
+    rr = service.last_diagnostics.get("rerank") or {}
+    ranked_after = rr.get("after") or [rid for rid in (service.last_diagnostics.get("section_order") or [])]
+    ranked_before = rr.get("before") or ranked_after
+    gold_pos = lambda order: next((i for i, rid in enumerate(order, start=1) if _has_evidence(rid, evidence, sections)), None)
+    pos_before, pos_after = gold_pos(ranked_before), gold_pos(ranked_after)
+    gold_candidates = [rid for rid in ranked_after if _has_evidence(rid, evidence, sections)]
+    selected = {i.record_id for i in bundle.items}
+    if answering:
+        reason = None
+    elif not gold_candidates:
+        reason = "no candidate section contains the answer (not retrieved, or removed by margin/filters)"
+    elif not (set(gold_candidates) & selected):
+        reason = "answer-bearing candidate present but excluded by the byte budget or ranked below the fill"
+    else:
+        reason = "unclassified"
     return {
-        "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
+        "gold_pos_before": pos_before, "gold_pos_after": pos_after, "miss_reason": reason,
+        "rerank_ms": rr.get("ms", 0.0), "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
         "gold_recall": covered / len(snippets) if snippets else 0.0,
         "rr": 1 / first if first else 0.0, "tokens": bundle.token_count, "items": len(bundle.items),
         "unrelated_item_rate": (len(bundle.items) - len(answering)) / len(bundle.items) if bundle.items else 0.0,
@@ -301,6 +338,13 @@ def aggregate(rows, chat_hits, model):
         "pageindex_failures": sum(r["pageindex_failed"] for r in rows),
         "pageindex_timeouts": sum(r["pageindex_timeout"] for r in rows),
         "queries": n,
+        "gold_mrr_before_rerank": statistics.mean(1 / r["gold_pos_before"] if r["gold_pos_before"] else 0 for r in rows),
+        "gold_mrr_after_rerank": statistics.mean(1 / r["gold_pos_after"] if r["gold_pos_after"] else 0 for r in rows),
+        "gold_median_pos_before": statistics.median(r["gold_pos_before"] or 99 for r in rows),
+        "gold_median_pos_after": statistics.median(r["gold_pos_after"] or 99 for r in rows),
+        "answers_per_kb": sum(r["answered"] for r in rows) / max(1e-9, sum(r["context_bytes"] for r in rows) / 1000),
+        "gold_recall_per_kb": sum(r["gold_recall"] for r in rows) / max(1e-9, sum(r["context_bytes"] for r in rows) / 1000),
+        "mean_rerank_ms": mean("rerank_ms"),
         "mean_fused_sections": mean("fused_sections"), "mean_capped_sections": mean("capped_sections"),
         "mean_selected_sections": mean("selected_sections"),
     }
@@ -363,7 +407,9 @@ def render(results, meta, budgets) -> str:
     rows = [("answer_in_context", "answer text in context"), ("gold_section_recall", "gold-section recall"),
             ("doc_source_accuracy", "document source correct"), ("section_source_accuracy", "section source correct"),
             ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"), ("median_context_bytes", "median context bytes"),
-            ("mean_items", "mean items"), ("mean_fused_sections", "section candidates after filtering"),
+            ("mean_items", "mean items"), ("gold_mrr_before_rerank", "gold section MRR, fused order"),
+            ("gold_mrr_after_rerank", "gold section MRR, after rerank"), ("answers_per_kb", "answers per KB of context"),
+            ("gold_recall_per_kb", "gold-section recall per KB"), ("mean_rerank_ms", "rerank latency (ms, mean)"), ("mean_fused_sections", "section candidates after filtering"),
             ("mean_selected_sections", "sections in final context"), ("unrelated_item_rate", "unrelated item rate"),
             ("answer_share_of_context", "answer-bearing share of context"),
             ("queries_with_budget_exclusions", "queries dropping a record for budget"),
@@ -415,6 +461,7 @@ def main(argv=None) -> int:
                     help="bounded FTS5 query relaxation (product default on; off reproduces the first evaluation)")
     ap.add_argument("--dataset", choices=["dev", "heldout"], default="dev",
                     help="question set (heldout: written before the context-optimization experiments; do not tune on it)")
+    ap.add_argument("--rerank-sweep", action="store_true", help="evaluate section reranking variants of S")
     ap.add_argument("--noise-sweep", action="store_true", help="evaluate relevance-filtering variants of S")
     ap.add_argument("--out", default=str(HERE), help="directory for results.md / results.json")
     args = ap.parse_args(argv)
@@ -423,7 +470,7 @@ def main(argv=None) -> int:
     use_dataset(args.dataset)
     budgets = tuple(int(b) for b in args.budgets.split(","))
     explicit = args.systems is not None
-    keys = NOISE_SWEEP if args.noise_sweep and not explicit else SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
+    keys = RERANK_SWEEP if args.rerank_sweep and not explicit else NOISE_SWEEP if args.noise_sweep and not explicit else SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
     unknown = [k for k in keys if k not in SPECS]
     if unknown:
         sys.exit(f"ERROR: unknown systems {unknown}; choose from {sorted(SPECS)}")
@@ -480,7 +527,7 @@ def main(argv=None) -> int:
     }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    suffix = (("_noise_sweep" if args.noise_sweep and not explicit else "") + ("_f_sweep" if args.f_sweep and not explicit else "")
+    suffix = (("_rerank_sweep" if args.rerank_sweep and not explicit else "") + ("_noise_sweep" if args.noise_sweep and not explicit else "") + ("_f_sweep" if args.f_sweep and not explicit else "")
               + ("" if args.dataset == "dev" else "_heldout") + ("" if FTS_RELAX else "_strict_fts"))
     (out / f"results{suffix}.json").write_text(json.dumps({"meta": meta, "systems": results}, indent=2, default=str))
     text = render(results, meta, budgets)
