@@ -9,6 +9,10 @@ Environment variables:
     CELESTIN_PAGEINDEX_MAX_OUTLINE   largest outline sent to the model (default 400 sections)
     CELESTIN_PAGEINDEX_RETRIES     extra attempts for transient model errors (default 0)
     CELESTIN_PAGEINDEX_CACHE       navigation results cached in memory (default 64; 0 disables)
+    CELESTIN_DOC_SECTIONS          heading-section retrieval over indexed documents (default on when
+                                   `celestin-docs index` has created the document index; 0/false/off disables)
+    CELESTIN_RETRIEVAL_SELECTOR    "all" (default: every enabled strategy runs) or "adaptive"
+                                   (deterministic selector: one primary strategy plus at most one fallback)
 
 The outline (section paths and opening text) and the query are sent to the
 configured model provider for every routed query. Provider credentials use
@@ -99,3 +103,17 @@ def build_pageindex_backend(db_path: str | Path | None = None) -> PageIndexBacke
         settings.store_path, navigator, max_sections=settings.max_sections,
         cache_size=settings.cache_size, cache_namespace=settings.model,
     )
+
+
+def sections_store_path(db_path: str | Path | None = None) -> Path | None:
+    """Document index path for heading-section retrieval, or None when disabled or not created yet."""
+    if os.environ.get("CELESTIN_DOC_SECTIONS", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return None
+    explicit = os.environ.get("CELESTIN_PAGEINDEX_DB_PATH")
+    path = Path(explicit) if explicit else Path(f"{engine._resolve_path(db_path)}.pageindex.db")
+    return path if path.exists() else None
+
+
+def selector_mode() -> str:
+    """"adaptive" only when explicitly requested; anything else keeps the established behavior."""
+    return "adaptive" if os.environ.get("CELESTIN_RETRIEVAL_SELECTOR", "all").strip().lower() == "adaptive" else "all"

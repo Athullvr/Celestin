@@ -187,6 +187,29 @@ CELESTIN_RUN_MODEL_TESTS=1 python -m pytest tests/semantic/test_real_model.py
 
 More detail: [docs/semantic-search.md](docs/semantic-search.md).
 
+## Heading-section retrieval and the strategy selector
+
+`celestin-docs index --project my-project docs/` indexes Markdown documents into heading sections (no model needed). `retrieve_context` then also searches those sections with FTS5, and with semantic search too when `CELESTIN_SEMANTIC_SEARCH=1` (run `celestin-index sync`, or let `celestin-docs` embed them). Section results carry a `source` (document, section, line, content hash). Disable with `CELESTIN_DOC_SECTIONS=0`. Setting `CELESTIN_RETRIEVAL_SELECTOR=adaptive` makes retrieval pick one primary strategy plus at most one fallback instead of running every enabled strategy (default `all`); on the frozen evaluation it matched running everything on answer quality with one strategy fewer, but did not reduce context size. Design, results and limits: [docs/retrieval-strategies.md](docs/retrieval-strategies.md).
+
+### Reducing context noise (opt-in)
+
+Section-based retrieval returns many weakly related sections. `CELESTIN_SEMANTIC_SECTION_MARGIN=0.08` keeps only semantic section hits close to the best one: on two evaluation sets it kept every answer and cut 22-35% of the context bytes. It is recommended but off by default; `CELESTIN_SECTION_TOP_K` and `CELESTIN_SECTION_EXCERPT_BYTES` are experimental and lost answers in testing. Diagnosis and results: [docs/context-optimization.md](docs/context-optimization.md).
+
+Heading sections can also be reordered with `CELESTIN_SECTION_RERANK=lexical`,
+`lexical_rrf`, `cross_encoder`, or `cross_encoder_rrf`. This is off by default;
+the bounded shortlist defaults to 20 (`CELESTIN_SECTION_RERANK_SHORTLIST`). The
+lexical modes are deterministic and use no model. Cross-encoder modes use
+FastEmbed from the optional `semantic` extra and download
+`Xenova/ms-marco-MiniLM-L-6-v2` on first use unless it is already cached;
+`CELESTIN_SECTION_RERANK_MODEL` can select another compatible model. The
+margin + cross-encoder RRF + top-8 combination improved measured useful
+evidence per byte in the dev and held-out sweeps and on six new challenge
+questions. The top-8 choice followed review of the earlier held-out results,
+and the new challenge sample is small, so keep it experimental and opt-in;
+defaults remain unchanged. See the [development results](eval/results_rerank_sweep.md),
+[held-out results](eval/results_rerank_sweep_heldout.md), and
+[new-query challenge](eval/results_rerank_challenge.md).
+
 ## Document retrieval with PageIndex (optional, experimental)
 
 Long Markdown documents (specs, design notes) can be indexed into heading-section trees and searched by having an LLM pick sections from the outline, the approach of [PageIndex](https://github.com/VectifyAI/PageIndex). It is off by default, needs a model API key and sends the query and the outline to that provider. **It has been tested only with a fake navigation model; it has not been shown to improve retrieval with a real LLM.**

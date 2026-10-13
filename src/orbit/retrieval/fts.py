@@ -119,6 +119,36 @@ def _without_stopwords(query: str) -> str:
     return " AND ".join(f'"{t}"' for t in kept)
 
 
+def tiered_match(run, query: str, limit: int, relax: bool, content_of=lambda r: r.content):
+    """Run strict then (if ``relax``) bounded relaxed FTS5 queries; return (results, tier).
+
+    ``run(match_expression, row_limit)`` executes one MATCH and returns ordered results.
+    Shared by message, decision and document-section search so all use the same tiers.
+    """
+    strict = _fts_terms(query)
+    if not strict:
+        return [], "strict"
+    results = run(strict, limit)
+    if results or not relax:
+        return results, "strict"
+    stopless = _without_stopwords(query)
+    if stopless:
+        results = run(stopless, limit)
+        if results:
+            return results, "no_stopwords"
+    plan = _relaxed_plan(query)
+    if plan is None:
+        return [], "strict"
+    relaxed_query, terms, min_match = plan
+    wanted = [t.casefold() for t in terms]
+    kept = []
+    for result in run(relaxed_query, limit * RELAXED_POOL_FACTOR):
+        words = {w.casefold() for w in _WORD.findall(content_of(result))}
+        if sum(t in words for t in wanted) >= min_match:
+            kept.append(result)
+    return (kept[:limit], "relaxed_or") if kept else ([], "strict")
+
+
 class FtsMessageSearch:
     """Search an existing FTS5 message table without managing its lifecycle."""
 
@@ -228,29 +258,8 @@ class FtsMessageSearch:
                     for row in rows
                 ]
 
-            results = run(match_query, limit)
-            if results or not relax:
-                return results
-            stopless = _without_stopwords(query)
-            if stopless:
-                results = run(stopless, limit)
-                if results:
-                    self.last_tier = "no_stopwords"
-                    return results
-            plan = _relaxed_plan(query)
-            if plan is None:
-                return []
-            relaxed_query, terms, min_match = plan
-            wanted = [t.casefold() for t in terms]
-            candidates = run(relaxed_query, limit * RELAXED_POOL_FACTOR)
-            kept = []
-            for result in candidates:
-                words = {w.casefold() for w in _WORD.findall(result.content)}
-                if sum(t in words for t in wanted) >= min_match:
-                    kept.append(result)
-            if kept:
-                self.last_tier = "relaxed_or"
-            return kept[:limit]
+            results, self.last_tier = tiered_match(run, query, limit, relax)
+            return results
         except sqlite3.OperationalError as exc:
             message = str(exc).lower()
             if "no such table" in message or "no such column" in message or "match" in message:

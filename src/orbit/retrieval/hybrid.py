@@ -22,6 +22,8 @@ class RetrievalInfo:
     warnings: tuple[str, ...] = ()
     pageindex: str | None = None
     navigation: dict | None = None
+    sections: str | None = None
+    selector: dict | None = None
 
     def as_dict(self) -> dict[str, object]:
         info: dict[str, object] = {"mode": self.mode, "warnings": list(self.warnings)}
@@ -29,6 +31,10 @@ class RetrievalInfo:
             info["pageindex"] = self.pageindex
         if self.navigation is not None:
             info["navigation"] = self.navigation
+        if self.sections is not None:
+            info["sections"] = self.sections
+        if self.selector is not None:
+            info["selector"] = self.selector
         return info
 
 

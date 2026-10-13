@@ -11,13 +11,15 @@ Environment variables:
     CELESTIN_EMBEDDING_CACHE_DIR      model cache directory (fastembed default if unset)
     CELESTIN_VECTOR_DB_PATH           vector index file (default: <database path>.vectors.db)
     CELESTIN_SEMANTIC_MIN_SIMILARITY  cosine similarity cut-off, 0..1 (default 0.6)
-    CELESTIN_SEMANTIC_RELATIVE_MARGIN also drop hits this far below the best hit (default: off)
+    CELESTIN_SEMANTIC_RELATIVE_MARGIN also drop hits this far below the best hit of each kind (default: off)
+    CELESTIN_SEMANTIC_SECTION_MARGIN  the same, for heading sections only (default: off)
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from contextlib import closing
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +46,18 @@ class SemanticSettings:
     vector_path: Path
     min_similarity: float
     relative_margin: float | None = None
+    section_margin: float | None = None
+
+
+def _margin(name: str) -> float | None:
+    raw = os.environ.get(name)
+    try:
+        value = float(raw) if raw else None
+    except ValueError:
+        raise ValueError(f"{name} must be a number") from None
+    if value is not None and not 0.0 <= value <= 1.0:
+        raise ValueError(f"{name} must be between 0 and 1")
+    return value
 
 
 def load_settings(db_path: str | Path | None = None) -> SemanticSettings:
@@ -56,13 +70,8 @@ def load_settings(db_path: str | Path | None = None) -> SemanticSettings:
         raise ValueError("CELESTIN_SEMANTIC_MIN_SIMILARITY must be a number") from None
     if not 0.0 <= min_similarity <= 1.0:
         raise ValueError("CELESTIN_SEMANTIC_MIN_SIMILARITY must be between 0 and 1")
-    margin_raw = env.get("CELESTIN_SEMANTIC_RELATIVE_MARGIN")
-    try:
-        margin = float(margin_raw) if margin_raw else None
-    except ValueError:
-        raise ValueError("CELESTIN_SEMANTIC_RELATIVE_MARGIN must be a number") from None
-    if margin is not None and not 0.0 <= margin <= 1.0:
-        raise ValueError("CELESTIN_SEMANTIC_RELATIVE_MARGIN must be between 0 and 1")
+    margin = _margin("CELESTIN_SEMANTIC_RELATIVE_MARGIN")
+    section_margin = _margin("CELESTIN_SEMANTIC_SECTION_MARGIN")
     return SemanticSettings(
         enabled=env.get("CELESTIN_SEMANTIC_SEARCH", "").strip().lower() in _TRUE,
         model_id=env.get("CELESTIN_EMBEDDING_MODEL") or DEFAULT_MODEL_ID,
@@ -70,6 +79,7 @@ def load_settings(db_path: str | Path | None = None) -> SemanticSettings:
         vector_path=Path(env.get("CELESTIN_VECTOR_DB_PATH") or f"{database}.vectors.db"),
         min_similarity=min_similarity,
         relative_margin=margin,
+        section_margin=section_margin,
     )
 
 
@@ -92,7 +102,8 @@ def build_semantic_search(db_path: str | Path | None = None) -> SemanticSearch |
     except EmbeddingError as exc:
         return SemanticSearch.unavailable(str(exc))
     return SemanticSearch(
-        provider, settings.vector_path, settings.min_similarity, relative_margin=settings.relative_margin
+        provider, settings.vector_path, settings.min_similarity,
+        relative_margin=settings.relative_margin, section_margin=settings.section_margin,
     )
 
 
@@ -118,3 +129,32 @@ def index_after_write(
             "semantic indexing of %s %s deferred (%s); run `celestin-index sync`",
             kind, record_id, type(exc).__name__,
         )
+
+
+def sync_sections_after_index(db_path: str | Path | None = None) -> str | None:
+    """Best-effort: embed new/changed heading sections after ``celestin-docs`` changes the store.
+
+    Returns a short status line, or None when semantic search is disabled. A failure is
+    reported (never raised); ``celestin-index sync`` repairs it later.
+    """
+    from orbit.pageindex.config import load_settings as load_docs_settings
+    from orbit.pageindex.store import PageIndexStore
+
+    try:
+        settings = load_settings(db_path)
+        if not settings.enabled:
+            return None
+        provider = get_provider(settings)
+        with closing(engine.connect(db_path)) as conn, PageIndexStore(
+            load_docs_settings(db_path).store_path, create=False
+        ) as store, VectorIndex(
+            settings.vector_path, model_id=provider.model_id, dimension=provider.dimension
+        ) as index:
+            report = Indexer(conn, provider, index, sections_connection=store.connection()).sync(
+                kinds=("document_section",)
+            )
+        if report.error:
+            return f"section embeddings incomplete: {report.error}"
+        return f"section embeddings: embedded={report.embedded} removed_stale={report.removed_stale}"
+    except Exception as exc:
+        return f"section embeddings deferred ({type(exc).__name__}); run: celestin-index sync"

@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS sections (
     text      TEXT NOT NULL,
     PRIMARY KEY (doc_id, node_id)
 );
+-- Heading-section keyword index. External content: the text stays in `sections` only.
+CREATE VIRTUAL TABLE IF NOT EXISTS sections_fts USING fts5(
+    path_json, text, content='sections', content_rowid='rowid'
+);
+CREATE TRIGGER IF NOT EXISTS sections_fts_insert AFTER INSERT ON sections BEGIN
+    INSERT INTO sections_fts(rowid, path_json, text) VALUES (new.rowid, new.path_json, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS sections_fts_delete AFTER DELETE ON sections BEGIN
+    INSERT INTO sections_fts(sections_fts, rowid, path_json, text)
+    VALUES ('delete', old.rowid, old.path_json, old.text);
+END;
 """
 
 
@@ -56,6 +67,7 @@ class StoredSection:
     path: tuple[str, ...]
     line_num: int
     text: str
+    row_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,11 +97,27 @@ class PageIndexStore:
             self._conn.execute("PRAGMA busy_timeout = 5000")
             if create:
                 self._conn.execute("PRAGMA journal_mode = WAL")
+                had_fts = self._has_table("sections_fts")
                 self._conn.executescript(SCHEMA)
+                if not had_fts and self._has_table("documents"):
+                    self.rebuild_section_index()  # stores created before heading-section search
             else:
                 self._conn.execute("SELECT 1 FROM documents LIMIT 1")
         except sqlite3.Error as exc:
             raise PageIndexUnavailable(f"cannot open document index {self._path}: {exc}") from exc
+
+    def _has_table(self, name: str) -> bool:
+        return self._conn.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (name,)).fetchone() is not None
+
+    def rebuild_section_index(self) -> None:
+        """Re-derive the keyword index from `sections` (the derived index is always rebuildable)."""
+        self._conn.execute("INSERT INTO sections_fts(sections_fts) VALUES ('rebuild')")
+
+    def has_section_index(self) -> bool:
+        return self._has_table("sections_fts")
+
+    def connection(self) -> sqlite3.Connection:
+        return self._conn
 
     def close(self) -> None:
         self._conn.close()
@@ -168,6 +196,14 @@ class PageIndexStore:
             "WHERE d.project = ? ORDER BY d.doc_key, s.line_num, s.node_id", (project,)
         )
 
+    def by_row_ids(self, project: str, row_ids: Sequence[int]) -> dict[int, StoredSection]:
+        """Sections by internal id, re-filtered by project (stale or foreign ids are simply absent)."""
+        if not row_ids:
+            return {}
+        marks = ",".join("?" * len(row_ids))
+        found = self._query(f"WHERE d.project = ? AND s.rowid IN ({marks})", (project, *row_ids))
+        return {s.row_id: s for s in found}
+
     def get(self, project: str, doc_key: str, node_id: str) -> StoredSection | None:
         found = self._query(
             "WHERE d.project = ? AND d.doc_key = ? AND s.node_id = ?", (project, doc_key, node_id)
@@ -205,13 +241,13 @@ class PageIndexStore:
     def _query(self, tail: str, params: tuple) -> list[StoredSection]:
         rows = self._conn.execute(
             "SELECT d.project, d.doc_key, d.source_path, d.content_hash, d.indexed_at, "
-            "s.node_id, s.title, s.path_json, s.line_num, s.text "
+            "s.node_id, s.title, s.path_json, s.line_num, s.text, s.rowid AS row_id "
             f"FROM sections s JOIN documents d ON d.id = s.doc_id {tail}",
             params,
         )
         return [
             StoredSection(r["project"], r["doc_key"], r["source_path"], r["content_hash"],
                           r["indexed_at"], r["node_id"], r["title"], tuple(json.loads(r["path_json"])),
-                          r["line_num"], r["text"])
+                          r["line_num"], r["text"], r["row_id"])
             for r in rows
         ]

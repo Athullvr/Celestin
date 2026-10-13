@@ -15,6 +15,15 @@ from .indexer import index_paths, rebuild_project
 from .store import PageIndexStore
 
 
+def _embed_sections(settings) -> None:
+    """Keep section embeddings in step when semantic search is enabled (best effort)."""
+    from orbit.semantic.config import sync_sections_after_index
+
+    status = sync_sections_after_index()
+    if status:
+        print(status)
+
+
 def _index(args, settings) -> int:
     with PageIndexStore(settings.store_path) as store:
         report = index_paths(store, args.project, args.paths)
@@ -23,6 +32,8 @@ def _index(args, settings) -> int:
             print(f"{label}: {key}")
     for key, reason in report.failed.items():
         print(f"FAILED: {key}: {reason}", file=sys.stderr)
+    if report.added or report.updated:
+        _embed_sections(settings)
     if not (report.added or report.updated or report.unchanged or report.failed):
         print("no Markdown files found", file=sys.stderr)
         return 1
@@ -50,6 +61,8 @@ def _remove(args, settings) -> int:
     with PageIndexStore(settings.store_path, create=False) as store:
         removed = store.remove_document(args.project, args.doc_key)
     print("removed" if removed else "not found")
+    if removed:
+        _embed_sections(settings)
     return 0 if removed else 1
 
 
@@ -60,6 +73,8 @@ def _prune(args, settings) -> int:
             if args.yes:
                 store.remove_document(args.project, key)
             print(f"{'removed' if args.yes else 'would remove'}: {key}")
+    if missing and args.yes:
+        _embed_sections(settings)
     if missing and not args.yes:
         print("re-run with --yes to remove them from the index (source files are never touched)")
     if not missing:
@@ -70,8 +85,11 @@ def _prune(args, settings) -> int:
 def _rebuild(args, settings) -> int:
     with PageIndexStore(settings.store_path, create=False) as store:
         report = rebuild_project(store, args.project)
+    with PageIndexStore(settings.store_path, create=False) as store:
+        store.rebuild_section_index()
     for key in report.updated:
         print(f"rebuilt: {key}")
+    _embed_sections(settings)
     for key, reason in report.failed.items():
         print(f"FAILED: {key}: {reason}", file=sys.stderr)
     return 0 if report.ok else 1

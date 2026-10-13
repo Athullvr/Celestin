@@ -36,3 +36,15 @@ def test_fastembed_unsupported_model_is_a_clear_error():
     pytest.importorskip("fastembed")
     with pytest.raises(EmbeddingError, match="unsupported embedding model"):
         FastEmbedProvider("no-such/model-xyz")
+
+
+def test_section_margin_setting_validation(monkeypatch):
+    from orbit.semantic.config import load_settings
+    monkeypatch.delenv("CELESTIN_SEMANTIC_SECTION_MARGIN", raising=False)
+    assert load_settings().section_margin is None
+    monkeypatch.setenv("CELESTIN_SEMANTIC_SECTION_MARGIN", "0.08")
+    assert load_settings().section_margin == 0.08
+    for bad in ("abc", "-0.1", "1.5"):
+        monkeypatch.setenv("CELESTIN_SEMANTIC_SECTION_MARGIN", bad)
+        with pytest.raises(ValueError, match="SECTION_MARGIN"):
+            load_settings()

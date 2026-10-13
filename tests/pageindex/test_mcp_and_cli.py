@@ -76,7 +76,9 @@ def test_other_tools_unaffected_and_survive_navigation_failure(docs_env, monkeyp
     assert "retrieval" not in found
     context = server.retrieve_context("demo", QUERY, 2000)
     assert context["retrieval"]["pageindex"].startswith("unavailable")
-    assert [i["record_kind"] for i in context["items"]] == ["chat_message"]
+    kinds = {i["record_kind"] for i in context["items"]}
+    assert "chat_message" in kinds  # ordinary retrieval is unaffected; heading sections may also match
+    assert context["retrieval"]["sections"] == "used"
     assert server.ping() == "Celestin MCP server is running."
 
 
@@ -88,6 +90,7 @@ def test_missing_model_reports_unavailable_without_breaking(docs_env, monkeypatc
 
 def test_response_schema_unchanged_when_disabled(docs_env, monkeypatch):
     monkeypatch.delenv("CELESTIN_PAGEINDEX")
+    monkeypatch.setenv("CELESTIN_DOC_SECTIONS", "0")
     assert "retrieval" not in server.retrieve_context("demo", QUERY, 2000)
 
 
@@ -153,3 +156,36 @@ def test_stdio_server_still_serves_all_tools_with_pageindex_enabled_but_unconfig
                 assert payload["retrieval"]["pageindex"].startswith("unavailable")
                 assert [i["record_kind"] for i in payload["items"]] == ["chat_message"]
     asyncio.run(run())
+
+
+def test_selector_env_switches_mode_and_default_keeps_all_strategies(docs_env, monkeypatch):
+    server.ingest_chat_message("demo", "c1", "user", "we discussed the database choice rationale")
+    default = server.retrieve_context("demo", QUERY, 2000)
+    assert "selector" not in default["retrieval"] and default["retrieval"]["sections"] == "used"
+    monkeypatch.setenv("CELESTIN_RETRIEVAL_SELECTOR", "adaptive")
+    adaptive = server.retrieve_context("demo", QUERY, 2000)
+    sel = adaptive["retrieval"]["selector"]
+    assert sel["mode"] == "adaptive" and sel["primary"] in {"fts", "semantic", "sections", "pageindex"}
+    assert len(sel["executed"]) <= 3
+    monkeypatch.setenv("CELESTIN_RETRIEVAL_SELECTOR", "nonsense")
+    assert "selector" not in server.retrieve_context("demo", QUERY, 2000)["retrieval"]  # unknown value: established behavior
+
+
+def test_pageindex_stays_disabled_by_default(docs_env, monkeypatch):
+    monkeypatch.delenv("CELESTIN_PAGEINDEX")
+    monkeypatch.delenv("CELESTIN_PAGEINDEX_MODEL")
+    result = server.retrieve_context("demo", QUERY, 2000)
+    assert "pageindex" not in result["retrieval"]  # sections work; no model, no navigation, no PageIndex status
+    assert result["retrieval"]["sections"] == "used"
+
+
+def test_noise_control_env_vars_through_the_mcp_tool(docs_env, monkeypatch):
+    base = server.retrieve_context("demo", QUERY, 5000)
+    monkeypatch.setenv("CELESTIN_SECTION_TOP_K", "1")
+    capped = server.retrieve_context("demo", QUERY, 5000)
+    assert len([i for i in capped["items"] if i["record_kind"] == "document_section"]) <= 1
+    assert set(capped) == set(base)  # response schema is unchanged
+    monkeypatch.setenv("CELESTIN_SECTION_TOP_K", "not-a-number")
+    monkeypatch.setenv("CELESTIN_SECTION_EXCERPT_BYTES", "50")  # below the minimum: ignored, not an error
+    ignored = server.retrieve_context("demo", QUERY, 5000)
+    assert [i["record_id"] for i in ignored["items"]] == [i["record_id"] for i in base["items"]]

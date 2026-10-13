@@ -14,10 +14,16 @@ Systems
   B  baseline+semantic same, plus semantic search (real embedding model; needs the cached model)
   F  sections+semantic every heading section ingested as its own message; FTS5 + semantic
                        (no PageIndex; the strongest practical baseline so far)
+  H  heading sections  PRODUCT path: documents indexed with celestin-docs, FTS5 + semantic over
+                       sections, all strategies run (no PageIndex)
+  S  adaptive selector PRODUCT path: as H but CELESTIN_RETRIEVAL_SELECTOR=adaptive (one primary
+                       strategy + at most one fallback, no PageIndex)
   N  PageIndex, real LLM navigation + FTS5 + semantic         [real-LLM evidence]
+  SN adaptive selector with real-LLM PageIndex available as primary/fallback  [real-LLM evidence]
   C  DIAGNOSTIC: PageIndex plumbing with a lexical stand-in navigator, FTS5 only
   D  DIAGNOSTIC: as C plus semantic
   E  DIAGNOSTIC: oracle navigator told the answer (upper bound, not achievable)
+  Sd DIAGNOSTIC: adaptive selector with the lexical stand-in navigator as PageIndex
 C, D and E are NOT evidence of LLM performance. Chat memories are ingested in every system.
 Corpus: eval/corpus (frozen). Questions: eval/dataset.py (frozen, hashed into the results).
 """
@@ -38,6 +44,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import heldout as _heldout
+import rerank_challenge as _challenge
 from dataset import CHAT_MESSAGES, CHAT_QUERIES, DATASET_VERSION, DOC_QUERIES, DOCS
 from standin import OracleNavigator, StandInNavigator
 
@@ -49,6 +57,7 @@ from orbit.pageindex.store import PageIndexStore
 from orbit.pageindex.tree import build_sections
 from orbit.repositories.messages import ChatMessageRepository
 from orbit.retrieval import RetrievalService
+from orbit.retrieval.rerank import build_reranker
 
 HERE = Path(__file__).parent
 CORPUS = HERE / "corpus"
@@ -67,6 +76,11 @@ class Spec:
     navigator: str = "none"  # none | standin | oracle | llm
     candidate_limit: int = 100
     margin: float | None = None
+    selector: str = "all"
+    section_margin: float | None = None
+    top_k: int | None = None
+    excerpt: int | None = None
+    rerank: str | None = None
 
 
 SPECS = {s.key: s for s in [
@@ -74,6 +88,13 @@ SPECS = {s.key: s for s in [
     Spec("B", "B A + semantic", "baseline", "whole", semantic=True),
     Spec("F", "F sections as messages + semantic (no PageIndex)", "baseline", "sections", semantic=True),
     Spec("N", "N PageIndex, REAL LLM + FTS5 + semantic", "real_llm", "tree", semantic=True, navigator="llm"),
+    Spec("H", "H heading sections: FTS5 + semantic (product, no PageIndex)", "baseline", "store", semantic=True),
+    Spec("S", "S deterministic adaptive selector (product, no PageIndex)", "baseline", "store", semantic=True,
+         selector="adaptive"),
+    Spec("SN", "SN adaptive selector + REAL LLM PageIndex", "real_llm", "store", semantic=True, selector="adaptive",
+         navigator="llm"),
+    Spec("Sd", "Sd diagnostic: adaptive selector + stand-in navigator", "diagnostic", "store", semantic=True,
+         selector="adaptive", navigator="standin"),
     Spec("C", "C diagnostic: stand-in navigator + FTS5", "diagnostic", "tree", navigator="standin"),
     Spec("D", "D diagnostic: stand-in navigator + semantic", "diagnostic", "tree", semantic=True, navigator="standin"),
     Spec("E", "E diagnostic: oracle navigator (upper bound)", "diagnostic", "tree", navigator="oracle"),
@@ -83,6 +104,31 @@ for k, margin in (("3", None), ("5", None), ("10", None)):
                            candidate_limit=int(k))
 for m in (0.04, 0.08, 0.12):
     SPECS[f"F~{m}"] = Spec(f"F~{m}", f"F with relative margin {m}", "baseline", "sections", semantic=True, margin=m)
+def _variant(key, label, **kw):
+    SPECS[key] = Spec(key, label, "baseline", "store", semantic=True, selector="adaptive", **kw)
+
+
+for m in (0.04, 0.08, 0.12):
+    _variant(f"S+m{int(m * 100):02d}", f"S + section margin {m}", section_margin=m)
+for k in (3, 5, 8):
+    _variant(f"S+k{k}", f"S + top-{k} sections", top_k=k)
+_variant("S+x1200", "S + excerpts (1200 B)", excerpt=1200)
+_variant("S+m08+k5", "S + margin 0.08 + top-5", section_margin=0.08, top_k=5)
+_variant("S+m08+x1200", "S + margin 0.08 + excerpts", section_margin=0.08, excerpt=1200)
+_variant("S+m04+x1200", "S + margin 0.04 + excerpts", section_margin=0.04, excerpt=1200)
+for r, label in (("lexical", "lexical"), ("cross_encoder", "cross-encoder"), ("cross_encoder_rrf", "cross-encoder + RRF")):
+    key = {"lexical": "lex", "cross_encoder": "ce", "cross_encoder_rrf": "cerrf"}[r]
+    _variant(f"S+r-{key}", f"S + rerank ({label})", rerank=r)
+    _variant(f"S+m08+r-{key}", f"S + margin 0.08 + rerank ({label})", section_margin=0.08, rerank=r)
+for k in (5, 8):
+    _variant(f"S+r-ce+k{k}", f"S + rerank (cross-encoder) + top-{k}", rerank="cross_encoder", top_k=k)
+_variant("S+m08+r-ce+k8", "S + margin 0.08 + rerank (cross-encoder) + top-8", section_margin=0.08,
+         rerank="cross_encoder", top_k=8)
+_variant("S+m08+r-cerrf+k8", "S + margin 0.08 + rerank (cross-encoder + RRF) + top-8", section_margin=0.08,
+         rerank="cross_encoder_rrf", top_k=8)
+RERANK_SWEEP = ["S", "S+m08", "S+r-lex", "S+r-ce", "S+r-cerrf", "S+m08+r-lex", "S+m08+r-ce", "S+m08+r-cerrf",
+                "S+r-ce+k5", "S+r-ce+k8", "S+m08+r-ce+k8", "S+m08+r-cerrf+k8"]
+NOISE_SWEEP = ["H", "S", "S+m04", "S+m08", "S+m12", "S+k3", "S+k5", "S+k8", "S+x1200", "S+m08+k5", "S+m08+x1200"]
 SWEEP = ["F", "F@10", "F@5", "F@3", "F~0.12", "F~0.08", "F~0.04"]
 
 
@@ -90,8 +136,38 @@ def read_doc(name: str) -> str:
     return (CORPUS / name).read_text()
 
 
+DATASET_NAME = "dev"
+
+
+def use_dataset(name: str) -> None:
+    """Switch the question set (corpus is always the same frozen snapshot)."""
+    global DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES, DATASET_NAME
+    if name == "heldout":
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = _heldout.DOC_QUERIES, _heldout.CHAT_MESSAGES, _heldout.CHAT_QUERIES
+    elif name == "rerank_challenge":
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = _challenge.DOC_QUERIES, _challenge.CHAT_MESSAGES, _challenge.CHAT_QUERIES
+    elif name == "dev":
+        from dataset import CHAT_MESSAGES as cm, CHAT_QUERIES as cq, DOC_QUERIES as dq
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = dq, cm, cq
+    else:
+        raise ValueError(f"unknown dataset {name!r}")
+    DATASET_NAME = name
+
+
+def corpus_hash() -> str:
+    """Stable hash of the named corpus files, independent of the question set."""
+    files = [(name, hashlib.sha256(read_doc(name).encode()).hexdigest()) for name in DOCS]
+    payload = json.dumps(files, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def dataset_hash() -> str:
-    payload = json.dumps([DATASET_VERSION, DOCS, DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES], sort_keys=True)
+    version = {
+        "dev": DATASET_VERSION,
+        "heldout": f"heldout-{_heldout.HELDOUT_VERSION}",
+        "rerank_challenge": f"rerank-challenge-{_challenge.VERSION}",
+    }[DATASET_NAME]
+    payload = json.dumps([version, DOCS, DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES], sort_keys=True)
     corpus = "".join(hashlib.sha256(read_doc(d).encode()).hexdigest() for d in DOCS)
     return hashlib.sha256((payload + corpus).encode()).hexdigest()
 
@@ -104,7 +180,7 @@ def git_sha() -> str:
         return "unknown"
 
 
-def semantic_for(db_dir: Path, conn, spec: Spec):
+def semantic_for(db_dir: Path, conn, spec: Spec, docs_path: Path | None = None):
     from orbit.semantic.config import get_provider, load_settings
     from orbit.semantic.indexer import Indexer
     from orbit.semantic.search import SemanticSearch
@@ -112,9 +188,13 @@ def semantic_for(db_dir: Path, conn, spec: Spec):
 
     settings = load_settings(db_dir / "main.db")
     provider = get_provider(settings)
+    store = PageIndexStore(docs_path, create=False) if docs_path else None
     with VectorIndex(db_dir / "v.db", model_id=provider.model_id, dimension=provider.dimension) as index:
-        report = Indexer(conn, provider, index).sync()
-    return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin), report
+        report = Indexer(conn, provider, index, sections_connection=store.connection() if store else None).sync()
+    if store:
+        store.close()
+    return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin,
+                          section_margin=spec.section_margin), report
 
 
 FTS_RELAX = True
@@ -142,21 +222,27 @@ def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict
         with PageIndexStore(tmp / "docs.db") as store:
             for d in DOCS:
                 index_markdown_text(store, PROJECT, d, read_doc(d))
-        if spec.navigator == "llm":
+        if spec.navigator == "none":
+            navigator = None
+        elif spec.navigator == "llm":
             llm = litellm_chat(model, timeout=60.0)
             navigator = LLMTreeNavigator(llm)
         elif spec.navigator == "oracle":
             navigator = OracleNavigator(sections_by_key)
         else:
             navigator = StandInNavigator()
-        backend = PageIndexBackend(tmp / "docs.db", navigator, max_sections=MAX_SECTIONS, cache_size=0)
+        if navigator is not None:
+            backend = PageIndexBackend(tmp / "docs.db", navigator, max_sections=MAX_SECTIONS, cache_size=0)
         records += len(sections_by_key)
     semantic = None
     if spec.semantic:
-        semantic, _ = semantic_for(tmp, conn, spec)
+        semantic, _ = semantic_for(tmp, conn, spec, tmp / "docs.db" if spec.docs == "store" else None)
     index_secs = time.perf_counter() - t0
     service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit,
-                               fts_relax=FTS_RELAX)
+                               fts_relax=FTS_RELAX, selector=spec.selector,
+                               sections=tmp / "docs.db" if spec.docs == "store" else None,
+                               section_top_k=spec.top_k, section_excerpt_bytes=spec.excerpt,
+                               section_reranker=build_reranker(spec.rerank))
     return service, ids, index_secs, navigator, records
 
 
@@ -180,6 +266,14 @@ def gold_snippets(evidence, gold_docs, sections):
     return out
 
 
+def _has_evidence(record_id: str, evidence: str, sections) -> bool:
+    if not record_id.startswith("doc:"):
+        return False
+    doc, node = record_id[4:].rsplit("#", 1)
+    sec = sections.get((doc, node))
+    return bool(sec and evidence.lower() in sec.text.lower())
+
+
 def run_query(service, query, budget, evidence, gold_docs, ids, sections, navigator):
     if isinstance(navigator, OracleNavigator):
         navigator.target = (evidence, gold_docs)
@@ -200,8 +294,26 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
     answering = [i for i in bundle.items if evidence.lower() in i.content.lower()]
     covered = sum(any(sn in i.content for i in bundle.items) for sn in snippets)
     status = info.pageindex or "n/a"
+    sel = info.selector or {}
+    rr = service.last_diagnostics.get("rerank") or {}
+    ranked_after = rr.get("after") or [rid for rid in (service.last_diagnostics.get("section_order") or [])]
+    ranked_before = rr.get("before") or ranked_after
+    gold_pos = lambda order: next((i for i, rid in enumerate(order, start=1) if _has_evidence(rid, evidence, sections)), None)
+    pos_before, pos_after = gold_pos(ranked_before), gold_pos(ranked_after)
+    gold_candidates = [rid for rid in ranked_after if _has_evidence(rid, evidence, sections)]
+    selected = {i.record_id for i in bundle.items}
+    if answering:
+        reason = None
+    elif not gold_candidates:
+        reason = "no candidate section contains the answer (not retrieved, or removed by margin/filters)"
+    elif not (set(gold_candidates) & selected):
+        reason = "answer-bearing candidate present but excluded by the byte budget or ranked below the fill"
+    else:
+        reason = "unclassified"
     return {
-        "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
+        "section_order_before": ranked_before, "section_order_after": ranked_after,
+        "gold_pos_before": pos_before, "gold_pos_after": pos_after, "miss_reason": reason,
+        "rerank_ms": rr.get("ms", 0.0), "answered": bool(answering), "doc_ok": doc_ok, "sec_ok": sec_ok,
         "gold_recall": covered / len(snippets) if snippets else 0.0,
         "rr": 1 / first if first else 0.0, "tokens": bundle.token_count, "items": len(bundle.items),
         "unrelated_item_rate": (len(bundle.items) - len(answering)) / len(bundle.items) if bundle.items else 0.0,
@@ -212,6 +324,13 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
         "pageindex_failed": status.startswith("unavailable"),
         "pageindex_timeout": status.startswith("unavailable") and "timeout" in status.lower(),
         "usage": nav.get("usage"), "est_prompt_tokens": nav.get("est_prompt_tokens"),
+        "primary": sel.get("primary"), "fallback_used": bool(sel.get("fallback_used")),
+        "strategies_run": len(service._executed),
+        "context_bytes": len(bundle.rendered_context.encode()),
+        "fused_sections": service.last_diagnostics.get("fused", {}).get("document_section", 0),
+        "capped_sections": service.last_diagnostics.get("capped_sections", 0),
+        "selected_sections": sum(i.record_kind == "document_section" for i in bundle.items),
+        "semantic_section_filter": service.last_diagnostics.get("semantic_filter", {}).get("document_section"),
     }
 
 
@@ -223,16 +342,28 @@ def aggregate(rows, chat_hits, model):
     out = {
         "answer_in_context": mean("answered"), "doc_source_accuracy": mean("doc_ok"),
         "section_source_accuracy": mean("sec_ok"), "gold_section_recall": mean("gold_recall"), "mrr": mean("rr"),
-        "mean_context_bytes": mean("tokens"), "mean_items": mean("items"),
+        "mean_context_bytes": mean("tokens"), "median_context_bytes": statistics.median(r["tokens"] for r in rows),
+        "mean_items": mean("items"),
         "unrelated_item_rate": mean("unrelated_item_rate"), "answer_share_of_context": mean("density"),
         "queries_with_budget_exclusions": sum(r["budget_excluded"] > 0 for r in rows),
         "mean_total_latency_ms": mean("total_ms"),
         "mean_local_latency_ms": statistics.mean(r["total_ms"] - r["model_ms"] for r in rows),
         "chat_recall": sum(chat_hits) / len(chat_hits),
+        "fallback_rate": mean("fallback_used"), "mean_strategies_run": mean("strategies_run"),
+        "primary_strategies": {p: sum(r["primary"] == p for r in rows) for p in sorted({r["primary"] for r in rows if r["primary"]})},
         "pageindex_routed": len(routed), "pageindex_skipped": sum(r["pageindex"] == "skipped" for r in rows),
         "pageindex_failures": sum(r["pageindex_failed"] for r in rows),
         "pageindex_timeouts": sum(r["pageindex_timeout"] for r in rows),
         "queries": n,
+        "gold_mrr_before_rerank": statistics.mean(1 / r["gold_pos_before"] if r["gold_pos_before"] else 0 for r in rows),
+        "gold_mrr_after_rerank": statistics.mean(1 / r["gold_pos_after"] if r["gold_pos_after"] else 0 for r in rows),
+        "gold_median_pos_before": statistics.median(r["gold_pos_before"] or 99 for r in rows),
+        "gold_median_pos_after": statistics.median(r["gold_pos_after"] or 99 for r in rows),
+        "answers_per_kb": sum(r["answered"] for r in rows) / max(1e-9, sum(r["context_bytes"] for r in rows) / 1000),
+        "gold_recall_per_kb": sum(r["gold_recall"] for r in rows) / max(1e-9, sum(r["context_bytes"] for r in rows) / 1000),
+        "mean_rerank_ms": mean("rerank_ms"),
+        "mean_fused_sections": mean("fused_sections"), "mean_capped_sections": mean("capped_sections"),
+        "mean_selected_sections": mean("selected_sections"),
     }
     if routed:
         times = sorted(r["model_ms"] for r in routed)
@@ -256,15 +387,22 @@ def run_system(spec, sections, budgets, model):
     with tempfile.TemporaryDirectory() as t:
         service, ids, index_secs, navigator, records = build_system(spec, Path(t), model, sections)
         out = {"label": spec.label, "kind": spec.kind, "index_seconds": round(index_secs, 2),
-               "records_indexed": records, "budgets": {}, "queries": {}}
+               "records_indexed": records, "budgets": {}, "queries": {}, "chat_queries": {}}
         for budget in budgets:
             rows = [run_query(service, q, budget, ev, gd, ids, sections, navigator) for q, ev, gd in DOC_QUERIES]
             chat = []
+            chat_rows = []
             for query, evidence in CHAT_QUERIES:
                 bundle = service.retrieve_context(PROJECT, query, budget)
-                chat.append(any(evidence.lower() in i.content.lower() for i in bundle.items if i.record_kind == "chat_message"))
+                answered = any(evidence.lower() in i.content.lower() for i in bundle.items if i.record_kind == "chat_message")
+                chat.append(answered)
+                chat_rows.append({
+                    "query": query, "answered": answered,
+                    "miss_reason": None if answered else "gold chat evidence absent from returned chat items",
+                })
             out["budgets"][budget] = aggregate(rows, chat, model)
             out["queries"][budget] = [{"query": q[0], **r} for q, r in zip(DOC_QUERIES, rows)]
+            out["chat_queries"][budget] = chat_rows
         return out
 
 
@@ -292,12 +430,16 @@ def render(results, meta, budgets) -> str:
     skipped = {k: v["skipped"] for k, v in results.items() if "skipped" in v}
     rows = [("answer_in_context", "answer text in context"), ("gold_section_recall", "gold-section recall"),
             ("doc_source_accuracy", "document source correct"), ("section_source_accuracy", "section source correct"),
-            ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"),
-            ("mean_items", "mean items"), ("unrelated_item_rate", "unrelated item rate"),
+            ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"), ("median_context_bytes", "median context bytes"),
+            ("mean_items", "mean items"), ("gold_mrr_before_rerank", "gold section MRR, fused order"),
+            ("gold_mrr_after_rerank", "gold section MRR, after rerank"), ("answers_per_kb", "answers per KB of context"),
+            ("gold_recall_per_kb", "gold-section recall per KB"), ("mean_rerank_ms", "rerank latency (ms, mean)"), ("mean_fused_sections", "section candidates after filtering"),
+            ("mean_selected_sections", "sections in final context"), ("unrelated_item_rate", "unrelated item rate"),
             ("answer_share_of_context", "answer-bearing share of context"),
             ("queries_with_budget_exclusions", "queries dropping a record for budget"),
             ("mean_total_latency_ms", "mean total latency (ms)"), ("mean_local_latency_ms", "mean local latency (ms)"),
-            ("chat_recall", "chat recall (5 queries)"), ("pageindex_routed", "navigation calls"),
+            ("chat_recall", f"chat recall ({meta['chat_queries']} queries)"), ("fallback_rate", "fallback frequency"),
+            ("mean_strategies_run", "mean strategies run per query"), ("pageindex_routed", "navigation calls"),
             ("pageindex_failures", "navigation failures"), ("pageindex_timeouts", "navigation timeouts"),
             ("model_latency_ms_mean", "model latency mean (ms, observed)"),
             ("model_latency_ms_p95", "model latency p95 (ms, observed)"),
@@ -319,6 +461,14 @@ def render(results, meta, budgets) -> str:
                 cells.append("-" if v is None else (f"{v:.2f}" if isinstance(v, float) else str(v)))
             if any(c != "-" for c in cells):
                 lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    lines += ["", "## Answers lost / gained relative to S (same questions)", ""]
+    for k in keys:
+        lost = results[k].get("answers_lost_vs_S")
+        if lost is not None:
+            gained = results[k]["answers_gained_vs_S"]
+            lines.append(f"- {results[k]['label']}: " + "; ".join(
+                f"budget {b}: lost {len(lost[b])}, gained {len(gained[b])}" + (f" (lost: {', '.join(lost[b])})" if lost[b] else "")
+                for b in lost))
     lines += ["", "## Indexing", ""] + [
         f"- {results[k]['label']}: {results[k]['index_seconds']} s, {results[k]['records_indexed']} records" for k in keys]
     return "\n".join(lines) + "\n"
@@ -333,22 +483,29 @@ def main(argv=None) -> int:
     ap.add_argument("--require-llm", action="store_true", help="fail instead of skipping N when no model/credentials")
     ap.add_argument("--fts-relax", choices=["on", "off"], default="on",
                     help="bounded FTS5 query relaxation (product default on; off reproduces the first evaluation)")
+    ap.add_argument("--dataset", choices=["dev", "heldout", "rerank_challenge"], default="dev",
+                    help="question set; rerank_challenge is new and must remain untuned")
+    ap.add_argument("--rerank-sweep", action="store_true", help="evaluate section reranking variants of S")
+    ap.add_argument("--noise-sweep", action="store_true", help="evaluate relevance-filtering variants of S")
     ap.add_argument("--out", default=str(HERE), help="directory for results.md / results.json")
     args = ap.parse_args(argv)
     global FTS_RELAX
     FTS_RELAX = args.fts_relax == "on"
+    use_dataset(args.dataset)
     budgets = tuple(int(b) for b in args.budgets.split(","))
     explicit = args.systems is not None
-    keys = SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,C,D,E,N").split(",")
+    keys = RERANK_SWEEP if args.rerank_sweep and not explicit else NOISE_SWEEP if args.noise_sweep and not explicit else SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
     unknown = [k for k in keys if k not in SPECS]
     if unknown:
         sys.exit(f"ERROR: unknown systems {unknown}; choose from {sorted(SPECS)}")
     results: dict = {}
-    if "N" in keys:
-        reason = check_llm(args.model, required=args.require_llm or (explicit and "N" in args.systems.split(",")))
+    llm_keys = [k for k in keys if SPECS[k].navigator == "llm"]
+    if llm_keys:
+        reason = check_llm(args.model, required=args.require_llm or (explicit and bool(set(llm_keys) & set(args.systems.split(",")))))
         if reason:
-            results["N"] = {"skipped": reason}
-            keys = [k for k in keys if k != "N"]
+            for k in llm_keys:
+                results[k] = {"skipped": reason}
+            keys = [k for k in keys if k not in llm_keys]
         else:
             calls = len(budgets) * len(DOC_QUERIES)
             print(f"NOTE: system N will make up to {calls} model calls to {args.model} (outlines and questions "
@@ -362,6 +519,24 @@ def main(argv=None) -> int:
             results[key] = run_system(SPECS[key], sections, budgets, args.model)
         except Exception as exc:  # recorded, never hidden
             results[key] = {"skipped": f"{type(exc).__name__}: {exc}"}
+    base = results.get("S")
+    if base and "budgets" in base:
+        for key, res in results.items():
+            if "budgets" not in res or key == "S":
+                continue
+            res["answers_lost_vs_S"] = {
+                str(b): [q["query"] for q, r in zip(base["queries"][b], res["queries"][b]) if q["answered"] and not r["answered"]]
+                for b in base["queries"]
+            }
+            res["answers_gained_vs_S"] = {
+                str(b): [q["query"] for q, r in zip(base["queries"][b], res["queries"][b]) if r["answered"] and not q["answered"]]
+                for b in base["queries"]
+            }
+            res["chat_answers_lost_vs_S"] = {
+                str(b): [q for q, r in zip(base["chat_queries"][b], res["chat_queries"][b])
+                         if q["answered"] and not r["answered"]]
+                for b in base["chat_queries"]
+            }
     try:
         import pageindex
         pi_version = getattr(pageindex, "__version__", None) or __import__("importlib.metadata").metadata.version("pageindex")
@@ -370,9 +545,11 @@ def main(argv=None) -> int:
     from orbit.semantic.config import load_settings
     sem = load_settings()
     meta = {
-        "dataset_version": DATASET_VERSION, "dataset_sha256": dataset_hash(), "git_sha": git_sha(),
+        "dataset": args.dataset, "dataset_version": DATASET_VERSION if args.dataset == "dev" else
+        (_heldout.HELDOUT_VERSION if args.dataset == "heldout" else _challenge.VERSION),
+        "dataset_sha256": dataset_hash(), "corpus_sha256": corpus_hash(), "git_sha": git_sha(),
         "python": platform.python_version(), "pageindex_version": pi_version,
-        "navigation_model": args.model if "N" in results and "budgets" in results["N"] else None,
+        "navigation_model": args.model if any("budgets" in results.get(k, {}) for k in ("N", "SN")) else None,
         "embedding_model": sem.model_id, "semantic_min_similarity": sem.min_similarity,
         "fts_relax": FTS_RELAX, "budgets": list(budgets), "max_sections_per_navigation": MAX_SECTIONS,
         "doc_queries": len(DOC_QUERIES), "chat_queries": len(CHAT_QUERIES), "documents": len(DOCS),
@@ -381,7 +558,8 @@ def main(argv=None) -> int:
     }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    suffix = ("_f_sweep" if args.f_sweep and not explicit else "") + ("" if FTS_RELAX else "_strict_fts")
+    suffix = (("_rerank_sweep" if args.rerank_sweep and not explicit else "") + ("_noise_sweep" if args.noise_sweep and not explicit else "") + ("_f_sweep" if args.f_sweep and not explicit else "")
+              + ("" if args.dataset == "dev" else f"_{args.dataset}") + ("" if FTS_RELAX else "_strict_fts"))
     (out / f"results{suffix}.json").write_text(json.dumps({"meta": meta, "systems": results}, indent=2, default=str))
     text = render(results, meta, budgets)
     (out / f"results{suffix}.md").write_text(text)

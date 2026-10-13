@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import closing
 from pathlib import Path
@@ -9,13 +10,34 @@ from typing import Any
 
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
-from orbit.pageindex.config import build_pageindex_backend
+from orbit.retrieval.rerank import build_reranker
+from orbit.pageindex.config import build_pageindex_backend, sections_store_path, selector_mode
 from orbit.semantic.config import build_semantic_search
 
 
 def _fts_relax_enabled() -> bool:
     """CELESTIN_FTS_RELAX=0/false/no/off disables bounded FTS5 query relaxation (default on)."""
     return os.environ.get("CELESTIN_FTS_RELAX", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _optional_int(name: str) -> int | None:
+    """Positive integer from the environment, or None when unset/invalid (the established behavior)."""
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw.isdigit() and int(raw) > 0 else None
+
+
+def _reranker_from_env():
+    """Experimental section reranker from CELESTIN_SECTION_RERANK (unset or unknown: disabled)."""
+    mode = os.environ.get("CELESTIN_SECTION_RERANK", "").strip().lower()
+    try:
+        return build_reranker(mode, model_id=os.environ.get("CELESTIN_SECTION_RERANK_MODEL") or None)
+    except ValueError as exc:
+        logging.getLogger(__name__).warning("%s; reranking disabled", exc)
+        return None
+
+
+def _clamp_excerpt(value: int | None) -> int | None:
+    return None if value is None or value < 200 else value
 
 
 class RetrievalServices:
@@ -65,6 +87,12 @@ class RetrievalServices:
                 semantic=build_semantic_search(self._db_path),
                 documents=build_pageindex_backend(self._db_path),
                 fts_relax=_fts_relax_enabled(),
+                sections=sections_store_path(self._db_path),
+                selector=selector_mode(),
+                section_top_k=_optional_int("CELESTIN_SECTION_TOP_K"),
+                section_reranker=_reranker_from_env(),
+                rerank_shortlist=max(2, _optional_int("CELESTIN_SECTION_RERANK_SHORTLIST") or 20),
+                section_excerpt_bytes=_clamp_excerpt(_optional_int("CELESTIN_SECTION_EXCERPT_BYTES")),
             )
             bundle = service.retrieve_context(project, query, token_budget)
 
