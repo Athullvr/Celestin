@@ -244,15 +244,15 @@ class RetrievalService:
         if plan.primary == "fts":
             first = self._run("fts", request)
         else:
-            # Approved decisions must stay reachable whatever the primary strategy is: a cheap local FTS pass.
-            decisions = self._run("fts", request, kinds=("canonical_decision",))
+            # FTS5 always runs: it is local and cheap, keeps exact matches in chat memory reachable, and
+            # is how approved decisions stay reachable whatever the primary strategy is.
+            decisions = self._run("fts", request)
             request = replace(request, approved_strict_hit=self._approved_strict_hit(decisions))
             first = self._run(plan.primary, request)
-        if plan.fallback and not (first.status == "ok" and first.content_hits > 0):
+        if plan.fallback and not (first.status == "ok" and first.strong_hits > 0):
             info["fallback_used"] = True
             self._run(plan.fallback, request)
-        info["executed"] = [n for n in self._executed if not (n == "fts" and plan.primary != "fts" and
-                                                              n not in plan.strategies)]
+        info["executed"] = list(self._executed)
         return info
 
     @staticmethod

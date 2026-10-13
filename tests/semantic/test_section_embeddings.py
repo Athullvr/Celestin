@@ -70,3 +70,42 @@ def test_removed_documents_drop_their_vectors_only_after_sync(env):
     assert not [i for i in bundle.items if i.record_kind == "document_section"]  # stale hits are re-checked
     report, count = env.sync()
     assert report.removed_stale == 3 and count == 3
+
+
+def test_celestin_index_cli_embeds_sections_and_docs_cli_keeps_them_in_step(tmp_path, monkeypatch, capsys):
+    from orbit.pageindex import cli as docs_cli
+    from orbit.semantic import cli as index_cli, config
+
+    provider = FakeProvider()
+    monkeypatch.setenv("CELESTIN_SEMANTIC_SEARCH", "1")
+    monkeypatch.setenv("CELESTIN_EMBEDDING_MODEL", provider.model_id)
+    monkeypatch.setenv("CELESTIN_VECTOR_DB_PATH", str(tmp_path / "v.db"))
+    monkeypatch.setitem(config._providers, (provider.model_id, None), provider)
+    monkeypatch.setattr("orbit.database.engine.DB_PATH", tmp_path / "m.db")
+    (tmp_path / "a.md").write_text(MD)
+    assert docs_cli.main(["index", "--project", "p", str(tmp_path / "a.md")]) == 0
+    out = capsys.readouterr().out
+    assert "section embeddings: embedded=3" in out  # kept in step automatically
+    assert index_cli.main(["status"]) == 0
+    (tmp_path / "a.md").write_text(MD + "\n## Extra\n\nmore text\n")
+    docs_cli.main(["index", "--project", "p", str(tmp_path / "a.md")])
+    assert "embedded=" in capsys.readouterr().out
+    assert index_cli.main(["sync"]) == 0 and "embedded=0" in capsys.readouterr().out
+    assert docs_cli.main(["remove", "--project", "p", "a.md"]) == 0
+    assert "removed_stale=" in capsys.readouterr().out
+
+
+def test_docs_cli_reports_deferred_embeddings_when_the_model_is_down(tmp_path, monkeypatch, capsys):
+    from orbit.pageindex import cli as docs_cli
+    from orbit.semantic import config
+
+    provider = FakeProvider()
+    provider.fail = True
+    monkeypatch.setenv("CELESTIN_SEMANTIC_SEARCH", "1")
+    monkeypatch.setenv("CELESTIN_EMBEDDING_MODEL", provider.model_id)
+    monkeypatch.setenv("CELESTIN_VECTOR_DB_PATH", str(tmp_path / "v.db"))
+    monkeypatch.setitem(config._providers, (provider.model_id, None), provider)
+    monkeypatch.setattr("orbit.database.engine.DB_PATH", tmp_path / "m.db")
+    (tmp_path / "a.md").write_text(MD)
+    assert docs_cli.main(["index", "--project", "p", str(tmp_path / "a.md")]) == 0  # indexing itself still succeeds
+    assert "incomplete" in capsys.readouterr().out

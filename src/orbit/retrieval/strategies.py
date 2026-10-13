@@ -69,6 +69,19 @@ class StrategyResult:
     navigation: dict | None = None
 
     @property
+    def strong_hits(self) -> int:
+        """Content hits that count as sufficient evidence for the selector.
+
+        Semantic hits (already above the similarity cut-off) and PageIndex selections count; keyword
+        hits count only when every term (or every non-stopword term) matched, not for the relaxed OR tier.
+        """
+        weak_fts = self.fts_tier == "relaxed_or"
+        return sum(
+            c.record_type != DECISION and not (weak_fts and c.method in ("fts", "sections_fts"))
+            for c in self.candidates
+        )
+
+    @property
     def content_hits(self) -> int:
         """Messages and sections found (decisions are a policy pass, not primary evidence)."""
         return sum(c.record_type != DECISION for c in self.candidates)

@@ -156,3 +156,24 @@ def test_stdio_server_still_serves_all_tools_with_pageindex_enabled_but_unconfig
                 assert payload["retrieval"]["pageindex"].startswith("unavailable")
                 assert [i["record_kind"] for i in payload["items"]] == ["chat_message"]
     asyncio.run(run())
+
+
+def test_selector_env_switches_mode_and_default_keeps_all_strategies(docs_env, monkeypatch):
+    server.ingest_chat_message("demo", "c1", "user", "we discussed the database choice rationale")
+    default = server.retrieve_context("demo", QUERY, 2000)
+    assert "selector" not in default["retrieval"] and default["retrieval"]["sections"] == "used"
+    monkeypatch.setenv("CELESTIN_RETRIEVAL_SELECTOR", "adaptive")
+    adaptive = server.retrieve_context("demo", QUERY, 2000)
+    sel = adaptive["retrieval"]["selector"]
+    assert sel["mode"] == "adaptive" and sel["primary"] in {"fts", "semantic", "sections", "pageindex"}
+    assert len(sel["executed"]) <= 3
+    monkeypatch.setenv("CELESTIN_RETRIEVAL_SELECTOR", "nonsense")
+    assert "selector" not in server.retrieve_context("demo", QUERY, 2000)["retrieval"]  # unknown value: established behavior
+
+
+def test_pageindex_stays_disabled_by_default(docs_env, monkeypatch):
+    monkeypatch.delenv("CELESTIN_PAGEINDEX")
+    monkeypatch.delenv("CELESTIN_PAGEINDEX_MODEL")
+    result = server.retrieve_context("demo", QUERY, 2000)
+    assert "pageindex" not in result["retrieval"]  # sections work; no model, no navigation, no PageIndex status
+    assert result["retrieval"]["sections"] == "used"
