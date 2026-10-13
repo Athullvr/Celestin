@@ -21,6 +21,7 @@ from orbit.pageindex.sections import search_sections
 from orbit.pageindex.store import PageIndexStore, StoredSection
 from orbit.repositories.decisions import DecisionRepository
 from orbit.retrieval.fts import FtsMessageSearch
+from orbit.retrieval.relevance import excerpt_section
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ class Candidate:
     score: float | None  # engine-native score (BM25 or cosine); never compared across methods
     status: str | None = None
     source: dict[str, Any] = field(default_factory=dict)  # extra attribution (documents)
+    tier: str | None = None  # FTS tier that produced a keyword hit (strict | no_stopwords | relaxed_or)
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,7 @@ class StrategyResult:
     decision_tier: str | None = None
     stale: int = 0
     navigation: dict | None = None
+    elapsed_ms: float = 0.0
 
     @property
     def strong_hits(self) -> int:
@@ -93,17 +96,20 @@ class Strategy(Protocol):
     def retrieve(self, request: RetrievalRequest) -> StrategyResult: ...
 
 
-def section_candidate(section: StoredSection, method: str, rank: int, score: float | None = None) -> Candidate:
+def section_candidate(section: StoredSection, method: str, rank: int, score: float | None = None,
+                      *, query: str = "", excerpt_bytes: int | None = None, tier: str | None = None) -> Candidate:
+    content, ranges = excerpt_section(section.text, section.line_num, query, excerpt_bytes)
     return Candidate(
         record_id=f"doc:{section.doc_key}#{section.node_id}",
         record_type=SECTION,
         project=section.project,
-        content=section.text,
+        content=content,
         timestamp=section.indexed_at,
         source_id=section.doc_key,
         method=method,
         rank=rank,
         score=score,
+        tier=tier,
         source={
             "document": section.doc_key,
             "section": " > ".join(section.path),
@@ -111,6 +117,7 @@ def section_candidate(section: StoredSection, method: str, rank: int, score: flo
             "line": section.line_num,
             "source_path": section.source_path,
             "content_hash": section.content_hash,
+            **({"excerpted": True, "line_ranges": [list(r) for r in ranges]} if ranges else {}),
         },
     )
 
@@ -223,9 +230,11 @@ class SectionStrategy:
 
     name = "sections"
 
-    def __init__(self, store_path: Path, semantic: SemanticSearch | None) -> None:
+    def __init__(self, store_path: Path, semantic: SemanticSearch | None,
+                 excerpt_bytes: int | None = None) -> None:
         self._store_path = Path(store_path)
         self._semantic = semantic
+        self._excerpt_bytes = excerpt_bytes
 
     def has_documents(self, project: str) -> bool:
         try:
@@ -244,7 +253,11 @@ class SectionStrategy:
                     store, request.project, request.query, request.limit, relax=request.relax
                 )
                 result.fts_tier = tier
-                result.candidates += [section_candidate(s, "sections_fts", i) for i, s in enumerate(found, start=1)]
+                result.candidates += [
+                    section_candidate(s, "sections_fts", i, query=request.query,
+                                      excerpt_bytes=self._excerpt_bytes, tier=tier)
+                    for i, s in enumerate(found, start=1)
+                ]
                 if self._semantic is not None and request.query.strip():
                     try:
                         hits = self._semantic.search(
@@ -261,7 +274,9 @@ class SectionStrategy:
                             result.stale += 1
                             continue
                         rank += 1
-                        result.candidates.append(section_candidate(sec, "sections_semantic", rank, h.similarity))
+                        result.candidates.append(section_candidate(
+                            sec, "sections_semantic", rank, h.similarity, query=request.query,
+                            excerpt_bytes=self._excerpt_bytes))
         except PageIndexUnavailable as exc:
             return StrategyResult(self.name, status="unavailable", detail=str(exc))
         return result

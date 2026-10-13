@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import heldout as _heldout
 from dataset import CHAT_MESSAGES, CHAT_QUERIES, DATASET_VERSION, DOC_QUERIES, DOCS
 from standin import OracleNavigator, StandInNavigator
 
@@ -74,6 +75,9 @@ class Spec:
     candidate_limit: int = 100
     margin: float | None = None
     selector: str = "all"
+    section_margin: float | None = None
+    top_k: int | None = None
+    excerpt: int | None = None
 
 
 SPECS = {s.key: s for s in [
@@ -97,6 +101,19 @@ for k, margin in (("3", None), ("5", None), ("10", None)):
                            candidate_limit=int(k))
 for m in (0.04, 0.08, 0.12):
     SPECS[f"F~{m}"] = Spec(f"F~{m}", f"F with relative margin {m}", "baseline", "sections", semantic=True, margin=m)
+def _variant(key, label, **kw):
+    SPECS[key] = Spec(key, label, "baseline", "store", semantic=True, selector="adaptive", **kw)
+
+
+for m in (0.04, 0.08, 0.12):
+    _variant(f"S+m{int(m * 100):02d}", f"S + section margin {m}", section_margin=m)
+for k in (3, 5, 8):
+    _variant(f"S+k{k}", f"S + top-{k} sections", top_k=k)
+_variant("S+x1200", "S + excerpts (1200 B)", excerpt=1200)
+_variant("S+m08+k5", "S + margin 0.08 + top-5", section_margin=0.08, top_k=5)
+_variant("S+m08+x1200", "S + margin 0.08 + excerpts", section_margin=0.08, excerpt=1200)
+_variant("S+m04+x1200", "S + margin 0.04 + excerpts", section_margin=0.04, excerpt=1200)
+NOISE_SWEEP = ["H", "S", "S+m04", "S+m08", "S+m12", "S+k3", "S+k5", "S+k8", "S+x1200", "S+m08+k5", "S+m08+x1200"]
 SWEEP = ["F", "F@10", "F@5", "F@3", "F~0.12", "F~0.08", "F~0.04"]
 
 
@@ -104,8 +121,25 @@ def read_doc(name: str) -> str:
     return (CORPUS / name).read_text()
 
 
+DATASET_NAME = "dev"
+
+
+def use_dataset(name: str) -> None:
+    """Switch the question set (corpus is always the same frozen snapshot)."""
+    global DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES, DATASET_NAME
+    if name == "heldout":
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = _heldout.DOC_QUERIES, _heldout.CHAT_MESSAGES, _heldout.CHAT_QUERIES
+    elif name == "dev":
+        from dataset import CHAT_MESSAGES as cm, CHAT_QUERIES as cq, DOC_QUERIES as dq
+        DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES = dq, cm, cq
+    else:
+        raise ValueError(f"unknown dataset {name!r}")
+    DATASET_NAME = name
+
+
 def dataset_hash() -> str:
-    payload = json.dumps([DATASET_VERSION, DOCS, DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES], sort_keys=True)
+    version = DATASET_VERSION if DATASET_NAME == "dev" else f"heldout-{_heldout.HELDOUT_VERSION}"
+    payload = json.dumps([version, DOCS, DOC_QUERIES, CHAT_MESSAGES, CHAT_QUERIES], sort_keys=True)
     corpus = "".join(hashlib.sha256(read_doc(d).encode()).hexdigest() for d in DOCS)
     return hashlib.sha256((payload + corpus).encode()).hexdigest()
 
@@ -131,7 +165,8 @@ def semantic_for(db_dir: Path, conn, spec: Spec, docs_path: Path | None = None):
         report = Indexer(conn, provider, index, sections_connection=store.connection() if store else None).sync()
     if store:
         store.close()
-    return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin), report
+    return SemanticSearch(provider, db_dir / "v.db", settings.min_similarity, relative_margin=spec.margin,
+                          section_margin=spec.section_margin), report
 
 
 FTS_RELAX = True
@@ -177,7 +212,8 @@ def build_system(spec: Spec, tmp: Path, model: str | None, sections_by_key: dict
     index_secs = time.perf_counter() - t0
     service = RetrievalService(conn, semantic=semantic, documents=backend, candidate_limit=spec.candidate_limit,
                                fts_relax=FTS_RELAX, selector=spec.selector,
-                               sections=tmp / "docs.db" if spec.docs == "store" else None)
+                               sections=tmp / "docs.db" if spec.docs == "store" else None,
+                               section_top_k=spec.top_k, section_excerpt_bytes=spec.excerpt)
     return service, ids, index_secs, navigator, records
 
 
@@ -237,6 +273,10 @@ def run_query(service, query, budget, evidence, gold_docs, ids, sections, naviga
         "primary": sel.get("primary"), "fallback_used": bool(sel.get("fallback_used")),
         "strategies_run": len(service._executed),
         "context_bytes": len(bundle.rendered_context.encode()),
+        "fused_sections": service.last_diagnostics.get("fused", {}).get("document_section", 0),
+        "capped_sections": service.last_diagnostics.get("capped_sections", 0),
+        "selected_sections": sum(i.record_kind == "document_section" for i in bundle.items),
+        "semantic_section_filter": service.last_diagnostics.get("semantic_filter", {}).get("document_section"),
     }
 
 
@@ -261,6 +301,8 @@ def aggregate(rows, chat_hits, model):
         "pageindex_failures": sum(r["pageindex_failed"] for r in rows),
         "pageindex_timeouts": sum(r["pageindex_timeout"] for r in rows),
         "queries": n,
+        "mean_fused_sections": mean("fused_sections"), "mean_capped_sections": mean("capped_sections"),
+        "mean_selected_sections": mean("selected_sections"),
     }
     if routed:
         times = sorted(r["model_ms"] for r in routed)
@@ -321,7 +363,8 @@ def render(results, meta, budgets) -> str:
     rows = [("answer_in_context", "answer text in context"), ("gold_section_recall", "gold-section recall"),
             ("doc_source_accuracy", "document source correct"), ("section_source_accuracy", "section source correct"),
             ("mrr", "MRR of answer item"), ("mean_context_bytes", "mean context bytes"), ("median_context_bytes", "median context bytes"),
-            ("mean_items", "mean items"), ("unrelated_item_rate", "unrelated item rate"),
+            ("mean_items", "mean items"), ("mean_fused_sections", "section candidates after filtering"),
+            ("mean_selected_sections", "sections in final context"), ("unrelated_item_rate", "unrelated item rate"),
             ("answer_share_of_context", "answer-bearing share of context"),
             ("queries_with_budget_exclusions", "queries dropping a record for budget"),
             ("mean_total_latency_ms", "mean total latency (ms)"), ("mean_local_latency_ms", "mean local latency (ms)"),
@@ -362,13 +405,17 @@ def main(argv=None) -> int:
     ap.add_argument("--require-llm", action="store_true", help="fail instead of skipping N when no model/credentials")
     ap.add_argument("--fts-relax", choices=["on", "off"], default="on",
                     help="bounded FTS5 query relaxation (product default on; off reproduces the first evaluation)")
+    ap.add_argument("--dataset", choices=["dev", "heldout"], default="dev",
+                    help="question set (heldout: written before the context-optimization experiments; do not tune on it)")
+    ap.add_argument("--noise-sweep", action="store_true", help="evaluate relevance-filtering variants of S")
     ap.add_argument("--out", default=str(HERE), help="directory for results.md / results.json")
     args = ap.parse_args(argv)
     global FTS_RELAX
     FTS_RELAX = args.fts_relax == "on"
+    use_dataset(args.dataset)
     budgets = tuple(int(b) for b in args.budgets.split(","))
     explicit = args.systems is not None
-    keys = SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
+    keys = NOISE_SWEEP if args.noise_sweep and not explicit else SWEEP if args.f_sweep and not explicit else (args.systems or "A,B,F,H,S,C,D,E,Sd,N,SN").split(",")
     unknown = [k for k in keys if k not in SPECS]
     if unknown:
         sys.exit(f"ERROR: unknown systems {unknown}; choose from {sorted(SPECS)}")
@@ -401,7 +448,7 @@ def main(argv=None) -> int:
     from orbit.semantic.config import load_settings
     sem = load_settings()
     meta = {
-        "dataset_version": DATASET_VERSION, "dataset_sha256": dataset_hash(), "git_sha": git_sha(),
+        "dataset": args.dataset, "dataset_version": DATASET_VERSION, "dataset_sha256": dataset_hash(), "git_sha": git_sha(),
         "python": platform.python_version(), "pageindex_version": pi_version,
         "navigation_model": args.model if any("budgets" in results.get(k, {}) for k in ("N", "SN")) else None,
         "embedding_model": sem.model_id, "semantic_min_similarity": sem.min_similarity,
@@ -412,7 +459,8 @@ def main(argv=None) -> int:
     }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    suffix = ("_f_sweep" if args.f_sweep and not explicit else "") + ("" if FTS_RELAX else "_strict_fts")
+    suffix = (("_noise_sweep" if args.noise_sweep and not explicit else "") + ("_f_sweep" if args.f_sweep and not explicit else "")
+              + ("" if args.dataset == "dev" else "_heldout") + ("" if FTS_RELAX else "_strict_fts"))
     (out / f"results{suffix}.json").write_text(json.dumps({"meta": meta, "systems": results}, indent=2, default=str))
     text = render(results, meta, budgets)
     (out / f"results{suffix}.md").write_text(text)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from contextlib import closing
 from dataclasses import asdict, replace
 from typing import Any
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from orbit.pageindex.backend import PageIndexBackend
 from orbit.pageindex.errors import PageIndexUnavailable
+from orbit.retrieval.relevance import top_k_with_exemptions
 from orbit.retrieval.selector import SelectorContext, plan_query
 from orbit.retrieval.strategies import (
     Candidate, FtsStrategy, PageIndexStrategy, RetrievalRequest, SectionStrategy, SemanticStrategy, StrategyResult,
@@ -67,6 +69,8 @@ class RetrievalService:
         fts_relax: bool = True,
         sections: str | Path | None = None,
         selector: str = "all",
+        section_top_k: int | None = None,
+        section_excerpt_bytes: int | None = None,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -87,7 +91,12 @@ class RetrievalService:
         if selector not in {"all", "adaptive"}:
             raise ValueError("selector must be 'all' or 'adaptive'")
         self._selector = selector
-        self._sections = SectionStrategy(Path(sections), semantic) if sections is not None else None
+        if section_top_k is not None and section_top_k < 1:
+            raise ValueError("section_top_k must be at least 1")
+        if section_excerpt_bytes is not None and section_excerpt_bytes < 200:
+            raise ValueError("section_excerpt_bytes must be at least 200")
+        self._section_top_k = section_top_k
+        self._sections = SectionStrategy(Path(sections), semantic, section_excerpt_bytes) if sections is not None else None
         self._strategies: dict = {
             "fts": FtsStrategy(self._message_search, self._decision_search, self._decisions),
         }
@@ -98,6 +107,7 @@ class RetrievalService:
         if documents is not None:
             self._strategies["pageindex"] = PageIndexStrategy(documents)
         self._executed: dict[str, StrategyResult] = {}
+        self.last_diagnostics: dict = {}
         self.last_retrieval = RetrievalInfo()
         # record_id -> source reference for document_section items of the last retrieve_context.
         self.last_sources: dict[str, dict[str, Any]] = {}
@@ -214,7 +224,9 @@ class RetrievalService:
 
     def _run(self, name: str, request: RetrievalRequest, **kwargs) -> StrategyResult:
         strategy = self._strategies[name]
+        start = time.perf_counter()
         result = strategy.retrieve(request, **kwargs)
+        result.elapsed_ms = (time.perf_counter() - start) * 1000
         self._executed[name] = result
         return result
 
@@ -272,7 +284,9 @@ class RetrievalService:
         and the byte budget are applied by the shared ranking and context builder.
         """
         request = RetrievalRequest(project, query, self._candidate_limit, token_budget, self._fts_relax)
+        t_start = time.perf_counter()
         selector_info = self._execute(request)
+        t_strategies = time.perf_counter()
         results = self._executed
 
         candidates_by_type: dict[str, dict[str, Candidate]] = {}
@@ -286,6 +300,7 @@ class RetrievalService:
 
         self.last_sources = {}
         candidates: list[RetrievalCandidate] = []
+        capped = 0
         for record_type, by_id in candidates_by_type.items():
             if fused:
                 rankings = [[c.record_id for c in sorted(group, key=lambda c: c.rank)]
@@ -293,6 +308,15 @@ class RetrievalService:
                 scores = {rid: -score for rid, score in reciprocal_rank_fusion(rankings, self._rrf_k)}
             else:
                 scores = {rid: c.score for rid, c in by_id.items()}
+            if record_type == "document_section" and self._section_top_k is not None:
+                # Rank cap for heading sections only. Sections with a strong keyword hit (all terms or all
+                # non-stopword terms matched) are exempt, so exact lookups are never dropped by the cap.
+                exempt = {rid for rid, c in by_id.items()
+                          if any(m.method == "sections_fts" and m.tier != "relaxed_or" for m in _candidate_hits(lists, rid))}
+                ordered = [rid for rid, _ in sorted(scores.items(), key=lambda kv: (kv[1], kv[0]))]
+                kept = top_k_with_exemptions(ordered, self._section_top_k, exempt)
+                capped += len(by_id) - len(kept)
+                by_id = {rid: c for rid, c in by_id.items() if rid in kept}
             for rid, c in by_id.items():
                 candidates.append(RetrievalCandidate(
                     record_id=c.record_id, project_id=c.project, source_id=c.source_id, content=c.content,
@@ -301,7 +325,8 @@ class RetrievalService:
                 if c.source:
                     self.last_sources[c.record_id] = c.source
         self.last_retrieval = self._describe(results, selector_info)
-        return build_context_bundle(
+        t_fused = time.perf_counter()
+        bundle = build_context_bundle(
             candidates,
             project_id=project,
             token_budget=token_budget,
@@ -311,6 +336,40 @@ class RetrievalService:
                 include_deprecated=False,
             ),
         )
+        self.last_diagnostics = self._diagnostics(
+            results, lists, candidates_by_type, bundle,
+            (t_strategies - t_start, t_fused - t_strategies, time.perf_counter() - t_fused),
+        )
+        self.last_diagnostics["capped_sections"] = capped
+        self.last_diagnostics["semantic_filter"] = dict(getattr(self._semantic, "last_filter", {}) or {})
+        return bundle
+
+    @staticmethod
+    def _diagnostics(results, lists, candidates_by_type, bundle, stage_seconds) -> dict:
+        """Bounded, content-free trace of one retrieval: counts, ranks, native scores, reasons, timings."""
+        methods_by_id: dict[str, dict[str, dict]] = {}
+        for (_, method), group in lists.items():
+            for c in group:
+                methods_by_id.setdefault(c.record_id, {})[method] = {
+                    "rank": c.rank, "score": None if c.score is None else round(float(c.score), 4)}
+        return {
+            "strategies": {
+                name: {
+                    "status": r.status, "ms": round(getattr(r, "elapsed_ms", 0.0), 2), "fts_tier": r.fts_tier,
+                    "candidates": {m: sum(c.method == m for c in r.candidates) for m in sorted({c.method for c in r.candidates})},
+                }
+                for name, r in results.items()
+            },
+            "fused": {t: len(by_id) for t, by_id in candidates_by_type.items()},
+            "selected": [
+                {"record_id": i.record_id, "type": i.record_kind, "bytes": len(i.content.encode("utf-8")),
+                 "methods": methods_by_id.get(i.record_id, {})}
+                for i in bundle.items
+            ],
+            "excluded": {row.reason: row.count for row in bundle.excluded_counts},
+            "context_bytes": len(bundle.rendered_context.encode("utf-8")),
+            "stage_ms": {k: round(v * 1000, 2) for k, v in zip(("strategies", "fusion", "build"), stage_seconds)},
+        }
 
     def _describe(self, results: dict[str, StrategyResult], selector_info: dict | None) -> RetrievalInfo:
         warnings: list[str] = []
@@ -354,6 +413,10 @@ class RetrievalService:
                     warnings.append(f"document retrieval unavailable: {pi.detail}")
             navigation = pi.navigation if pi is not None else None
         return RetrievalInfo(mode, tuple(warnings), pageindex, navigation, sections, selector_info)
+
+
+def _candidate_hits(lists, record_id):
+    return [c for group in lists.values() for c in group if c.record_id == record_id]
 
 
 def _search_result_dict(result: SearchResult) -> dict[str, Any]:
