@@ -1,8 +1,9 @@
 {
   "meta": {
+    "dataset": "dev",
     "dataset_version": "1",
     "dataset_sha256": "77679aeea136e222ea56bad811a46acdc1e9955da8b033542b09b9dff0d4af95",
-    "git_sha": "353a2ea",
+    "git_sha": "ed2eec0",
     "python": "3.12.3",
     "pageindex_version": "0.4.0",
     "navigation_model": null,
@@ -28,7 +29,7 @@
       "E",
       "Sd"
     ],
-    "timestamp_utc": "2026-10-12T17:40:35Z"
+    "timestamp_utc": "2026-10-13T05:36:19Z"
   },
   "systems": {
     "N": {
@@ -55,8 +56,8 @@
           "unrelated_item_rate": 0.0,
           "answer_share_of_context": 0.0,
           "queries_with_budget_exclusions": 11,
-          "mean_total_latency_ms": 2.570636997309824,
-          "mean_local_latency_ms": 2.570636997309824,
+          "mean_total_latency_ms": 2.94006949843606,
+          "mean_local_latency_ms": 2.94006949843606,
           "chat_recall": 0.8,
           "fallback_rate": 0,
           "mean_strategies_run": 1,
@@ -65,7 +66,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         },
         "20000": {
           "answer_in_context": 0.6666666666666666,
@@ -79,8 +83,8 @@
           "unrelated_item_rate": 0.375,
           "answer_share_of_context": 0.4818270246616264,
           "queries_with_budget_exclusions": 4,
-          "mean_total_latency_ms": 2.723234664396538,
-          "mean_local_latency_ms": 2.723234664396538,
+          "mean_total_latency_ms": 3.286135998981384,
+          "mean_local_latency_ms": 3.286135998981384,
           "chat_recall": 0.8,
           "fallback_rate": 0,
           "mean_strategies_run": 1,
@@ -89,7 +93,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         }
       },
       "queries": {
@@ -106,7 +113,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 3.7788519985042512,
+            "total_ms": 3.938387002563104,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -116,7 +123,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -130,7 +141,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.614771976368502,
+            "total_ms": 2.620802988531068,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -140,7 +151,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -154,7 +169,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 3.161355998599902,
+            "total_ms": 3.2868440030142665,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -164,7 +179,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -178,7 +197,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 2.5228630111087114,
+            "total_ms": 2.653887990163639,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -188,7 +207,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -202,7 +225,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.126865991158411,
+            "total_ms": 2.2150719887576997,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -212,7 +235,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -226,7 +253,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 4,
-            "total_ms": 3.6853679921478033,
+            "total_ms": 4.297406005207449,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -236,7 +263,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -250,7 +281,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.910451003117487,
+            "total_ms": 3.8121720135677606,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -260,7 +291,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -274,7 +309,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 1.0754429968073964,
+            "total_ms": 1.407812989782542,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -284,7 +319,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -298,7 +337,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 0.5361289950087667,
+            "total_ms": 0.6941439933143556,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -308,7 +347,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -322,7 +365,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 2.3232389939948916,
+            "total_ms": 2.86290401709266,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -332,7 +375,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -346,7 +393,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 3.1505020160693675,
+            "total_ms": 3.857041010633111,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -356,7 +403,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -370,7 +421,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.9618029948323965,
+            "total_ms": 3.6343599786050618,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -380,7 +431,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -396,7 +451,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9592924126172208,
             "budget_excluded": 1,
-            "total_ms": 3.633583983173594,
+            "total_ms": 4.439648997504264,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -406,7 +461,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18768
+            "context_bytes": 18768,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -420,7 +479,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.3435269046350559,
             "budget_excluded": 0,
-            "total_ms": 2.6477839855942875,
+            "total_ms": 3.2248380011878908,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -430,7 +489,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18770
+            "context_bytes": 18770,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -444,7 +507,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9592924126172208,
             "budget_excluded": 1,
-            "total_ms": 3.417249012272805,
+            "total_ms": 4.214531014440581,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -454,7 +517,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18768
+            "context_bytes": 18768,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -468,7 +535,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9593225967126017,
             "budget_excluded": 0,
-            "total_ms": 2.58974899770692,
+            "total_ms": 3.213435993529856,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -478,7 +545,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 12046
+            "context_bytes": 12046,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -492,7 +563,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.1203639917075634,
+            "total_ms": 2.5858290027827024,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -502,7 +573,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -516,7 +591,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 4.023337998660281,
+            "total_ms": 4.916868987493217,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -526,7 +601,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 19606
+            "context_bytes": 19606,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -540,7 +619,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.29816489219410414,
             "budget_excluded": 0,
-            "total_ms": 3.1466479995287955,
+            "total_ms": 3.746332018636167,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -550,7 +629,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18691
+            "context_bytes": 18691,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -564,7 +647,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 1.258918986422941,
+            "total_ms": 1.4952410128898919,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -574,7 +657,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18770
+            "context_bytes": 18770,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -588,7 +675,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 0.6216699839569628,
+            "total_ms": 0.7301239820662886,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -598,7 +685,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 6721
+            "context_bytes": 6721,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -612,7 +703,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.959538567493113,
             "budget_excluded": 0,
-            "total_ms": 2.4199190083891153,
+            "total_ms": 2.883608976844698,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -622,7 +713,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 5808
+            "context_bytes": 5808,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -636,7 +731,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9592413021471575,
             "budget_excluded": 1,
-            "total_ms": 3.5795330186374485,
+            "total_ms": 4.175306006800383,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -646,7 +741,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18769
+            "context_bytes": 18769,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -660,7 +759,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.3435452075230433,
             "budget_excluded": 0,
-            "total_ms": 3.220059006707743,
+            "total_ms": 3.8078679936006665,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -670,15 +769,39 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 1,
-            "context_bytes": 18769
+            "context_bytes": 18769,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [
+          "how big is the default embedding model download",
+          "why was sqlite-vec chosen over the alternatives",
+          "how are keyword and vector result lists combined",
+          "which command registers the server with the coding agent",
+          "which ChatGPT plans can use write capable connectors",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ],
+        "20000": [
+          "which command registers the server with the coding agent",
+          "what is the largest context budget a caller may request",
+          "what is the error for a source message from another project"
+        ]
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "B": {
       "label": "B A + semantic",
       "kind": "baseline",
-      "index_seconds": 1.59,
+      "index_seconds": 1.88,
       "records_indexed": 12,
       "budgets": {
         "2000": {
@@ -693,8 +816,8 @@
           "unrelated_item_rate": 0.16666666666666666,
           "answer_share_of_context": 0.0,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 9.782997583291339,
-          "mean_local_latency_ms": 9.782997583291339,
+          "mean_total_latency_ms": 9.759545168587161,
+          "mean_local_latency_ms": 9.759545168587161,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -703,7 +826,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         },
         "20000": {
           "answer_in_context": 0.75,
@@ -717,8 +843,8 @@
           "unrelated_item_rate": 0.5694444444444444,
           "answer_share_of_context": 0.40943955770060775,
           "queries_with_budget_exclusions": 9,
-          "mean_total_latency_ms": 10.135303586139344,
-          "mean_local_latency_ms": 10.135303586139344,
+          "mean_total_latency_ms": 9.926080000392782,
+          "mean_local_latency_ms": 9.926080000392782,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -727,7 +853,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         }
       },
       "queries": {
@@ -744,7 +873,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 10.651932010659948,
+            "total_ms": 10.450515983393416,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -754,7 +883,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -768,7 +901,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 5,
-            "total_ms": 10.214153007837012,
+            "total_ms": 9.764004993485287,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -778,7 +911,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -792,7 +929,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 4,
-            "total_ms": 10.472308000316843,
+            "total_ms": 10.145837994059548,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -802,7 +939,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -816,7 +957,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 5,
-            "total_ms": 10.287087003234774,
+            "total_ms": 9.86169301904738,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -826,7 +967,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -840,7 +985,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 4,
-            "total_ms": 9.947125014150515,
+            "total_ms": 9.782706998521462,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -850,7 +995,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -864,7 +1013,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 5,
-            "total_ms": 10.792618006234989,
+            "total_ms": 10.198514006333426,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -874,7 +1023,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -888,7 +1041,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 4,
-            "total_ms": 10.59215099667199,
+            "total_ms": 12.625353003386408,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -898,7 +1051,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -912,7 +1069,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 6,
-            "total_ms": 8.962750987848267,
+            "total_ms": 9.233181015588343,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -922,7 +1079,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 272
+            "context_bytes": 272,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -936,7 +1097,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 6.600381981115788,
+            "total_ms": 6.612352997763082,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -946,7 +1107,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -960,7 +1125,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 9.319693985162303,
+            "total_ms": 9.219825005857274,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -970,7 +1135,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -984,7 +1153,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 4,
-            "total_ms": 9.996482986025512,
+            "total_ms": 9.694754000520334,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -994,7 +1163,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 278
+            "context_bytes": 278,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -1008,7 +1181,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 9.559287020238116,
+            "total_ms": 9.525803005089983,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1018,7 +1191,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -1034,7 +1211,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 10.277802008204162,
+            "total_ms": 9.980686998460442,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1044,7 +1221,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 13752
+            "context_bytes": 13752,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -1058,7 +1239,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.34349030470914127,
             "budget_excluded": 3,
-            "total_ms": 10.786141006974503,
+            "total_ms": 10.392108000814915,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1068,7 +1249,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18772
+            "context_bytes": 18772,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -1082,7 +1267,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9590369147179459,
             "budget_excluded": 2,
-            "total_ms": 11.180900008184835,
+            "total_ms": 11.57828199211508,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1092,7 +1277,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18773
+            "context_bytes": 18773,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -1106,7 +1295,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9590880034093331,
             "budget_excluded": 3,
-            "total_ms": 10.820357012562454,
+            "total_ms": 11.567014997126535,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1116,7 +1305,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18772
+            "context_bytes": 18772,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -1130,7 +1323,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.6470324748040314,
             "budget_excluded": 2,
-            "total_ms": 10.630187985952944,
+            "total_ms": 10.268259007716551,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1140,7 +1333,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 17860
+            "context_bytes": 17860,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -1154,7 +1351,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 11.157355998875573,
+            "total_ms": 10.599383007502183,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1164,7 +1361,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18393
+            "context_bytes": 18393,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -1178,7 +1379,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.29810109654987965,
             "budget_excluded": 2,
-            "total_ms": 10.971937997965142,
+            "total_ms": 10.3632940154057,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1188,7 +1389,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18695
+            "context_bytes": 18695,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -1202,7 +1407,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.6322301579317976,
             "budget_excluded": 4,
-            "total_ms": 9.565331012709066,
+            "total_ms": 9.185035974951461,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1212,7 +1417,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19882
+            "context_bytes": 19882,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -1226,7 +1435,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 6.294177001109347,
+            "total_ms": 6.421602010959759,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1236,7 +1445,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 6723
+            "context_bytes": 6723,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -1250,7 +1463,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.29810109654987965,
             "budget_excluded": 0,
-            "total_ms": 9.328465006547049,
+            "total_ms": 9.216739010298625,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1260,7 +1473,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18695
+            "context_bytes": 18695,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -1274,7 +1491,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.43272263606469363,
             "budget_excluded": 2,
-            "total_ms": 10.7689359865617,
+            "total_ms": 10.026878007920459,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1284,7 +1501,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 14901
+            "context_bytes": 14901,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -1298,7 +1519,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.3434720076705907,
             "budget_excluded": 0,
-            "total_ms": 9.842052008025348,
+            "total_ms": 9.513676981441677,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1308,15 +1529,38 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18773
+            "context_bytes": 18773,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [
+          "how big is the default embedding model download",
+          "why was sqlite-vec chosen over the alternatives",
+          "how are keyword and vector result lists combined",
+          "which command registers the server with the coding agent",
+          "which ChatGPT plans can use write capable connectors",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ],
+        "20000": [
+          "how big is the default embedding model download",
+          "what is the largest context budget a caller may request"
+        ]
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "F": {
       "label": "F sections as messages + semantic (no PageIndex)",
       "kind": "baseline",
-      "index_seconds": 6.35,
+      "index_seconds": 7.61,
       "records_indexed": 66,
       "budgets": {
         "2000": {
@@ -1331,8 +1575,8 @@
           "unrelated_item_rate": 0.6527777777777778,
           "answer_share_of_context": 0.3298368694678371,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 8.215282585297246,
-          "mean_local_latency_ms": 8.215282585297246,
+          "mean_total_latency_ms": 8.999098502196526,
+          "mean_local_latency_ms": 8.999098502196526,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -1341,7 +1585,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         },
         "20000": {
           "answer_in_context": 0.9166666666666666,
@@ -1355,8 +1602,8 @@
           "unrelated_item_rate": 0.8994564463314463,
           "answer_share_of_context": 0.09967383324262886,
           "queries_with_budget_exclusions": 10,
-          "mean_total_latency_ms": 9.640509747744849,
-          "mean_local_latency_ms": 9.640509747744849,
+          "mean_total_latency_ms": 10.789541835644437,
+          "mean_local_latency_ms": 10.789541835644437,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -1365,7 +1612,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 0,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0
         }
       },
       "queries": {
@@ -1382,7 +1632,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.49433573635427397,
             "budget_excluded": 9,
-            "total_ms": 8.382858999539167,
+            "total_ms": 9.368280007038265,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1392,7 +1642,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1942
+            "context_bytes": 1942,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -1406,7 +1660,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.6116191500806886,
             "budget_excluded": 32,
-            "total_ms": 9.134527004789561,
+            "total_ms": 11.003024992533028,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1416,7 +1670,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1859
+            "context_bytes": 1859,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -1430,7 +1688,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 12,
-            "total_ms": 8.225168014178053,
+            "total_ms": 8.364920999156311,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1440,7 +1698,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1453
+            "context_bytes": 1453,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -1454,7 +1716,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.46325167037861914,
             "budget_excluded": 20,
-            "total_ms": 8.687390014529228,
+            "total_ms": 8.611125987954438,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1464,7 +1726,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1796
+            "context_bytes": 1796,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -1478,7 +1744,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8247282608695652,
             "budget_excluded": 20,
-            "total_ms": 8.307497977511957,
+            "total_ms": 9.547537978505716,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1488,7 +1754,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1472
+            "context_bytes": 1472,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -1502,7 +1772,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 13,
-            "total_ms": 8.06569799897261,
+            "total_ms": 9.159224020550027,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1512,7 +1782,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1363
+            "context_bytes": 1363,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -1526,7 +1800,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8544802867383513,
             "budget_excluded": 21,
-            "total_ms": 9.255652985302731,
+            "total_ms": 9.839605016168207,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1536,7 +1810,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1395
+            "context_bytes": 1395,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -1550,7 +1828,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 20,
-            "total_ms": 7.718808978097513,
+            "total_ms": 8.827376994304359,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1560,7 +1838,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1618
+            "context_bytes": 1618,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -1574,7 +1856,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 5.838869023136795,
+            "total_ms": 6.010563025483862,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1584,7 +1866,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1250
+            "context_bytes": 1250,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -1598,7 +1884,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 11,
-            "total_ms": 7.926675025373697,
+            "total_ms": 8.554032014217228,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1608,7 +1894,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1861
+            "context_bytes": 1861,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -1622,7 +1912,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.17391304347826086,
             "budget_excluded": 29,
-            "total_ms": 9.247028006939217,
+            "total_ms": 10.188937012571841,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1632,7 +1922,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1840
+            "context_bytes": 1840,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -1646,7 +1940,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5357142857142857,
             "budget_excluded": 14,
-            "total_ms": 7.793216995196417,
+            "total_ms": 8.514553977875039,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1656,7 +1950,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1960
+            "context_bytes": 1960,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -1672,7 +1970,7 @@
             "unrelated_item_rate": 0.8,
             "density": 0.2494459219858156,
             "budget_excluded": 1,
-            "total_ms": 8.845086005749181,
+            "total_ms": 9.160157991573215,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1682,7 +1980,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18048
+            "context_bytes": 18048,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -1696,7 +1998,7 @@
             "unrelated_item_rate": 0.9285714285714286,
             "density": 0.057403948099156867,
             "budget_excluded": 20,
-            "total_ms": 12.98275199951604,
+            "total_ms": 14.781386009417474,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1706,7 +2008,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19807
+            "context_bytes": 19807,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -1720,7 +2026,7 @@
             "unrelated_item_rate": 0.9166666666666666,
             "density": 0.04208860759493671,
             "budget_excluded": 2,
-            "total_ms": 8.831133018247783,
+            "total_ms": 9.303714003181085,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1730,7 +2036,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18960
+            "context_bytes": 18960,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -1744,7 +2054,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.04205205964114228,
             "budget_excluded": 8,
-            "total_ms": 10.159453988308087,
+            "total_ms": 11.05857000220567,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1754,7 +2064,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19785
+            "context_bytes": 19785,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -1768,7 +2082,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.0629798713426022,
             "budget_excluded": 6,
-            "total_ms": 9.812140982830897,
+            "total_ms": 11.124528013169765,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1778,7 +2092,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19276
+            "context_bytes": 19276,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -1792,7 +2110,7 @@
             "unrelated_item_rate": 0.9090909090909091,
             "density": 0.0664381755866069,
             "budget_excluded": 3,
-            "total_ms": 8.95903998753056,
+            "total_ms": 10.671761992853135,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1802,7 +2120,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18965
+            "context_bytes": 18965,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -1816,7 +2138,7 @@
             "unrelated_item_rate": 0.9166666666666666,
             "density": 0.06141480756350147,
             "budget_excluded": 10,
-            "total_ms": 10.509268002351746,
+            "total_ms": 12.389152019750327,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1826,7 +2148,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19409
+            "context_bytes": 19409,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -1840,7 +2166,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.42436070660061054,
             "budget_excluded": 10,
-            "total_ms": 9.324354003183544,
+            "total_ms": 10.565996984951198,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1850,7 +2176,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19983
+            "context_bytes": 19983,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -1864,7 +2194,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 5.8353829954285175,
+            "total_ms": 6.7732549796346575,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1874,7 +2204,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4320
+            "context_bytes": 4320,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -1888,7 +2222,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.12051415894558266,
             "budget_excluded": 0,
-            "total_ms": 8.643536973977461,
+            "total_ms": 8.829514001263306,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1898,7 +2232,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 15326
+            "context_bytes": 15326,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -1912,7 +2250,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.016174686615446826,
             "budget_excluded": 16,
-            "total_ms": 12.589212012244388,
+            "total_ms": 15.078821015777066,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1922,7 +2260,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19784
+            "context_bytes": 19784,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -1936,7 +2278,7 @@
             "unrelated_item_rate": 0.9285714285714286,
             "density": 0.05321305493614433,
             "budget_excluded": 2,
-            "total_ms": 9.194757003569975,
+            "total_ms": 9.737645013956353,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -1946,15 +2288,27 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19732
+            "context_bytes": 19732,
+            "fused_sections": 0,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [],
+        "20000": []
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "H": {
       "label": "H heading sections: FTS5 + semantic (product, no PageIndex)",
       "kind": "baseline",
-      "index_seconds": 6.32,
+      "index_seconds": 6.54,
       "records_indexed": 66,
       "budgets": {
         "2000": {
@@ -1969,8 +2323,8 @@
           "unrelated_item_rate": 0.6597222222222222,
           "answer_share_of_context": 0.3081934110852629,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 15.11938157879437,
-          "mean_local_latency_ms": 15.11938157879437,
+          "mean_total_latency_ms": 16.79398825217504,
+          "mean_local_latency_ms": 16.79398825217504,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 3,
@@ -1979,7 +2333,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.75
         },
         "20000": {
           "answer_in_context": 0.9166666666666666,
@@ -1993,8 +2350,8 @@
           "unrelated_item_rate": 0.9010410545337016,
           "answer_share_of_context": 0.09581456804674769,
           "queries_with_budget_exclusions": 10,
-          "mean_total_latency_ms": 16.91413266720095,
-          "mean_local_latency_ms": 16.91413266720095,
+          "mean_total_latency_ms": 18.232604331084683,
+          "mean_local_latency_ms": 18.232604331084683,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 3,
@@ -2003,7 +2360,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 12.416666666666666
         }
       },
       "queries": {
@@ -2020,7 +2380,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.4672650475184794,
             "budget_excluded": 9,
-            "total_ms": 15.194022009382024,
+            "total_ms": 17.36101901042275,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2030,7 +2390,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1894
+            "context_bytes": 1894,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -2044,7 +2411,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5800653594771242,
             "budget_excluded": 32,
-            "total_ms": 16.35001797694713,
+            "total_ms": 17.768074001651257,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2054,7 +2421,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1836
+            "context_bytes": 1836,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -2068,7 +2442,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 12,
-            "total_ms": 14.804465987253934,
+            "total_ms": 16.268912993837148,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2078,7 +2452,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1438
+            "context_bytes": 1438,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -2092,7 +2473,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.38480885311871227,
             "budget_excluded": 20,
-            "total_ms": 15.42308897478506,
+            "total_ms": 16.798256983747706,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2102,7 +2483,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1988
+            "context_bytes": 1988,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -2116,7 +2504,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.800557880055788,
             "budget_excluded": 20,
-            "total_ms": 14.916037995135412,
+            "total_ms": 17.0801320055034,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2126,7 +2514,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1434
+            "context_bytes": 1434,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -2140,7 +2535,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 13,
-            "total_ms": 15.620366990333423,
+            "total_ms": 16.616874025203288,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2150,7 +2545,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1356
+            "context_bytes": 1356,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -2164,7 +2566,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 21,
-            "total_ms": 15.798200009157881,
+            "total_ms": 18.847261992050335,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2174,7 +2576,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -2188,7 +2597,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 20,
-            "total_ms": 14.533235982526094,
+            "total_ms": 16.518734017154202,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2198,7 +2607,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1598
+            "context_bytes": 1598,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -2212,7 +2628,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 12.156065000453964,
+            "total_ms": 12.900619010906667,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2222,7 +2638,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -2236,7 +2659,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 11,
-            "total_ms": 14.687815011711791,
+            "total_ms": 16.742254985729232,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2246,7 +2669,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1808
+            "context_bytes": 1808,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -2260,7 +2690,7 @@
             "unrelated_item_rate": 0.75,
             "density": 0.14754098360655737,
             "budget_excluded": 28,
-            "total_ms": 16.56509199528955,
+            "total_ms": 17.70401999237947,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2270,7 +2700,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1769
+            "context_bytes": 1769,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -2284,7 +2721,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5140041493775933,
             "budget_excluded": 14,
-            "total_ms": 15.38417101255618,
+            "total_ms": 16.921700007515028,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2294,7 +2731,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1928
+            "context_bytes": 1928,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ],
         "20000": [
@@ -2310,7 +2754,7 @@
             "unrelated_item_rate": 0.8,
             "density": 0.2443720878010442,
             "budget_excluded": 1,
-            "total_ms": 15.635292016668245,
+            "total_ms": 18.148594012018293,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2320,7 +2764,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 17813
+            "context_bytes": 17813,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 10,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -2334,7 +2785,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.05331397677212655,
             "budget_excluded": 19,
-            "total_ms": 20.78705601161346,
+            "total_ms": 21.903604007093236,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2344,7 +2795,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19976
+            "context_bytes": 19976,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -2358,7 +2816,7 @@
             "unrelated_item_rate": 0.9166666666666666,
             "density": 0.03900747065101388,
             "budget_excluded": 2,
-            "total_ms": 15.805899980477989,
+            "total_ms": 17.216755979461595,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2368,7 +2826,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 18740
+            "context_bytes": 18740,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 12,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -2382,7 +2847,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.03889764580261351,
             "budget_excluded": 8,
-            "total_ms": 17.31242600362748,
+            "total_ms": 19.3601019855123,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2392,7 +2857,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19667
+            "context_bytes": 19667,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -2406,7 +2878,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.058212058212058215,
             "budget_excluded": 5,
-            "total_ms": 16.77502499660477,
+            "total_ms": 17.79045700095594,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2416,7 +2888,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19721
+            "context_bytes": 19721,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -2430,7 +2909,7 @@
             "unrelated_item_rate": 0.9090909090909091,
             "density": 0.06374141328079237,
             "budget_excluded": 3,
-            "total_ms": 16.02060502045788,
+            "total_ms": 16.808031010441482,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2440,7 +2919,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 18779
+            "context_bytes": 18779,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -2454,7 +2940,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.055508069787319626,
             "budget_excluded": 9,
-            "total_ms": 18.713282013777643,
+            "total_ms": 19.25858302274719,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2464,7 +2950,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19889
+            "context_bytes": 19889,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -2478,7 +2971,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.4151695599515543,
             "budget_excluded": 10,
-            "total_ms": 17.02999000553973,
+            "total_ms": 18.675339000765234,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2488,7 +2981,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19816
+            "context_bytes": 19816,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -2502,7 +3002,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 12.527719984063879,
+            "total_ms": 13.40999998501502,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2512,7 +3012,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 4296
+            "context_bytes": 4296,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -2526,7 +3033,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.11741187445858599,
             "budget_excluded": 0,
-            "total_ms": 15.686843980802223,
+            "total_ms": 16.98695297818631,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2536,7 +3043,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 15007
+            "context_bytes": 15007,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -2550,7 +3064,7 @@
             "unrelated_item_rate": 0.9411764705882353,
             "density": 0.01320783361165933,
             "budget_excluded": 15,
-            "total_ms": 19.88537798752077,
+            "total_ms": 21.79815000272356,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2560,7 +3074,14 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19761
+            "context_bytes": 19761,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -2574,7 +3095,7 @@
             "unrelated_item_rate": 0.9285714285714286,
             "density": 0.050932826232204347,
             "budget_excluded": 2,
-            "total_ms": 16.79007400525734,
+            "total_ms": 17.43468298809603,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2584,15 +3105,30 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 19457
+            "context_bytes": 19457,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 14,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [],
+        "20000": []
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "S": {
       "label": "S deterministic adaptive selector (product, no PageIndex)",
       "kind": "baseline",
-      "index_seconds": 6.4,
+      "index_seconds": 7.68,
       "records_indexed": 66,
       "budgets": {
         "2000": {
@@ -2607,8 +3143,8 @@
           "unrelated_item_rate": 0.6527777777777778,
           "answer_share_of_context": 0.3077900732405211,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 11.232344496723575,
-          "mean_local_latency_ms": 11.232344496723575,
+          "mean_total_latency_ms": 9.833566667415047,
+          "mean_local_latency_ms": 9.833566667415047,
           "chat_recall": 1.0,
           "fallback_rate": 0.08333333333333333,
           "mean_strategies_run": 2,
@@ -2620,7 +3156,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.8333333333333333
         },
         "20000": {
           "answer_in_context": 0.9166666666666666,
@@ -2634,8 +3173,8 @@
           "unrelated_item_rate": 0.8982094294594295,
           "answer_share_of_context": 0.09631845963237054,
           "queries_with_budget_exclusions": 10,
-          "mean_total_latency_ms": 11.946203667321242,
-          "mean_local_latency_ms": 11.946203667321242,
+          "mean_total_latency_ms": 11.347707998841846,
+          "mean_local_latency_ms": 11.347707998841846,
           "chat_recall": 1.0,
           "fallback_rate": 0.08333333333333333,
           "mean_strategies_run": 2,
@@ -2647,7 +3186,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 12.416666666666666
         }
       },
       "queries": {
@@ -2664,7 +3206,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.4672650475184794,
             "budget_excluded": 9,
-            "total_ms": 10.865881980862468,
+            "total_ms": 9.504568006377667,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2674,7 +3216,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1894
+            "context_bytes": 1894,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -2688,7 +3237,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5800653594771242,
             "budget_excluded": 32,
-            "total_ms": 10.423678992083296,
+            "total_ms": 11.12387201283127,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2698,7 +3247,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1836
+            "context_bytes": 1836,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -2712,7 +3268,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 12,
-            "total_ms": 9.93544000084512,
+            "total_ms": 9.655909991124645,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2722,7 +3278,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1438
+            "context_bytes": 1438,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -2736,7 +3299,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.38480885311871227,
             "budget_excluded": 20,
-            "total_ms": 10.4265270056203,
+            "total_ms": 10.49878099001944,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2746,7 +3309,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1988
+            "context_bytes": 1988,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -2760,7 +3330,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.800557880055788,
             "budget_excluded": 20,
-            "total_ms": 9.617803007131442,
+            "total_ms": 9.710143989650533,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2770,7 +3340,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1434
+            "context_bytes": 1434,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -2784,7 +3361,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 13,
-            "total_ms": 9.879174001980573,
+            "total_ms": 9.281992999603972,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2794,7 +3371,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1356
+            "context_bytes": 1356,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -2808,7 +3392,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 21,
-            "total_ms": 11.27083200844936,
+            "total_ms": 10.833929001819342,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2818,7 +3402,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -2832,7 +3423,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 19,
-            "total_ms": 12.420502986060455,
+            "total_ms": 9.742038993863389,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2842,7 +3433,14 @@
             "primary": "fts",
             "fallback_used": true,
             "strategies_run": 2,
-            "context_bytes": 1823
+            "context_bytes": 1823,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -2856,7 +3454,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 9.562677994836122,
+            "total_ms": 7.169855001848191,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2866,7 +3464,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -2880,7 +3485,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 11,
-            "total_ms": 12.65856297686696,
+            "total_ms": 9.059781004907563,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2890,7 +3495,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1808
+            "context_bytes": 1808,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -2904,7 +3516,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.14270092946965554,
             "budget_excluded": 28,
-            "total_ms": 15.290796000044793,
+            "total_ms": 11.967957019805908,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2914,7 +3526,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1829
+            "context_bytes": 1829,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -2928,7 +3547,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5140041493775933,
             "budget_excluded": 14,
-            "total_ms": 12.436257005902007,
+            "total_ms": 9.453970997128636,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2938,7 +3557,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1928
+            "context_bytes": 1928,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ],
         "20000": [
@@ -2954,7 +3580,7 @@
             "unrelated_item_rate": 0.8,
             "density": 0.2443720878010442,
             "budget_excluded": 1,
-            "total_ms": 13.296334014739841,
+            "total_ms": 10.855714994249865,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2964,7 +3590,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 17813
+            "context_bytes": 17813,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 10,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -2978,7 +3611,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.05331397677212655,
             "budget_excluded": 19,
-            "total_ms": 16.888166981516406,
+            "total_ms": 15.03805399988778,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -2988,7 +3621,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19976
+            "context_bytes": 19976,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -3002,7 +3642,7 @@
             "unrelated_item_rate": 0.9166666666666666,
             "density": 0.03900747065101388,
             "budget_excluded": 2,
-            "total_ms": 10.0771939905826,
+            "total_ms": 10.818604991072789,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3012,7 +3652,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18740
+            "context_bytes": 18740,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 12,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -3026,7 +3673,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.03889764580261351,
             "budget_excluded": 8,
-            "total_ms": 11.323073005769402,
+            "total_ms": 11.63761698990129,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3036,7 +3683,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19667
+            "context_bytes": 19667,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -3050,7 +3704,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.058212058212058215,
             "budget_excluded": 5,
-            "total_ms": 10.665101988706738,
+            "total_ms": 11.142938019474968,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3060,7 +3714,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19721
+            "context_bytes": 19721,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -3074,7 +3735,7 @@
             "unrelated_item_rate": 0.9090909090909091,
             "density": 0.06374141328079237,
             "budget_excluded": 3,
-            "total_ms": 10.42179501382634,
+            "total_ms": 10.936476988717914,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3084,7 +3745,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18779
+            "context_bytes": 18779,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -3098,7 +3766,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.055508069787319626,
             "budget_excluded": 9,
-            "total_ms": 13.897602999350056,
+            "total_ms": 11.943946010433137,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3108,7 +3776,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19889
+            "context_bytes": 19889,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -3122,7 +3797,7 @@
             "unrelated_item_rate": 0.6363636363636364,
             "density": 0.42120622568093385,
             "budget_excluded": 10,
-            "total_ms": 11.682821001159027,
+            "total_ms": 10.36682800622657,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3132,7 +3807,14 @@
             "primary": "fts",
             "fallback_used": true,
             "strategies_run": 2,
-            "context_bytes": 19532
+            "context_bytes": 19532,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -3146,7 +3828,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 7.479838008293882,
+            "total_ms": 7.6722340018022805,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3156,7 +3838,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4296
+            "context_bytes": 4296,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -3170,7 +3859,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.11741187445858599,
             "budget_excluded": 0,
-            "total_ms": 10.938752995571122,
+            "total_ms": 10.918795975157991,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3180,7 +3869,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 15007
+            "context_bytes": 15007,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -3194,7 +3890,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.013217866909753875,
             "budget_excluded": 15,
-            "total_ms": 15.272590011591092,
+            "total_ms": 14.378858992131427,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3204,7 +3900,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19746
+            "context_bytes": 19746,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -3218,7 +3921,7 @@
             "unrelated_item_rate": 0.9285714285714286,
             "density": 0.050932826232204347,
             "budget_excluded": 2,
-            "total_ms": 11.411173996748403,
+            "total_ms": 10.462427017046139,
             "model_ms": 0.0,
             "pageindex": "n/a",
             "pageindex_failed": false,
@@ -3228,7 +3931,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19457
+            "context_bytes": 19457,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 14,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ]
       }
@@ -3251,8 +3961,8 @@
           "unrelated_item_rate": 0.7083333333333334,
           "answer_share_of_context": 0.1763483992988948,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 2.9072639251050227,
-          "mean_local_latency_ms": 1.5989305917716896,
+          "mean_total_latency_ms": 2.4632260829093866,
+          "mean_local_latency_ms": 1.4382260829093867,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -3262,8 +3972,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 1.3083333333333333,
-          "model_latency_ms_p95": 1.4,
+          "mean_fused_sections": 3,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.1666666666666667,
+          "model_latency_ms_mean": 1.025,
+          "model_latency_ms_p95": 1.1,
           "est_prompt_tokens_mean": 0
         },
         "20000": {
@@ -3278,8 +3991,8 @@
           "unrelated_item_rate": 0.8333333333333333,
           "answer_share_of_context": 0.1546970662073381,
           "queries_with_budget_exclusions": 0,
-          "mean_total_latency_ms": 2.7903195878025144,
-          "mean_local_latency_ms": 1.4903195878025144,
+          "mean_total_latency_ms": 2.420860665248862,
+          "mean_local_latency_ms": 1.3291939985821954,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -3289,8 +4002,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 1.3,
-          "model_latency_ms_p95": 1.3,
+          "mean_fused_sections": 3,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 3,
+          "model_latency_ms_mean": 1.0916666666666668,
+          "model_latency_ms_p95": 1.2,
           "est_prompt_tokens_mean": 0
         }
       },
@@ -3308,8 +4024,8 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5083285468121769,
             "budget_excluded": 1,
-            "total_ms": 4.288339026970789,
-            "model_ms": 1.4,
+            "total_ms": 3.9536980038974434,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3318,7 +4034,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1741
+            "context_bytes": 1741,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -3332,8 +4052,8 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8037735849056604,
             "budget_excluded": 2,
-            "total_ms": 2.914771990617737,
-            "model_ms": 1.3,
+            "total_ms": 2.6681990129873157,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3342,7 +4062,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1325
+            "context_bytes": 1325,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -3356,8 +4080,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 2.7531929954420775,
-            "model_ms": 1.3,
+            "total_ms": 2.412909991107881,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3366,7 +4090,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1353
+            "context_bytes": 1353,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -3380,8 +4108,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.7889300254173577,
-            "model_ms": 1.3,
+            "total_ms": 2.3047419963404536,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3390,7 +4118,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 727
+            "context_bytes": 727,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -3404,8 +4136,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.744003984844312,
-            "model_ms": 1.3,
+            "total_ms": 2.24854500265792,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3414,7 +4146,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1096
+            "context_bytes": 1096,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -3428,8 +4164,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.7512610249686986,
-            "model_ms": 1.3,
+            "total_ms": 2.291690994752571,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3438,7 +4174,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1356
+            "context_bytes": 1356,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -3452,8 +4192,8 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 2,
-            "total_ms": 2.691159024834633,
-            "model_ms": 1.3,
+            "total_ms": 2.224244992248714,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3462,7 +4202,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -3476,8 +4220,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.80762801412493,
-            "model_ms": 1.3,
+            "total_ms": 2.3124330036807805,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3486,7 +4230,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1460
+            "context_bytes": 1460,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -3500,8 +4248,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.720919990679249,
-            "model_ms": 1.3,
+            "total_ms": 2.2235299984458834,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3510,7 +4258,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -3524,8 +4276,8 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 2.8052100096829236,
-            "model_ms": 1.3,
+            "total_ms": 2.303262008354068,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3534,7 +4286,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -3548,8 +4304,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 2.860270004021004,
-            "model_ms": 1.3,
+            "total_ms": 2.3146329913288355,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3558,7 +4314,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1702
+            "context_bytes": 1702,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -3572,8 +4332,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 2.7614810096565634,
-            "model_ms": 1.3,
+            "total_ms": 2.300824999110773,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3582,7 +4342,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 752
+            "context_bytes": 752,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -3598,8 +4362,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.2961847389558233,
             "budget_excluded": 0,
-            "total_ms": 2.7148470107931644,
-            "model_ms": 1.3,
+            "total_ms": 2.4378380039706826,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3608,7 +4372,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 2988
+            "context_bytes": 2988,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -3622,8 +4390,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.17513566847557968,
             "budget_excluded": 0,
-            "total_ms": 2.803126990329474,
-            "model_ms": 1.3,
+            "total_ms": 2.3629399947822094,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3632,7 +4400,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 6081
+            "context_bytes": 6081,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -3646,8 +4418,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.671712019946426,
-            "model_ms": 1.3,
+            "total_ms": 2.1876509999856353,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3656,7 +4428,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 2495
+            "context_bytes": 2495,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -3670,8 +4446,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.582367758186398,
             "budget_excluded": 0,
-            "total_ms": 2.7945630135945976,
-            "model_ms": 1.3,
+            "total_ms": 2.404836006462574,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3680,7 +4456,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 5955
+            "context_bytes": 5955,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -3694,8 +4474,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.3036233800581857,
             "budget_excluded": 0,
-            "total_ms": 2.7351389871910214,
-            "model_ms": 1.3,
+            "total_ms": 2.4620920012239367,
+            "model_ms": 1.2,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3704,7 +4484,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 3781
+            "context_bytes": 3781,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -3718,8 +4502,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.7701780200004578,
-            "model_ms": 1.3,
+            "total_ms": 2.6069380110129714,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3728,7 +4512,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4776
+            "context_bytes": 4776,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -3742,8 +4530,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.27885829754988634,
             "budget_excluded": 0,
-            "total_ms": 2.74233499658294,
-            "model_ms": 1.3,
+            "total_ms": 2.3228899808600545,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3752,7 +4540,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 3959
+            "context_bytes": 3959,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -3766,8 +4558,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.8503669891506433,
-            "model_ms": 1.3,
+            "total_ms": 2.4931659863796085,
+            "model_ms": 1.2,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3776,7 +4568,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 3478
+            "context_bytes": 3478,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -3790,8 +4586,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.7729860157705843,
-            "model_ms": 1.3,
+            "total_ms": 2.4764389963820577,
+            "model_ms": 1.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3800,7 +4596,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4335
+            "context_bytes": 4335,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -3814,8 +4614,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.22019495126218444,
             "budget_excluded": 0,
-            "total_ms": 2.908332011429593,
-            "model_ms": 1.3,
+            "total_ms": 2.5115140015259385,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3824,7 +4624,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 8002
+            "context_bytes": 8002,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -3838,8 +4642,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.902667998569086,
-            "model_ms": 1.3,
+            "total_ms": 2.383729995926842,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3848,7 +4652,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 5468
+            "context_bytes": 5468,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -3862,8 +4670,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 2.8175810002721846,
-            "model_ms": 1.3,
+            "total_ms": 2.4002940044738352,
+            "model_ms": 1.1,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -3872,9 +4680,32 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 5876
+            "context_bytes": 5876,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [
+          "how are keyword and vector result lists combined",
+          "which command registers the server with the coding agent",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ],
+        "20000": [
+          "what happens when the embedding model cannot be reached",
+          "what is the largest context budget a caller may request",
+          "what is the error for a source message from another project",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ]
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "D": {
@@ -3895,8 +4726,8 @@
           "unrelated_item_rate": 0.7083333333333334,
           "answer_share_of_context": 0.1763483992988948,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 8.886743334490651,
-          "mean_local_latency_ms": 7.48674333449065,
+          "mean_total_latency_ms": 9.475311669424022,
+          "mean_local_latency_ms": 8.066978336090687,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 3,
@@ -3906,8 +4737,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 1.4,
-          "model_latency_ms_p95": 1.4,
+          "mean_fused_sections": 3,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.1666666666666667,
+          "model_latency_ms_mean": 1.4083333333333332,
+          "model_latency_ms_p95": 1.6,
           "est_prompt_tokens_mean": 0
         },
         "20000": {
@@ -3922,8 +4756,8 @@
           "unrelated_item_rate": 0.8333333333333333,
           "answer_share_of_context": 0.1546970662073381,
           "queries_with_budget_exclusions": 0,
-          "mean_total_latency_ms": 8.91838008101331,
-          "mean_local_latency_ms": 7.51838008101331,
+          "mean_total_latency_ms": 9.061109410443654,
+          "mean_local_latency_ms": 7.694442743776987,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 3,
@@ -3933,8 +4767,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 1.4,
-          "model_latency_ms_p95": 1.4,
+          "mean_fused_sections": 3,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 3,
+          "model_latency_ms_mean": 1.3666666666666667,
+          "model_latency_ms_p95": 1.7,
           "est_prompt_tokens_mean": 0
         }
       },
@@ -3952,7 +4789,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5083285468121769,
             "budget_excluded": 1,
-            "total_ms": 9.078018978470936,
+            "total_ms": 9.478110005147755,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -3962,7 +4799,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1741
+            "context_bytes": 1741,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -3976,7 +4817,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8037735849056604,
             "budget_excluded": 2,
-            "total_ms": 8.77464099903591,
+            "total_ms": 9.558407007716596,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -3986,7 +4827,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1325
+            "context_bytes": 1325,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -4000,7 +4845,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 8.938515995396301,
+            "total_ms": 9.310216992162168,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4010,7 +4855,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1353
+            "context_bytes": 1353,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -4024,7 +4873,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 9.020334982778877,
+            "total_ms": 8.790765015874058,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4034,7 +4883,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 727
+            "context_bytes": 727,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -4048,7 +4901,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 8.690768998349085,
+            "total_ms": 9.562180988723412,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4058,7 +4911,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1096
+            "context_bytes": 1096,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -4072,7 +4929,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 8.836246008286253,
+            "total_ms": 9.795993973966688,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4082,7 +4939,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1356
+            "context_bytes": 1356,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -4096,7 +4957,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 2,
-            "total_ms": 9.021530015161261,
+            "total_ms": 10.068578005302697,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4106,7 +4967,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -4120,7 +4985,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 9.193390025757253,
+            "total_ms": 9.765758004505187,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4130,7 +4995,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1744
+            "context_bytes": 1744,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -4144,7 +5013,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 8.417690987698734,
+            "total_ms": 9.008448017993942,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4154,7 +5023,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -4168,7 +5041,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 3,
-            "total_ms": 8.780867006862536,
+            "total_ms": 8.911682991310954,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4178,7 +5051,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -4192,8 +5069,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 9.131060010986403,
-            "model_ms": 1.4,
+            "total_ms": 10.491309018107131,
+            "model_ms": 1.6,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4202,7 +5079,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 1980
+            "context_bytes": 1980,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -4216,8 +5097,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 8.757856005104259,
-            "model_ms": 1.4,
+            "total_ms": 8.962290012277663,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4226,7 +5107,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 752
+            "context_bytes": 752,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -4242,8 +5127,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.2961847389558233,
             "budget_excluded": 0,
-            "total_ms": 8.868860983056948,
-            "model_ms": 1.4,
+            "total_ms": 8.583085989812389,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4252,7 +5137,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 2988
+            "context_bytes": 2988,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -4266,7 +5155,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.17513566847557968,
             "budget_excluded": 0,
-            "total_ms": 9.1856170038227,
+            "total_ms": 9.607636980945244,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4276,7 +5165,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 6081
+            "context_bytes": 6081,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -4290,8 +5183,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 8.951189985964447,
-            "model_ms": 1.4,
+            "total_ms": 8.771960972808301,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4300,7 +5193,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 2495
+            "context_bytes": 2495,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -4314,8 +5211,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.582367758186398,
             "budget_excluded": 0,
-            "total_ms": 8.844476978993043,
-            "model_ms": 1.4,
+            "total_ms": 9.620622993679717,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4324,7 +5221,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 5955
+            "context_bytes": 5955,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -4338,8 +5239,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.3036233800581857,
             "budget_excluded": 0,
-            "total_ms": 8.945192996179685,
-            "model_ms": 1.4,
+            "total_ms": 9.024922997923568,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4348,7 +5249,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 3781
+            "context_bytes": 3781,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -4362,7 +5267,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 8.781298995018005,
+            "total_ms": 9.296579984948039,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4372,7 +5277,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 4776
+            "context_bytes": 4776,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -4386,8 +5295,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.27885829754988634,
             "budget_excluded": 0,
-            "total_ms": 8.839938993332908,
-            "model_ms": 1.4,
+            "total_ms": 8.561422990169376,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4396,7 +5305,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 3959
+            "context_bytes": 3959,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -4410,8 +5323,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 9.145081014139578,
-            "model_ms": 1.4,
+            "total_ms": 8.718661003513262,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4420,7 +5333,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 3762
+            "context_bytes": 3762,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -4434,8 +5351,8 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 8.550369006115943,
-            "model_ms": 1.4,
+            "total_ms": 8.570723992306739,
+            "model_ms": 1.3,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4444,7 +5361,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 4335
+            "context_bytes": 4335,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -4458,8 +5379,8 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.22019495126218444,
             "budget_excluded": 0,
-            "total_ms": 8.86731402715668,
-            "model_ms": 1.4,
+            "total_ms": 9.246228000847623,
+            "model_ms": 1.7,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4468,7 +5389,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 8002
+            "context_bytes": 8002,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -4482,7 +5407,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 9.202341985655949,
+            "total_ms": 9.64870402822271,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4492,7 +5417,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 5746
+            "context_bytes": 5746,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -4506,7 +5435,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 8.838879002723843,
+            "total_ms": 9.082762990146875,
             "model_ms": 1.4,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4516,9 +5445,32 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 3,
-            "context_bytes": 5876
+            "context_bytes": 5876,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [
+          "how are keyword and vector result lists combined",
+          "which command registers the server with the coding agent",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ],
+        "20000": [
+          "what happens when the embedding model cannot be reached",
+          "what is the largest context budget a caller may request",
+          "what is the error for a source message from another project",
+          "what stays unchanged when semantic search is switched off",
+          "how does the vector index recover after an interrupted run"
+        ]
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     },
     "E": {
@@ -4539,8 +5491,8 @@
           "unrelated_item_rate": 0.0,
           "answer_share_of_context": 0.652052910588811,
           "queries_with_budget_exclusions": 7,
-          "mean_total_latency_ms": 1.4045098359929398,
-          "mean_local_latency_ms": 1.3961765026596065,
+          "mean_total_latency_ms": 1.3718145807312492,
+          "mean_local_latency_ms": 1.3718145807312492,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -4550,8 +5502,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 0.008333333333333333,
-          "model_latency_ms_p95": 0.1,
+          "mean_fused_sections": 1.5833333333333333,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 0.9166666666666666,
+          "model_latency_ms_mean": 0.0,
+          "model_latency_ms_p95": 0.0,
           "est_prompt_tokens_mean": 0
         },
         "20000": {
@@ -4566,8 +5521,8 @@
           "unrelated_item_rate": 0.0,
           "answer_share_of_context": 0.8408566366197084,
           "queries_with_budget_exclusions": 0,
-          "mean_total_latency_ms": 1.3843659956667882,
-          "mean_local_latency_ms": 1.376032662333455,
+          "mean_total_latency_ms": 1.2346809186662238,
+          "mean_local_latency_ms": 1.2346809186662238,
           "chat_recall": 1.0,
           "fallback_rate": 0,
           "mean_strategies_run": 2,
@@ -4577,8 +5532,11 @@
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
           "queries": 12,
-          "model_latency_ms_mean": 0.008333333333333333,
-          "model_latency_ms_p95": 0.1,
+          "mean_fused_sections": 1.5833333333333333,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.5833333333333333,
+          "model_latency_ms_mean": 0.0,
+          "model_latency_ms_p95": 0.0,
           "est_prompt_tokens_mean": 0
         }
       },
@@ -4596,7 +5554,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.775635407537248,
             "budget_excluded": 1,
-            "total_ms": 1.7044580017682165,
+            "total_ms": 1.4753720024600625,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4606,7 +5564,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1141
+            "context_bytes": 1141,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -4620,7 +5582,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.804380664652568,
             "budget_excluded": 0,
-            "total_ms": 1.3060330238658935,
+            "total_ms": 1.2865790049545467,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4630,7 +5592,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1324
+            "context_bytes": 1324,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -4644,7 +5610,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.7383838383838384,
             "budget_excluded": 1,
-            "total_ms": 1.4248290099203587,
+            "total_ms": 1.5488549834117293,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4654,7 +5620,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 990
+            "context_bytes": 990,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -4668,7 +5638,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.75,
             "budget_excluded": 1,
-            "total_ms": 1.4142429863568395,
+            "total_ms": 1.587578997714445,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4678,7 +5648,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1020
+            "context_bytes": 1020,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -4692,7 +5666,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.800557880055788,
             "budget_excluded": 0,
-            "total_ms": 1.278948999242857,
+            "total_ms": 1.4046959986444563,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4702,7 +5676,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1434
+            "context_bytes": 1434,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -4716,7 +5694,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8198630136986301,
             "budget_excluded": 1,
-            "total_ms": 1.4643229951616377,
+            "total_ms": 1.269855973077938,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4726,7 +5704,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1460
+            "context_bytes": 1460,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -4740,7 +5722,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 0,
-            "total_ms": 1.2693559983745217,
+            "total_ms": 1.1199430155102164,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4750,7 +5732,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -4764,8 +5750,8 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8460749102103643,
             "budget_excluded": 2,
-            "total_ms": 1.6386310162488371,
-            "model_ms": 0.1,
+            "total_ms": 1.3575330085586756,
+            "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -4774,7 +5760,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1949
+            "context_bytes": 1949,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -4788,7 +5778,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 1.3696149981115013,
+            "total_ms": 1.202521991217509,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4798,7 +5788,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -4812,7 +5806,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.0,
             "budget_excluded": 1,
-            "total_ms": 1.292608998483047,
+            "total_ms": 1.8452290096320212,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4822,7 +5816,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 0
+            "context_bytes": 0,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 0,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -4836,7 +5834,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.6896766169154229,
             "budget_excluded": 0,
-            "total_ms": 1.3920129858888686,
+            "total_ms": 1.229236979270354,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4846,7 +5844,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1608
+            "context_bytes": 1608,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -4860,7 +5862,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.7959839357429719,
             "budget_excluded": 0,
-            "total_ms": 1.2990590184926987,
+            "total_ms": 1.1343740043230355,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4870,7 +5872,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           }
         ],
         "20000": [
@@ -4886,7 +5892,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8872808805544231,
             "budget_excluded": 0,
-            "total_ms": 1.4410919975489378,
+            "total_ms": 1.3149440055713058,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4896,7 +5902,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4906
+            "context_bytes": 4906,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -4910,7 +5920,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.804380664652568,
             "budget_excluded": 0,
-            "total_ms": 1.2653159792535007,
+            "total_ms": 1.3829149829689413,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4920,7 +5930,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1324
+            "context_bytes": 1324,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -4934,7 +5948,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8830704521556256,
             "budget_excluded": 0,
-            "total_ms": 1.4285639917943627,
+            "total_ms": 1.2116389989387244,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4944,7 +5958,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4755
+            "context_bytes": 4755,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -4958,7 +5976,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8846394984326019,
             "budget_excluded": 0,
-            "total_ms": 1.4528990141116083,
+            "total_ms": 1.2880810245405883,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4968,7 +5986,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4785
+            "context_bytes": 4785,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -4982,7 +6004,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.800557880055788,
             "budget_excluded": 0,
-            "total_ms": 1.2907630007248372,
+            "total_ms": 1.0724659950938076,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -4992,7 +6014,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1434
+            "context_bytes": 1434,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -5006,7 +6032,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8783278841662775,
             "budget_excluded": 0,
-            "total_ms": 1.4642119931522757,
+            "total_ms": 1.2408070033416152,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5016,7 +6042,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4282
+            "context_bytes": 4282,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -5030,7 +6060,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 0,
-            "total_ms": 1.2661340006161481,
+            "total_ms": 1.0610580211505294,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5040,7 +6070,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what is the error for a source message from another project",
@@ -5054,8 +6088,8 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8833693304535637,
             "budget_excluded": 0,
-            "total_ms": 1.6833929985295981,
-            "model_ms": 0.1,
+            "total_ms": 1.504216983448714,
+            "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
             "pageindex_timeout": false,
@@ -5064,7 +6098,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 6945
+            "context_bytes": 6945,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": null
           },
           {
             "query": "how long may a decision value be",
@@ -5078,7 +6116,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.9092198581560283,
             "budget_excluded": 0,
-            "total_ms": 1.3522809895221144,
+            "total_ms": 1.2497800053097308,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5088,7 +6126,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 2820
+            "context_bytes": 2820,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -5102,7 +6144,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8696939782823297,
             "budget_excluded": 0,
-            "total_ms": 1.287039980525151,
+            "total_ms": 1.0895869927480817,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5112,7 +6154,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 2026
+            "context_bytes": 2026,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -5126,7 +6172,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.6896766169154229,
             "budget_excluded": 0,
-            "total_ms": 1.402850990416482,
+            "total_ms": 1.1794580204878002,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5136,7 +6182,11 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1608
+            "context_bytes": 1608,
+            "fused_sections": 2,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": null
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -5150,7 +6200,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.7959839357429719,
             "budget_excluded": 0,
-            "total_ms": 1.2778470118064433,
+            "total_ms": 1.2212189903948456,
             "model_ms": 0.0,
             "pageindex": "used",
             "pageindex_failed": false,
@@ -5160,15 +6210,33 @@
             "primary": null,
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 1,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": null
           }
+        ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [],
+        "20000": []
+      },
+      "answers_gained_vs_S": {
+        "2000": [
+          "what happens when the embedding model cannot be reached",
+          "what is the largest context budget a caller may request",
+          "what is the error for a source message from another project"
+        ],
+        "20000": [
+          "how long may a decision value be"
         ]
       }
     },
     "Sd": {
       "label": "Sd diagnostic: adaptive selector + stand-in navigator",
       "kind": "diagnostic",
-      "index_seconds": 6.52,
+      "index_seconds": 6.62,
       "records_indexed": 66,
       "budgets": {
         "2000": {
@@ -5183,8 +6251,8 @@
           "unrelated_item_rate": 0.6527777777777778,
           "answer_share_of_context": 0.3077900732405211,
           "queries_with_budget_exclusions": 12,
-          "mean_total_latency_ms": 9.807322334381752,
-          "mean_local_latency_ms": 9.807322334381752,
+          "mean_total_latency_ms": 10.749965918269785,
+          "mean_local_latency_ms": 10.749965918269785,
           "chat_recall": 1.0,
           "fallback_rate": 0.08333333333333333,
           "mean_strategies_run": 2,
@@ -5196,7 +6264,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 1.8333333333333333
         },
         "20000": {
           "answer_in_context": 0.9166666666666666,
@@ -5210,8 +6281,8 @@
           "unrelated_item_rate": 0.8982094294594295,
           "answer_share_of_context": 0.09631845963237054,
           "queries_with_budget_exclusions": 10,
-          "mean_total_latency_ms": 12.847008583776187,
-          "mean_local_latency_ms": 12.847008583776187,
+          "mean_total_latency_ms": 12.04108808451565,
+          "mean_local_latency_ms": 12.04108808451565,
           "chat_recall": 1.0,
           "fallback_rate": 0.08333333333333333,
           "mean_strategies_run": 2,
@@ -5223,7 +6294,10 @@
           "pageindex_skipped": 0,
           "pageindex_failures": 0,
           "pageindex_timeouts": 0,
-          "queries": 12
+          "queries": 12,
+          "mean_fused_sections": 18.583333333333332,
+          "mean_capped_sections": 0,
+          "mean_selected_sections": 12.416666666666666
         }
       },
       "queries": {
@@ -5240,7 +6314,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.4672650475184794,
             "budget_excluded": 9,
-            "total_ms": 10.243022028589621,
+            "total_ms": 11.22050901176408,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5250,7 +6324,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1894
+            "context_bytes": 1894,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -5264,7 +6345,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5800653594771242,
             "budget_excluded": 32,
-            "total_ms": 10.642371024005115,
+            "total_ms": 12.356691993772984,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5274,7 +6355,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1836
+            "context_bytes": 1836,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -5288,7 +6376,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 12,
-            "total_ms": 9.44193999748677,
+            "total_ms": 10.721147991716862,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5298,7 +6386,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1438
+            "context_bytes": 1438,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -5312,7 +6407,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.38480885311871227,
             "budget_excluded": 20,
-            "total_ms": 9.92068398045376,
+            "total_ms": 10.876212996663526,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5322,7 +6417,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1988
+            "context_bytes": 1988,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -5336,7 +6438,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.800557880055788,
             "budget_excluded": 20,
-            "total_ms": 9.763579990249127,
+            "total_ms": 11.751696991268545,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5346,7 +6448,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1434
+            "context_bytes": 1434,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -5360,7 +6469,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 13,
-            "total_ms": 9.706370998173952,
+            "total_ms": 10.782688012113795,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5370,7 +6479,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1356
+            "context_bytes": 1356,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -5384,7 +6500,7 @@
             "unrelated_item_rate": 0.0,
             "density": 0.8040786598689003,
             "budget_excluded": 21,
-            "total_ms": 11.17869999143295,
+            "total_ms": 10.931630997220054,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5394,7 +6510,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1373
+            "context_bytes": 1373,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -5408,7 +6531,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 19,
-            "total_ms": 9.257564990548417,
+            "total_ms": 10.533661989029497,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5418,7 +6541,14 @@
             "primary": "fts",
             "fallback_used": true,
             "strategies_run": 2,
-            "context_bytes": 1823
+            "context_bytes": 1823,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -5432,7 +6562,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 2,
-            "total_ms": 7.58260500151664,
+            "total_ms": 8.854465995682403,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5442,7 +6572,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1245
+            "context_bytes": 1245,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 1,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -5456,7 +6593,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 11,
-            "total_ms": 9.604677994502708,
+            "total_ms": 10.34769500256516,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5466,7 +6603,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1808
+            "context_bytes": 1808,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -5480,7 +6624,7 @@
             "unrelated_item_rate": 0.6666666666666666,
             "density": 0.14270092946965554,
             "budget_excluded": 28,
-            "total_ms": 10.939715022686869,
+            "total_ms": 11.046645027818158,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5490,7 +6634,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1829
+            "context_bytes": 1829,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -5504,7 +6655,7 @@
             "unrelated_item_rate": 0.5,
             "density": 0.5140041493775933,
             "budget_excluded": 14,
-            "total_ms": 9.406636992935091,
+            "total_ms": 9.57654500962235,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5514,7 +6665,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 1928
+            "context_bytes": 1928,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 2,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ],
         "20000": [
@@ -5530,7 +6688,7 @@
             "unrelated_item_rate": 0.8,
             "density": 0.2443720878010442,
             "budget_excluded": 1,
-            "total_ms": 11.54051799676381,
+            "total_ms": 10.261114017339423,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5540,7 +6698,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 17813
+            "context_bytes": 17813,
+            "fused_sections": 11,
+            "capped_sections": 0,
+            "selected_sections": 10,
+            "semantic_section_filter": [
+              11,
+              11
+            ]
           },
           {
             "query": "why was sqlite-vec chosen over the alternatives",
@@ -5554,7 +6719,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.05331397677212655,
             "budget_excluded": 19,
-            "total_ms": 16.00554198375903,
+            "total_ms": 14.041382994037122,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5564,7 +6729,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19976
+            "context_bytes": 19976,
+            "fused_sections": 34,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              34,
+              34
+            ]
           },
           {
             "query": "what happens when the embedding model cannot be reached",
@@ -5578,7 +6750,7 @@
             "unrelated_item_rate": 0.9166666666666666,
             "density": 0.03900747065101388,
             "budget_excluded": 2,
-            "total_ms": 11.775288003263995,
+            "total_ms": 10.535262001212686,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5588,7 +6760,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18740
+            "context_bytes": 18740,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 12,
+            "semantic_section_filter": [
+              14,
+              14
+            ]
           },
           {
             "query": "how are keyword and vector result lists combined",
@@ -5602,7 +6781,7 @@
             "unrelated_item_rate": 0.9333333333333333,
             "density": 0.03889764580261351,
             "budget_excluded": 8,
-            "total_ms": 14.75966299767606,
+            "total_ms": 11.872578004840761,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5612,7 +6791,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19667
+            "context_bytes": 19667,
+            "fused_sections": 23,
+            "capped_sections": 0,
+            "selected_sections": 15,
+            "semantic_section_filter": [
+              23,
+              23
+            ]
           },
           {
             "query": "which command registers the server with the coding agent",
@@ -5626,7 +6812,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.058212058212058215,
             "budget_excluded": 5,
-            "total_ms": 13.326020009117201,
+            "total_ms": 11.692828993545845,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5636,7 +6822,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19721
+            "context_bytes": 19721,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              21,
+              21
+            ]
           },
           {
             "query": "what is the largest context budget a caller may request",
@@ -5650,7 +6843,7 @@
             "unrelated_item_rate": 0.9090909090909091,
             "density": 0.06374141328079237,
             "budget_excluded": 3,
-            "total_ms": 12.147575005656108,
+            "total_ms": 12.051942001562566,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5660,7 +6853,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 18779
+            "context_bytes": 18779,
+            "fused_sections": 14,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "which ChatGPT plans can use write capable connectors",
@@ -5674,7 +6874,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.055508069787319626,
             "budget_excluded": 9,
-            "total_ms": 13.816526014124975,
+            "total_ms": 13.71272502001375,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5684,7 +6884,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19889
+            "context_bytes": 19889,
+            "fused_sections": 22,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              22,
+              22
+            ]
           },
           {
             "query": "what is the error for a source message from another project",
@@ -5698,7 +6905,7 @@
             "unrelated_item_rate": 0.6363636363636364,
             "density": 0.42120622568093385,
             "budget_excluded": 10,
-            "total_ms": 13.01067101303488,
+            "total_ms": 11.759096989408135,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5708,7 +6915,14 @@
             "primary": "fts",
             "fallback_used": true,
             "strategies_run": 2,
-            "context_bytes": 19532
+            "context_bytes": 19532,
+            "fused_sections": 21,
+            "capped_sections": 0,
+            "selected_sections": 11,
+            "semantic_section_filter": [
+              20,
+              20
+            ]
           },
           {
             "query": "how long may a decision value be",
@@ -5722,7 +6936,7 @@
             "unrelated_item_rate": 1.0,
             "density": 0.0,
             "budget_excluded": 0,
-            "total_ms": 8.164680999470875,
+            "total_ms": 9.293556999182329,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5732,7 +6946,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 4296
+            "context_bytes": 4296,
+            "fused_sections": 3,
+            "capped_sections": 0,
+            "selected_sections": 3,
+            "semantic_section_filter": [
+              2,
+              2
+            ]
           },
           {
             "query": "which remote option avoids an inbound public listener",
@@ -5746,7 +6967,7 @@
             "unrelated_item_rate": 0.9230769230769231,
             "density": 0.11741187445858599,
             "budget_excluded": 0,
-            "total_ms": 11.480782995931804,
+            "total_ms": 11.629863001871854,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5756,7 +6977,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 15007
+            "context_bytes": 15007,
+            "fused_sections": 13,
+            "capped_sections": 0,
+            "selected_sections": 13,
+            "semantic_section_filter": [
+              13,
+              13
+            ]
           },
           {
             "query": "what stays unchanged when semantic search is switched off",
@@ -5770,7 +6998,7 @@
             "unrelated_item_rate": 0.9375,
             "density": 0.013217866909753875,
             "budget_excluded": 15,
-            "total_ms": 15.659281983971596,
+            "total_ms": 16.089344979263842,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5780,7 +7008,14 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19746
+            "context_bytes": 19746,
+            "fused_sections": 31,
+            "capped_sections": 0,
+            "selected_sections": 16,
+            "semantic_section_filter": [
+              31,
+              31
+            ]
           },
           {
             "query": "how does the vector index recover after an interrupted run",
@@ -5794,7 +7029,7 @@
             "unrelated_item_rate": 0.9285714285714286,
             "density": 0.050932826232204347,
             "budget_excluded": 2,
-            "total_ms": 12.477554002543911,
+            "total_ms": 11.553362011909485,
             "model_ms": 0.0,
             "pageindex": "not_selected",
             "pageindex_failed": false,
@@ -5804,9 +7039,24 @@
             "primary": "sections",
             "fallback_used": false,
             "strategies_run": 2,
-            "context_bytes": 19457
+            "context_bytes": 19457,
+            "fused_sections": 16,
+            "capped_sections": 0,
+            "selected_sections": 14,
+            "semantic_section_filter": [
+              15,
+              15
+            ]
           }
         ]
+      },
+      "answers_lost_vs_S": {
+        "2000": [],
+        "20000": []
+      },
+      "answers_gained_vs_S": {
+        "2000": [],
+        "20000": []
       }
     }
   }

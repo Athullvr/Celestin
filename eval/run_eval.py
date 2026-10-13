@@ -391,6 +391,14 @@ def render(results, meta, budgets) -> str:
                 cells.append("-" if v is None else (f"{v:.2f}" if isinstance(v, float) else str(v)))
             if any(c != "-" for c in cells):
                 lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    lines += ["", "## Answers lost / gained relative to S (same questions)", ""]
+    for k in keys:
+        lost = results[k].get("answers_lost_vs_S")
+        if lost is not None:
+            gained = results[k]["answers_gained_vs_S"]
+            lines.append(f"- {results[k]['label']}: " + "; ".join(
+                f"budget {b}: lost {len(lost[b])}, gained {len(gained[b])}" + (f" (lost: {', '.join(lost[b])})" if lost[b] else "")
+                for b in lost))
     lines += ["", "## Indexing", ""] + [
         f"- {results[k]['label']}: {results[k]['index_seconds']} s, {results[k]['records_indexed']} records" for k in keys]
     return "\n".join(lines) + "\n"
@@ -440,6 +448,19 @@ def main(argv=None) -> int:
             results[key] = run_system(SPECS[key], sections, budgets, args.model)
         except Exception as exc:  # recorded, never hidden
             results[key] = {"skipped": f"{type(exc).__name__}: {exc}"}
+    base = results.get("S")
+    if base and "budgets" in base:
+        for key, res in results.items():
+            if "budgets" not in res or key == "S":
+                continue
+            res["answers_lost_vs_S"] = {
+                str(b): [q["query"] for q, r in zip(base["queries"][b], res["queries"][b]) if q["answered"] and not r["answered"]]
+                for b in base["queries"]
+            }
+            res["answers_gained_vs_S"] = {
+                str(b): [q["query"] for q, r in zip(base["queries"][b], res["queries"][b]) if r["answered"] and not q["answered"]]
+                for b in base["queries"]
+            }
     try:
         import pageindex
         pi_version = getattr(pageindex, "__version__", None) or __import__("importlib.metadata").metadata.version("pageindex")

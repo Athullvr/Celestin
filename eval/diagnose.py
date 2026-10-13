@@ -20,6 +20,11 @@ import run_eval as ev
 from orbit.pageindex.tree import build_sections
 
 
+def _shingles(text: str) -> set:
+    words = text.lower().split()
+    return {tuple(words[i:i + 3]) for i in range(max(0, len(words) - 2))}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--system", default="S")
@@ -40,7 +45,8 @@ def main() -> None:
                 item = next(i for i in bundle.items if i.record_id == sel["record_id"])
                 rows.append({"q": query, "rank": rank, "n_items": len(diag["selected"]), "type": sel["type"],
                              "bytes": sel["bytes"], "relevant": evidence.lower() in item.content.lower(),
-                             "methods": tuple(sorted(sel["methods"])), "info": sel["methods"], "diag": diag})
+                             "methods": tuple(sorted(sel["methods"])), "info": sel["methods"], "diag": diag,
+                             "text": item.content})
     sec = [r for r in rows if r["type"] == "document_section"]
     print(f"system {args.system}, budget {args.budget}: {len(rows)} selected items over {len(ev.DOC_QUERIES)} queries "
           f"({len(sec)} sections)")
@@ -84,6 +90,16 @@ def main() -> None:
     print(f"\nsection bytes: median {statistics.median(sizes):.0f}, max {max(sizes)}; "
           f"{len(big)} sections >= 2000 bytes ({sum(r['bytes'] for r in big)} of {sum(sizes)} section bytes), "
           f"{sum(not r['relevant'] for r in big)} of them irrelevant")
+    pairs = near = 0
+    for q in {r["q"] for r in rows}:
+        items = [r for r in rows if r["q"] == q and r["type"] == "document_section"]
+        shingles = [_shingles(r["text"]) for r in items]
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                pairs += 1
+                union = shingles[i] | shingles[j]
+                near += bool(union) and len(shingles[i] & shingles[j]) / len(union) >= 0.5
+    print(f"near-duplicate section pairs (word 3-gram Jaccard >= 0.5) within one context: {near} of {pairs} pairs")
     fills = [d["context_bytes"] / args.budget for d in d0]
     print(f"context fill ratio: mean {statistics.mean(fills):.2f}; excluded for budget per query: "
           f"{statistics.mean(d['excluded'].get('token_budget', 0) for d in d0):.1f}, duplicates "

@@ -191,6 +191,10 @@ More detail: [docs/semantic-search.md](docs/semantic-search.md).
 
 `celestin-docs index --project my-project docs/` indexes Markdown documents into heading sections (no model needed). `retrieve_context` then also searches those sections with FTS5, and with semantic search too when `CELESTIN_SEMANTIC_SEARCH=1` (run `celestin-index sync`, or let `celestin-docs` embed them). Section results carry a `source` (document, section, line, content hash). Disable with `CELESTIN_DOC_SECTIONS=0`. Setting `CELESTIN_RETRIEVAL_SELECTOR=adaptive` makes retrieval pick one primary strategy plus at most one fallback instead of running every enabled strategy (default `all`); on the frozen evaluation it matched running everything on answer quality with one strategy fewer, but did not reduce context size. Design, results and limits: [docs/retrieval-strategies.md](docs/retrieval-strategies.md).
 
+### Reducing context noise (opt-in)
+
+Section-based retrieval returns many weakly related sections. `CELESTIN_SEMANTIC_SECTION_MARGIN=0.08` keeps only semantic section hits close to the best one: on two evaluation sets it kept every answer and cut 22-35% of the context bytes. It is recommended but off by default; `CELESTIN_SECTION_TOP_K` and `CELESTIN_SECTION_EXCERPT_BYTES` are experimental and lost answers in testing. Diagnosis and results: [docs/context-optimization.md](docs/context-optimization.md).
+
 ## Document retrieval with PageIndex (optional, experimental)
 
 Long Markdown documents (specs, design notes) can be indexed into heading-section trees and searched by having an LLM pick sections from the outline, the approach of [PageIndex](https://github.com/VectifyAI/PageIndex). It is off by default, needs a model API key and sends the query and the outline to that provider. **It has been tested only with a fake navigation model; it has not been shown to improve retrieval with a real LLM.**

@@ -177,3 +177,15 @@ def test_pageindex_stays_disabled_by_default(docs_env, monkeypatch):
     result = server.retrieve_context("demo", QUERY, 2000)
     assert "pageindex" not in result["retrieval"]  # sections work; no model, no navigation, no PageIndex status
     assert result["retrieval"]["sections"] == "used"
+
+
+def test_noise_control_env_vars_through_the_mcp_tool(docs_env, monkeypatch):
+    base = server.retrieve_context("demo", QUERY, 5000)
+    monkeypatch.setenv("CELESTIN_SECTION_TOP_K", "1")
+    capped = server.retrieve_context("demo", QUERY, 5000)
+    assert len([i for i in capped["items"] if i["record_kind"] == "document_section"]) <= 1
+    assert set(capped) == set(base)  # response schema is unchanged
+    monkeypatch.setenv("CELESTIN_SECTION_TOP_K", "not-a-number")
+    monkeypatch.setenv("CELESTIN_SECTION_EXCERPT_BYTES", "50")  # below the minimum: ignored, not an error
+    ignored = server.retrieve_context("demo", QUERY, 5000)
+    assert [i["record_id"] for i in ignored["items"]] == [i["record_id"] for i in base["items"]]

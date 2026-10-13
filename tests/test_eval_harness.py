@@ -90,3 +90,43 @@ def test_model_failures_are_counted_not_hidden(tmp_path, monkeypatch):
     n = json.loads((tmp_path / "results_strict_fts.json").read_text())["systems"]["N"]["budgets"]["20000"]
     assert n["pageindex_failures"] == n["pageindex_routed"] + n["pageindex_failures"] > 0
     assert n["pageindex_timeouts"] == n["pageindex_failures"] and n["answer_in_context"] == 0
+
+
+FROZEN_HELDOUT_SHA256 = "69e75c0afa5b804672ce202d3145466174c49b2090511ade1b6907ec98603828"
+
+
+def test_heldout_set_is_frozen_and_dev_set_is_untouched():
+    try:
+        run_eval.use_dataset("heldout")
+        assert run_eval.dataset_hash() == FROZEN_HELDOUT_SHA256
+        assert len(run_eval.DOC_QUERIES) == 12
+        heldout_questions = {q for q, _, _ in run_eval.DOC_QUERIES}
+    finally:
+        run_eval.use_dataset("dev")
+    assert run_eval.dataset_hash() == FROZEN_DATASET_SHA256
+    assert not heldout_questions & {q for q, _, _ in run_eval.DOC_QUERIES}  # no question appears in both sets
+
+
+def test_heldout_gold_evidence_exists_in_the_frozen_corpus():
+    from orbit.pageindex.tree import build_sections
+    import heldout
+
+    for query, evidence, docs in heldout.DOC_QUERIES:
+        assert any(evidence.lower() in s.text.lower() for d in docs for s in build_sections(run_eval.read_doc(d), d)), query
+
+
+def test_noise_variants_are_registered_as_selector_variants_with_defaults_off():
+    for key in ("S+m04", "S+m08", "S+m12", "S+k5", "S+x1200"):
+        spec = run_eval.SPECS[key]
+        assert spec.selector == "adaptive" and spec.navigator == "none" and spec.kind == "baseline"
+    base = run_eval.SPECS["S"]
+    assert (base.section_margin, base.top_k, base.excerpt) == (None, None, None)
+
+
+def test_noise_sweep_run_records_answers_lost_and_candidate_counts(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_eval, "semantic_for", lambda *a, **k: (None, None))  # offline: keyword search only
+    assert run_eval.main(["--systems", "S,S+k3", "--budgets", "20000", "--dataset", "heldout", "--out", str(tmp_path)]) == 0
+    data = json.loads((tmp_path / "results_heldout.json").read_text())
+    assert data["meta"]["dataset"] == "heldout"
+    capped = data["systems"]["S+k3"]
+    assert "answers_lost_vs_S" in capped and "mean_fused_sections" in capped["budgets"]["20000"]
