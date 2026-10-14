@@ -18,9 +18,9 @@ Sources:
 
 - `src/orbit/mcp_server/server.py` starts FastMCP with stdio transport only.
 - `README.md` documents local stdio startup and configuration.
-- `src/orbit/database/engine.py` uses SQLite. `MEMORY_BRIDGE_DB_PATH` selects the local database file; the default path is relative to the process working directory.
-- No HTTP listener, deployment manifest, remote authentication, project registry, or identity-to-project membership policy was found in the repository.
-- Existing tools validate the supplied project string and pass it to persistence or retrieval adapters. Project scoping in repositories/retrieval prevents query leakage between requested namespaces, but the project string itself does not prove the caller is authorized for that project.
+- `src/orbit/database/engine.py` uses SQLite. `CELESTIN_DB_PATH` takes precedence over legacy `MEMORY_BRIDGE_DB_PATH`; the default path is relative to the process working directory.
+- No HTTP listener, deployment manifest, remote authentication, project registry, or identity-to-project membership policy is implemented. Local stdio now applies a fail-closed, process-level project/action allowlist.
+- The local allowlist checks the requested project/action before persistence or retrieval. Repository and retrieval project predicates remain in place, but the project string does not prove caller identity. Stdio still cannot distinguish individual clients.
 
 ## Architecture comparison
 
@@ -45,3 +45,12 @@ No private conversation data was sent to a remote assistant during this investig
 - User identity provider, project membership source, and authorization policy: **not approved**.
 - Permission to return private project memory to ChatGPT: **not approved**.
 - Remote implementation or deployment: **not started**.
+
+## Follow-up: local stdio authorization
+
+`CELESTIN_LOCAL_PROJECT_ACCESS` configures a fail-closed project/action allowlist
+for the local server process. `ORBIT_LOCAL_PROJECT_ACCESS` remains a fallback
+for existing configurations. This does not provide user authentication: every
+client connected to the process inherits its grants. It does not enable remote
+access or clear the remote identity, membership, client eligibility, or data
+sharing approval blockers above. See [authorization-design.md](authorization-design.md).

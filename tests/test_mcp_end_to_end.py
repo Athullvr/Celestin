@@ -45,7 +45,12 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 command, args = sys.executable, ["-m", "orbit.mcp_server.server"]
 
             env = os.environ.copy()
-            env["MEMORY_BRIDGE_DB_PATH"] = str(database_path)
+            env["CELESTIN_DB_PATH"] = str(database_path)
+            env["MEMORY_BRIDGE_DB_PATH"] = str(database_path.with_name("legacy-path-not-used.sqlite"))
+            env["CELESTIN_LOCAL_PROJECT_ACCESS"] = json.dumps({
+                "celestin-e2e-alpha": ["read", "write"],
+                "celestin-e2e-beta": ["read", "write"],
+            })
 
             @asynccontextmanager
             async def connected_session():

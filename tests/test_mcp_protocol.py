@@ -30,10 +30,14 @@ class StdioProtocolTests(unittest.TestCase):
             else:
                 command, args = sys.executable, ["-m", "orbit.mcp_server.server"]
 
+            env = os.environ.copy()
+            env.pop("CELESTIN_LOCAL_PROJECT_ACCESS", None)
+            env.pop("ORBIT_LOCAL_PROJECT_ACCESS", None)
             parameters = StdioServerParameters(
                 command=command,
                 args=args,
                 cwd=REPOSITORY_ROOT,
+                env=env,
             )
             async with stdio_client(parameters) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
@@ -75,6 +79,18 @@ class StdioProtocolTests(unittest.TestCase):
                     )
                     self.assertIn("INVALID_ARGUMENT", error_text)
                     self.assertNotIn("private sample text", error_text)
+
+                    denied_read = await session.call_tool(
+                        "search_chat_history",
+                        {"project": "unconfigured-project", "query": "private term"},
+                    )
+                    self.assertTrue(denied_read.isError)
+                    denial_text = " ".join(
+                        item.text for item in denied_read.content if hasattr(item, "text")
+                    )
+                    self.assertIn("ACCESS_DENIED", denial_text)
+                    self.assertNotIn("unconfigured-project", denial_text)
+                    self.assertNotIn("private term", denial_text)
 
             # Pre-rename aliases must keep launching the same server.
             for alias in ("memory-bridge", "orbit"):
