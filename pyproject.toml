@@ -14,6 +14,7 @@ dependencies = ["mcp>=1.0,<2.0"]
 celestin = "orbit.mcp_server.server:main"
 celestin-index = "orbit.semantic.cli:main"
 celestin-docs = "orbit.pageindex.cli:main"
+celestin-migrate = "orbit.postgres.migrate_cli:main"
 # Compatibility aliases for clients configured before the Celestin rename.
 orbit = "orbit.mcp_server.server:main"
 memory-bridge = "orbit.mcp_server.server:main"
@@ -22,9 +23,13 @@ memory-bridge = "orbit.mcp_server.server:main"
 semantic = ["sqlite-vec>=0.1.9,<0.2", "fastembed>=0.9,<1.0"]
 pageindex = ["pageindex>=0.4,<0.5"]
 test = ["pytest"]
+postgres = ["psycopg[binary]>=3.2,<4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"orbit.postgres.migrations" = ["*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

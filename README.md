@@ -47,6 +47,16 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+### PostgreSQL migration foundation (explicit operator command)
+
+Local SQLite remains the default and is not affected by the PostgreSQL tooling.
+For a separately provisioned, empty hosted database, install the optional
+`postgres` extra and explicitly run `celestin-migrate` with
+`CELESTIN_POSTGRES_DSN` supplied through an approved secret mechanism. The MCP
+server never runs hosted migrations during startup. See
+[PostgreSQL migrations](docs/postgres-migrations.md) for safety checks and the
+required handling for an existing database without a migration ledger.
+
 ## Run with Codex CLI
 
 Register Celestin as a local stdio MCP server. Set the database path to a location
