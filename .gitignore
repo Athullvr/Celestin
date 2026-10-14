@@ -30,3 +30,6 @@ data/
 *.db-shm
 *.sqlite
 *.sqlite3
+
+# Per-checkout Codex loop-engineering iteration notes
+.loop-engineering/

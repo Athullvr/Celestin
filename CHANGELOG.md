@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T21:07:12+05:30 — Separate reusable and Celestin-specific loop guidance
+
+- Changed: Extracted the multi-step engineering process into `docs/loop-engineering-core.md`; made `docs/loop-engineering.md` the local task-log template and entry guide; added `docs/celestin-loop-rules.md`; updated `AGENTS.md` to reference both layers and require explicit user approval for every push.
+- Why: Keep general engineering workflow portable while recording storage, compatibility, and tenant-security constraints in the Celestin layer.
+- Validation: Reviewed the documentation and instruction diffs; `git diff --check -- AGENTS.md CHANGELOG.md AI_USAGE.md` passed. No tests, application commands, database commands, commits, or pushes were run as requested.
+- Limitations: Changes are uncommitted and await review; the separate general checkout has not yet received the shared core reference.
+
 ## 2026-10-14T17:38:49+05:30 — Add provenance index and owner-concurrency validation requirements
 
 - Changed: Added non-partial `project_memory(project_id, source_message_id)` to the hosted PostgreSQL schema draft; documented its provenance/FK-check purpose, the workspace-row lock/recheck protocol for owner changes, required concurrent-owner and hosted authorization tests, and the user-reported behavioral validation outcome. Clarified that the new index has not been applied to the already-used test database.
