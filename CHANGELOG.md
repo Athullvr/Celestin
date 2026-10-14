@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T08:52:24+05:30 — Add archive-first retention to hosted schema draft
+
+- Changed: Added archive and purge-eligibility timestamps to workspaces, projects, messages, and decisions; replaced cascading deletes with restrictive references; kept message provenance until an explicit purge or separately approved detachment; indexed workspace membership lookups and active-owner checks.
+- Why: Prevent ordinary parent deletion from cascading into memory and preserve source links through archive periods.
+- Validation: SQL reviewed statically; `git diff --check` passed. No SQL was executed against PostgreSQL.
+- Limitations: Retention duration, purge authority, owner-transfer transaction, and purge audit process remain policy/application responsibilities and need team approval.
+
 ## 2026-10-14T08:51:25+05:30 — Scope hosted records and grants consistently
 
 - Changed: Added workspace scope to hosted messages and decisions with composite project references; retained revoked grant rows; made service identity uniqueness workspace-scoped and recorded revocation timestamps; added indexes for grant foreign keys and removed the standalone project-memory project index.
