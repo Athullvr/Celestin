@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T01:14:22+05:30 — Add bidirectional synchronization contract prototype
+
+- Changed: Added a versioned `orbit.sync` event model, authorized-scope service, idempotent in-memory adapter, project-bound sequence cursors and pagination, focused tests, and `docs/bidirectional-knowledge-synchronization.md`. Updated `AI_USAGE.md`.
+- Why: Define and validate both logical synchronization directions without introducing a competing persistence schema, hosted endpoint, MCP tool, or remote authorization path.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' --import-mode=importlib -q tests/sync/test_service.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/capture/test_pipeline.py tests/test_mcp_authorization.py tests/test_hosted_scope.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py` — 136 passed, 12 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/sync` and `git diff --check` passed. The default import-mode attempt hit duplicate `test_service` module names during collection; rerunning with `--import-mode=importlib` passed. Full suite and live database/hosted integration were not run.
+- Limitations: The adapter is process-local, non-durable, and not thread-safe. The service requires an `AuthorizedProject` provided by a trusted caller; this prototype cannot prevent a same-process caller from constructing/reusing that dataclass. Persistence, hosted authorization, and network integration require owner contracts.
+
 ## 2026-10-15T00:44:16+05:30 — Add isolated automatic knowledge capture prototype
 
 - Changed: Added `orbit.capture` explicit-input extraction, validation, secret-like content suppression, normalized candidate deduplication, explicit conflict links, an ephemeral project-scoped review queue, tests, and `docs/automatic-knowledge-capture.md`. Updated `AI_USAGE.md`.
