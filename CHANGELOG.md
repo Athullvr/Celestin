@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T00:44:16+05:30 — Add isolated automatic knowledge capture prototype
+
+- Changed: Added `orbit.capture` explicit-input extraction, validation, secret-like content suppression, normalized candidate deduplication, explicit conflict links, an ephemeral project-scoped review queue, tests, and `docs/automatic-knowledge-capture.md`. Updated `AI_USAGE.md`.
+- Why: Reduce manual knowledge-saving effort while requiring human review and keeping approval separate from verification and shared-memory persistence.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' -q tests/capture/test_pipeline.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/database/test_decisions.py tests/database/test_messages.py tests/test_hosted_scope.py` — 100 passed, 6 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/capture` and `git diff --check` passed. No full suite or live database check was run.
+- Limitations: Queue state is in-memory only. Extraction requires labeled lines or structured events, conflict detection requires an explicit shared key, and secret detection is heuristic. Hosted authorization, durable storage, and lossless category mapping need owner coordination.
+
 ## 2026-10-15T00:20:56+05:30 — Validate Capability 1 and 2 domain integration seam
 
 - Changed: Added read-only `KnowledgeBundle` integration tests for absent records, saved verification versus independently checked evidence, historical source revisions, unresolved message references, and repository/database-artifact non-mutation. Updated this validation record and `AI_USAGE.md`.
