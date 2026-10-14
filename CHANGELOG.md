@@ -67,6 +67,20 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: Focused migration tests passed (11); full isolated suite passed (268 passed, 20 skipped); editable install and `celestin-migrate --help` succeeded; packaged SQL matched the hosted schema draft after removing comments and its outer transaction wrapper; `git diff --check` passed.
 - Limitations: No live PostgreSQL check, actual session-lock contention test, storage adapter, data import, hosted auth, or existing-schema adoption path was implemented.
 
+## 2026-10-14T20:26:50+05:30 — Add optional granular commit watcher
+
+- Changed: Added the `commit_granular` custom agent, a PowerShell watcher with quiet-period dispatch and safety pauses, disposable watcher and agent test harnesses, and setup instructions in `AGENTS.md` and `README.md`.
+- Why: Let Codex make separate local commits for independent completed changes while protecting pre-existing work, unrelated files, and remote Git state.
+- Validation: `pwsh -NoProfile -File scripts/test-commit-watcher.ps1` — passed, including clean-start refusal, debounce, CLI failure, branch-change and index-lock pauses, remote-operation checks, and graceful stop. PowerShell parser checks and `git diff --check` passed.
+- Limitations: `scripts/test-commit-agent.ps1` was attempted in a disposable repository but could not verify actual commits because the Codex subagent helper failed during setup (`helper_unknown_error: setup refresh had errors`; local `pwc-local` MCP connection was unavailable). The test harness is retained for an environment where the helper can start. Console Ctrl+C was verified by handler registration and cleanup code, not by injecting a real terminal signal.
+
+## 2026-10-14T20:12:13+05:30 — Add retrieval data port and SQLite adapter
+
+- Changed: Added database-neutral retrieval records and a `RetrievalData` protocol; moved FTS5 searches, SQLite ID conversion, row mapping, and project-scoped authoritative reloads into `SQLiteRetrievalData`; updated FTS and semantic strategies to use the port.
+- Why: Separate SQLite retrieval mechanics from shared ranking, fusion, decision policy, and context assembly without changing the MCP contracts or optional retrieval behavior.
+- Validation: Focused retrieval/FTS/service/MCP command: 77 passed. Full suite: 257 passed, 20 skipped. `git diff --check` passed (Git emitted a line-ending conversion warning for a pre-existing modified persistence file).
+- Limitations: No PostgreSQL adapter or PostgreSQL validation was added. PageIndex and vector-index stores remain independently SQLite-backed.
+
 ## 2026-10-14T20:04:02+05:30 — Add database-neutral persistence protocol
 
 - Changed: Added stored message/decision records, the `MemoryStore` protocol, and `SQLiteMemoryStore`; rewired `PersistenceServices` to consume the protocol and map records to existing MCP DTOs. Added adapter, source-isolation, commit, status-update, protocol-injection, and best-effort-indexing tests.
@@ -199,13 +213,6 @@ Record each meaningful project change during the event, newest first. Update thi
 - Why: Rebrand the product and let reworded queries find saved memories without losing exact FTS5 matching.
 - Validation: Full suite with the semantic extra: 171 passed, 1 skipped (opt-in real-model test). The real-model test passed separately with `CELESTIN_RUN_MODEL_TESTS=1`. A venv without the extra: all non-semantic tests passed and the semantic tests skipped. A manual run against a disposable database with the real model found the reworded memory, kept the exact error-code match first, excluded other projects, and returned nothing for an unrelated query.
 - Limitations: No plugin manifest, marketplace entry or skill exists in the repository, so none was renamed. The similarity cut-off (0.6) comes from a small probe of one model and should be tuned. No MCP tool approves decisions, so approved decisions need `celestin-index sync`. Not tested on Windows/macOS. Vector search is brute-force. Remote embedding providers are not implemented. Historical entries below keep the Orbit name.
-
-## 2026-10-14T20:12:13+05:30 — Add retrieval data port and SQLite adapter
-
-- Changed: Added database-neutral retrieval records and a `RetrievalData` protocol; moved FTS5 searches, SQLite ID conversion, row mapping, and project-scoped authoritative reloads into `SQLiteRetrievalData`; updated FTS and semantic strategies to use the port.
-- Why: Separate SQLite retrieval mechanics from shared ranking, fusion, decision policy, and context assembly without changing the MCP contracts or optional retrieval behavior.
-- Validation: Focused retrieval/FTS/service/MCP command: 77 passed. Full suite: 257 passed, 20 skipped. `git diff --check` passed (Git emitted a line-ending conversion warning for a pre-existing modified persistence file).
-- Limitations: No PostgreSQL adapter or PostgreSQL validation was added. PageIndex and vector-index stores remain independently SQLite-backed.
 
 ## 2026-10-11T09:11:48+05:30 — Add reusable Orbit project-memory skill
 
