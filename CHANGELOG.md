@@ -4,6 +4,41 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T01:14:22+05:30 — Add bidirectional synchronization contract prototype
+
+- Changed: Added a versioned `orbit.sync` event model, authorized-scope service, idempotent in-memory adapter, project-bound sequence cursors and pagination, focused tests, and `docs/bidirectional-knowledge-synchronization.md`. Updated `AI_USAGE.md`.
+- Why: Define and validate both logical synchronization directions without introducing a competing persistence schema, hosted endpoint, MCP tool, or remote authorization path.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' --import-mode=importlib -q tests/sync/test_service.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/capture/test_pipeline.py tests/test_mcp_authorization.py tests/test_hosted_scope.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py` — 136 passed, 12 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/sync` and `git diff --check` passed. The default import-mode attempt hit duplicate `test_service` module names during collection; rerunning with `--import-mode=importlib` passed. Full suite and live database/hosted integration were not run.
+- Limitations: The adapter is process-local, non-durable, and not thread-safe. The service requires an `AuthorizedProject` provided by a trusted caller; this prototype cannot prevent a same-process caller from constructing/reusing that dataclass. Persistence, hosted authorization, and network integration require owner contracts.
+
+## 2026-10-15T00:44:16+05:30 — Add isolated automatic knowledge capture prototype
+
+- Changed: Added `orbit.capture` explicit-input extraction, validation, secret-like content suppression, normalized candidate deduplication, explicit conflict links, an ephemeral project-scoped review queue, tests, and `docs/automatic-knowledge-capture.md`. Updated `AI_USAGE.md`.
+- Why: Reduce manual knowledge-saving effort while requiring human review and keeping approval separate from verification and shared-memory persistence.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' -q tests/capture/test_pipeline.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/database/test_decisions.py tests/database/test_messages.py tests/test_hosted_scope.py` — 100 passed, 6 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/capture` and `git diff --check` passed. No full suite or live database check was run.
+- Limitations: Queue state is in-memory only. Extraction requires labeled lines or structured events, conflict detection requires an explicit shared key, and secret detection is heuristic. Hosted authorization, durable storage, and lossless category mapping need owner coordination.
+
+## 2026-10-15T00:20:56+05:30 — Validate Capability 1 and 2 domain integration seam
+
+- Changed: Added read-only `KnowledgeBundle` integration tests for absent records, saved verification versus independently checked evidence, historical source revisions, unresolved message references, and repository/database-artifact non-mutation. Updated this validation record and `AI_USAGE.md`.
+- Why: Check reconstruction against Capability 1's declared bundle model without depending on fake-store internals or introducing a persistence adapter.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/evidence/test_service.py tests/project_state/test_reconstructor.py` — 42 passed. The PageIndex-enabled stdio test timed out while awaiting MCP initialization; it also timed out on the parent baseline, and a probe hung at `initialize()` with PageIndex both enabled and disabled. The existing retrieval NameError was reproduced on a temporary archive of the current baseline in unchanged `tests/retrieval/test_strategies.py`. Broad run excluding the stdio test stopped at that NameError. `git diff --check` passed.
+- Limitations: Capability 1 has no project-scoped record-list operation, so reconstruction's injected protocol is not wired to its store/service. The stdio handshake cause remains undetermined; no full-suite pass is claimed.
+
+## 2026-10-15T00:01:28+05:30 — Add read-only project-state reconstruction prototype
+
+- Changed: Added a pinned-revision Git inspector and structured findings for tracked source artifacts, open-work markers, unresolved sections, optional saved decisions and other Capability 1 knowledge, and evidence-backed next-step suggestions; added temporary-repository tests and `docs/project-state-reconstruction.md`.
+- Why: Let a returning agent inspect current project evidence without writing memory, invoking MCP, or treating saved claims and file presence as proof of correctness.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/project_state/test_reconstructor.py tests/evidence/test_service.py` — 37 passed, including a Git environment-redirection boundary test. Full-suite run timed out in an existing PageIndex-enabled stdio test; excluding that test exposed a pre-existing `NameError` (`DecisionRepository`) in `tests/retrieval/test_strategies.py`. `git diff --check` passed.
+- Limitations: Lexical markers can be noisy or incomplete; decisions remain applicability-unknown; no test-result resolver, persistent Capability 1 reader, automatic conflict detector, MCP exposure, or database integration.
+
+## 2026-10-14T23:48:15+05:30 — Add evidence-linked memory domain and service contract
+
+- Changed: Added storage-neutral knowledge/evidence records and an authorized-scope service for explicit provenance, reference resolution, verification metadata, idempotent evidence association, and non-destructive supersession; added deterministic service tests and `docs/evidence-linked-memory-contract.md`.
+- Why: Establish the first Resurrection Layer capability without creating an uncoordinated SQLite/PostgreSQL schema or changing existing persistence, authorization, retrieval, or MCP contracts.
+- Validation: `PYTHONPATH=src python3 -m pytest -p no:cacheprovider -o addopts='' tests/evidence/test_service.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py tests/test_hosted_scope.py` — 71 passed. MCP regression collection was attempted but could not run because the system Python environment lacks the `mcp` package; no validation virtual environment is present. `git diff --check` and a trailing-whitespace scan of all changed files passed.
+- Limitations: No SQLite/PostgreSQL adapter, migration, source resolver implementation, MCP tool, or production wiring. The storage port is a prototype contract requiring persistence-team agreement; tests use a test-only fake store.
+
 ## 2026-10-14T21:47:50+05:30 — Finalize hosted-foundation commit hygiene
 
 - Changed: Clarified that the authorization session protocol is implemented by hosted storage sessions and removed extra trailing blank lines from five newly added PostgreSQL files.
