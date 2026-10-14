@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T21:47:50+05:30 — Finalize hosted-foundation commit hygiene
+
+- Changed: Clarified that the authorization session protocol is implemented by hosted storage sessions and removed extra trailing blank lines from five newly added PostgreSQL files.
+- Why: Keep the authorization contract description current and make the complete committed diff pass whitespace checks cleanly.
+- Validation: Full suite: 309 passed, 20 skipped using `.venv/validation`. Working-tree `git diff --check` passed; removed five extra EOF blank lines found in the prior committed-range check. No database or migration commands.
+- Limitations: No runtime behavior changed; live PostgreSQL validation remains outstanding.
+
 ## 2026-10-14T21:46:50+05:30 — Commit completed storage and hosted-foundation milestones
 
 - Changed: Recorded the existing completed work as separate commits for Loop Engineering guidance, SQLite persistence and retrieval ports, hosted project scope, PostgreSQL memory storage, schema validation, explicit migrations, and PostgreSQL authorization sessions.

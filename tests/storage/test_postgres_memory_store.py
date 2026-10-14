@@ -149,4 +149,3 @@ def test_update_status_is_project_scoped_and_reports_missing_decision():
 def test_adapter_rejects_invalid_workspace_uuid():
     with pytest.raises(ValueError, match="workspace_id must be a UUID"):
         PostgresMemoryStore(lambda: None, "not-a-uuid")
-

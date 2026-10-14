@@ -227,4 +227,3 @@ def test_ledger_gap_and_unknown_applied_migration_fail_closed():
     ]
     with pytest.raises(MigrationError, match="version gap"):
         apply_migrations(FakeConnection(database), [migration(1), migration(2), third])
-

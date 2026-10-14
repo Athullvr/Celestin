@@ -8,4 +8,3 @@ def test_cli_requires_dsn_environment_variable_without_printing_secret(monkeypat
     captured = capsys.readouterr()
     assert "CELESTIN_POSTGRES_DSN" in captured.err
     assert "password" not in captured.err.lower()
-

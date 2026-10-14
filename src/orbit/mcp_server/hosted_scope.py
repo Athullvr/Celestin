@@ -200,7 +200,7 @@ class WorkspaceBinding(Protocol):
 
 
 class HostedAuthorizationSession(Protocol):
-    """Request-scoped authorization reads, implemented by a future PG session."""
+    """Request-scoped authorization reads, implemented by hosted storage sessions."""
 
     def load_project_access(
         self,
