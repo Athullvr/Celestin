@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T00:01:28+05:30 — Add read-only project-state reconstruction prototype
+
+- Changed: Added a pinned-revision Git inspector and structured findings for tracked source artifacts, open-work markers, unresolved sections, optional saved decisions and other Capability 1 knowledge, and evidence-backed next-step suggestions; added temporary-repository tests and `docs/project-state-reconstruction.md`.
+- Why: Let a returning agent inspect current project evidence without writing memory, invoking MCP, or treating saved claims and file presence as proof of correctness.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/project_state/test_reconstructor.py tests/evidence/test_service.py` — 37 passed, including a Git environment-redirection boundary test. Full-suite run timed out in an existing PageIndex-enabled stdio test; excluding that test exposed a pre-existing `NameError` (`DecisionRepository`) in `tests/retrieval/test_strategies.py`. `git diff --check` passed.
+- Limitations: Lexical markers can be noisy or incomplete; decisions remain applicability-unknown; no test-result resolver, persistent Capability 1 reader, automatic conflict detector, MCP exposure, or database integration.
+
 ## 2026-10-14T23:48:15+05:30 — Add evidence-linked memory domain and service contract
 
 - Changed: Added storage-neutral knowledge/evidence records and an authorized-scope service for explicit provenance, reference resolution, verification metadata, idempotent evidence association, and non-destructive supersession; added deterministic service tests and `docs/evidence-linked-memory-contract.md`.
