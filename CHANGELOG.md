@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T17:38:49+05:30 — Add provenance index and owner-concurrency validation requirements
+
+- Changed: Added non-partial `project_memory(project_id, source_message_id)` to the hosted PostgreSQL schema draft; documented its provenance/FK-check purpose, the workspace-row lock/recheck protocol for owner changes, required concurrent-owner and hosted authorization tests, and the user-reported behavioral validation outcome. Clarified that the new index has not been applied to the already-used test database.
+- Why: Cover the referencing-side FK index gap and make clear that the active-owner invariant needs serialized application transactions; accurately distinguish reported DB evidence from work independently verified in this update.
+- Validation: Static SQL/documentation review and `git diff --check`; no database connection, schema execution, or test suite run.
+- Limitations: User-reported validation of the previous draft was not independently rerun. The added index, owner concurrency, hosted application authorization, search/cache isolation, and purge authorization remain unverified or unimplemented.
+
 ## 2026-10-14T08:53:45+05:30 — Finalize hosted tenancy policy draft and validation plan
 
 - Changed: Rewrote `docs/hosted-tenancy-spike.md` with the explicit-membership-and-grant matrix, ownership/archive/purge rules, enforcement boundaries, updated index review, synthetic PostgreSQL test cases and secure commands; corrected stale PostgreSQL environment notes. Designated `celestin` as the repository's canonical memory project ID in `README.md` per user instruction.
