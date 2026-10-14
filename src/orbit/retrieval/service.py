@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 import time
 from contextlib import closing
 from dataclasses import asdict, replace
 from typing import Any
 
 from orbit.database.engine import connect
-from orbit.repositories.decisions import DecisionRepository
 from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
-from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
+from orbit.retrieval.fts import SearchResult
 from orbit.retrieval.hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
 from pathlib import Path
@@ -25,31 +23,14 @@ from orbit.retrieval.selector import SelectorContext, plan_query
 from orbit.retrieval.strategies import (
     Candidate, FtsStrategy, PageIndexStrategy, RetrievalRequest, SectionStrategy, SemanticStrategy, StrategyResult,
 )
+from orbit.retrieval.data import RetrievalData
+from orbit.retrieval.sqlite_data import DECISION_FTS_SCHEMA, MESSAGE_FTS_SCHEMA, SQLiteRetrievalData
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
 logger = logging.getLogger(__name__)
 MESSAGE_KIND = "chat_message"
 DECISION_KIND = "canonical_decision"
 DOCUMENT_KIND = "document_section"
-
-
-MESSAGE_FTS_SCHEMA = FtsSchema(
-    table="chat_messages_fts",
-    message_id="message_id",
-    project_id="project_id",
-    source_id="source_id",
-    created_at="created_at",
-    content="content",
-)
-
-DECISION_FTS_SCHEMA = FtsSchema(
-    table="project_memory_fts",
-    message_id="decision_id",
-    project_id="project_id",
-    source_id="source_id",
-    created_at="updated_at",
-    content="value",
-)
 
 
 class RetrievalService:
@@ -61,8 +42,9 @@ class RetrievalService:
 
     def __init__(
         self,
-        connection: sqlite3.Connection,
+        connection=None,
         *,
+        retrieval_data: RetrievalData | None = None,
         candidate_limit: int = 100,
         semantic: SemanticSearch | None = None,
         documents: PageIndexBackend | None = None,
@@ -75,17 +57,18 @@ class RetrievalService:
         section_reranker=None,
         rerank_shortlist: int = 20,
     ) -> None:
-        if not isinstance(connection, sqlite3.Connection):
-            raise TypeError("connection must be a sqlite3.Connection")
+        if retrieval_data is not None and connection is not None:
+            raise ValueError("provide either connection or retrieval_data, not both")
+        if retrieval_data is None:
+            if connection is None:
+                raise TypeError("connection or retrieval_data is required")
+            retrieval_data = SQLiteRetrievalData(connection)
         if isinstance(candidate_limit, bool) or not isinstance(candidate_limit, int):
             raise TypeError("candidate_limit must be an integer")
         if candidate_limit < 1:
             raise ValueError("candidate_limit must be at least 1")
 
-        self._message_search = FtsMessageSearch(connection, MESSAGE_FTS_SCHEMA)
-        self._decision_search = FtsMessageSearch(connection, DECISION_FTS_SCHEMA)
-        self._decisions = DecisionRepository(connection)
-        self._connection = connection
+        self._data = retrieval_data
         self._candidate_limit = candidate_limit
         self._semantic = semantic
         self._rrf_k = rrf_k
@@ -108,10 +91,10 @@ class RetrievalService:
         self._rerank_trace: dict = {}
         self._sections = SectionStrategy(Path(sections), semantic, section_excerpt_bytes) if sections is not None else None
         self._strategies: dict = {
-            "fts": FtsStrategy(self._message_search, self._decision_search, self._decisions),
+            "fts": FtsStrategy(self._data),
         }
         if semantic is not None:
-            self._strategies["semantic"] = SemanticStrategy(semantic, connection, self._decisions)
+            self._strategies["semantic"] = SemanticStrategy(semantic, self._data)
         if self._sections is not None:
             self._strategies["sections"] = self._sections
         if documents is not None:
@@ -158,17 +141,6 @@ class RetrievalService:
                  "run: celestin-index sync",),
             )
 
-    def _load_messages(self, project: str, ids: list[int]) -> dict[int, sqlite3.Row]:
-        """Authoritative message rows, re-filtered by project."""
-        if not ids:
-            return {}
-        marks = ",".join("?" * len(ids))
-        rows = self._connection.execute(
-            f"SELECT * FROM chat_messages WHERE project = ? AND id IN ({marks})",
-            (project, *ids),
-        )
-        return {int(row["id"]): row for row in rows}
-
     def _fuse_messages(
         self, project: str, fts: list[SearchResult], vector_hits
     ) -> tuple[list[SearchResult], int]:
@@ -177,26 +149,29 @@ class RetrievalService:
         ``relevance_score`` of fused results is ``-rrf_score`` so that, like
         BM25, a lower value is better.
         """
-        by_id = {int(r.message_id): r for r in fts}
-        rows = self._load_messages(
-            project, [h.record_id for h in vector_hits if h.record_id not in by_id]
+        by_id = {str(r.message_id): r for r in fts}
+        rows = self._data.load_messages(
+            project, [str(h.record_id) for h in vector_hits if str(h.record_id) not in by_id]
         )
-        semantic_ids = [h.record_id for h in vector_hits if h.record_id in by_id or h.record_id in rows]
+        semantic_ids = [
+            str(h.record_id) for h in vector_hits
+            if str(h.record_id) in by_id or str(h.record_id) in rows
+        ]
         stale = len(vector_hits) - len(semantic_ids)
         fused = reciprocal_rank_fusion([list(by_id), semantic_ids], self._rrf_k)
         results = []
         for record_id, score in fused:
-            if record_id in by_id:
-                base = by_id[record_id]
+            if str(record_id) in by_id:
+                base = by_id[str(record_id)]
                 results.append(SearchResult(
                     base.message_id, base.project_id, base.source_id,
                     base.content, base.timestamp, -score,
                 ))
             else:
-                row = rows[record_id]
+                row = rows[str(record_id)]
                 results.append(SearchResult(
-                    str(record_id), row["project"], row["conversation_id"],
-                    row["content"], row["created_at"], -score,
+                    row.message_id, row.project, row.conversation_id,
+                    row.content, row.created_at, -score,
                 ))
         return results, stale
 
@@ -208,11 +183,19 @@ class RetrievalService:
         Each result includes the chat message ID, project, conversation ID in
         ``source_id``, content, timestamp, and relevance score.
         """
-        fts = self._message_search.search(
-            query, project_id=project, limit=max(limit, self._candidate_limit)
-            if self._semantic is not None else limit,
+        fts_page = self._data.search_messages(
+            project,
+            query,
+            max(limit, self._candidate_limit) if self._semantic is not None else limit,
             relax=self._fts_relax,
         )
+        fts = [
+            SearchResult(
+                match.record_id, match.project, match.source_id or "", match.content,
+                match.timestamp, match.score,
+            )
+            for match in fts_page.matches
+        ]
         hits = self._semantic_hits(project, query, (MESSAGE_KIND,), self._candidate_limit)
         if hits is None:
             return fts[:limit]

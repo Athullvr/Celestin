@@ -9,7 +9,6 @@ ranking and context-building pipeline. Decision status always comes from SQLite.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,8 +18,7 @@ from orbit.pageindex.errors import PageIndexUnavailable
 from orbit.pageindex.routing import decide_route
 from orbit.pageindex.sections import search_sections
 from orbit.pageindex.store import PageIndexStore, StoredSection
-from orbit.repositories.decisions import DecisionRepository
-from orbit.retrieval.fts import FtsMessageSearch
+from orbit.retrieval.data import RetrievalData
 from orbit.retrieval.relevance import excerpt_section
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
@@ -127,47 +125,42 @@ class FtsStrategy:
 
     name = "fts"
 
-    def __init__(self, message_search: FtsMessageSearch, decision_search: FtsMessageSearch,
-                 decisions: DecisionRepository) -> None:
-        self._messages = message_search
-        self._decision_search = decision_search
-        self._decisions = decisions
+    def __init__(self, data: RetrievalData) -> None:
+        self._data = data
 
     def retrieve(self, request: RetrievalRequest, kinds: tuple[str, ...] = (MESSAGE, DECISION)) -> StrategyResult:
         result = StrategyResult(self.name)
         if MESSAGE in kinds:
-            found = self._messages.search(
-                request.query, project_id=request.project, limit=request.limit, relax=request.relax
+            found = self._data.search_messages(
+                request.project, request.query, request.limit, relax=request.relax
             )
-            result.fts_tier = self._messages.last_tier
+            result.fts_tier = found.tier
             result.candidates += [
-                Candidate(r.message_id, MESSAGE, r.project_id, r.content, r.timestamp, r.message_id,
-                          "fts", rank, r.relevance_score)
-                for rank, r in enumerate(found, start=1)
+                Candidate(r.record_id, MESSAGE, r.project, r.content, r.timestamp, r.record_id,
+                          "fts", rank, r.score)
+                for rank, r in enumerate(found.matches, start=1)
             ]
         if DECISION in kinds:
-            found = self._decision_search.search(
-                request.query, project_id=request.project, limit=request.limit, relax=request.relax
+            found = self._data.search_decisions(
+                request.project, request.query, request.limit, relax=request.relax
             )
-            result.decision_tier = self._decision_search.last_tier
-            rows = {int(r["id"]): r for r in self._decisions.list_for_project(request.project, include_deprecated=True)}
-            rank = 0
-            for r in found:
-                row = rows.get(int(r.message_id))
-                if row is None:  # index edited by hand: never emit without authoritative status
-                    continue
-                rank += 1
-                result.candidates.append(decision_candidate(row, "fts", rank, r.relevance_score))
+            result.decision_tier = found.tier
+            result.candidates += [
+                Candidate(
+                    record_id=f"decision:{match.record_id}",
+                    record_type=DECISION,
+                    project=match.project,
+                    content=match.content,
+                    timestamp=match.timestamp,
+                    source_id=match.source_id,
+                    method="fts",
+                    rank=rank,
+                    score=match.score,
+                    status=match.status,
+                )
+                for rank, match in enumerate(found.matches, start=1)
+            ]
         return result
-
-
-def decision_candidate(row, method: str, rank: int, score: float | None) -> Candidate:
-    return Candidate(
-        record_id=f"decision:{row['id']}", record_type=DECISION, project=row["project"],
-        content=row["value"], timestamp=row["updated_at"],
-        source_id=str(row["source_message_id"]) if row["source_message_id"] is not None else None,
-        method=method, rank=rank, score=score, status=row["status"],
-    )
 
 
 class SemanticStrategy:
@@ -175,11 +168,9 @@ class SemanticStrategy:
 
     name = "semantic"
 
-    def __init__(self, semantic: SemanticSearch, connection: sqlite3.Connection,
-                 decisions: DecisionRepository) -> None:
+    def __init__(self, semantic: SemanticSearch, data: RetrievalData) -> None:
         self._semantic = semantic
-        self._conn = connection
-        self._decisions = decisions
+        self._data = data
 
     def retrieve(self, request: RetrievalRequest) -> StrategyResult:
         result = StrategyResult(self.name)
@@ -193,35 +184,41 @@ class SemanticStrategy:
             logger.warning("semantic search unavailable: %s", exc)
             return StrategyResult(self.name, status="unavailable", detail=str(exc))
         message_hits = hits[MESSAGE]
-        marks = ",".join("?" * len(message_hits))
-        rows = {
-            int(r["id"]): r
-            for r in (
-                self._conn.execute(
-                    f"SELECT * FROM chat_messages WHERE project = ? AND id IN ({marks})",
-                    (request.project, *[h.record_id for h in message_hits]),
-                ) if message_hits else []
-            )
-        }
+        rows = self._data.load_messages(
+            request.project, [str(hit.record_id) for hit in message_hits]
+        )
         rank = 0
         for h in message_hits:
-            row = rows.get(h.record_id)
+            row = rows.get(str(h.record_id))
             if row is None:
                 result.stale += 1
                 continue
             rank += 1
             result.candidates.append(Candidate(
-                str(h.record_id), MESSAGE, row["project"], row["content"], row["created_at"],
-                str(h.record_id), "semantic", rank, h.similarity))
-        decisions = {int(r["id"]): r for r in self._decisions.list_for_project(request.project, include_deprecated=True)}
+                row.message_id, MESSAGE, row.project, row.content, row.created_at,
+                row.message_id, "semantic", rank, h.similarity))
+        decisions = self._data.load_decisions(
+            request.project, [str(hit.record_id) for hit in hits[DECISION]]
+        )
         rank = 0
         for h in hits[DECISION]:
-            row = decisions.get(h.record_id)
+            row = decisions.get(str(h.record_id))
             if row is None:
                 result.stale += 1
                 continue
             rank += 1
-            result.candidates.append(decision_candidate(row, "semantic", rank, h.similarity))
+            result.candidates.append(Candidate(
+                record_id=f"decision:{row.decision_id}",
+                record_type=DECISION,
+                project=row.project,
+                content=row.value,
+                timestamp=row.updated_at,
+                source_id=row.source_message_id,
+                method="semantic",
+                rank=rank,
+                score=h.similarity,
+                status=row.status,
+            ))
         return result
 
 
