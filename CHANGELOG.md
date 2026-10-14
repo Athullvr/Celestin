@@ -4,12 +4,82 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T21:46:50+05:30 — Commit completed storage and hosted-foundation milestones
+
+- Changed: Recorded the existing completed work as separate commits for Loop Engineering guidance, SQLite persistence and retrieval ports, hosted project scope, PostgreSQL memory storage, schema validation, explicit migrations, and PostgreSQL authorization sessions.
+- Why: Preserve reviewable project history and make the substantial completed changes available as coherent local Git checkpoints.
+- Validation: Full isolated Python suite: 308 passed, 20 skipped. `git diff --check` and `git diff --cached --check` passed. No PostgreSQL connection or migration was run.
+- Limitations: Commits are local and not pushed. PostgreSQL adapters, migration SQL, and hosted authorization have not been validated against a live PostgreSQL database; hosted MCP authentication/backend selection remain incomplete.
+
+## 2026-10-14T21:44:49+05:30 — Add PostgreSQL hosted authorization session foundation
+
+- Changed: Added additive migration `0002_user_status.sql` with a fail-closed suspended default; added a lazy, injectable `PostgresHostedAuthorizationSessionFactory` and scoped authorization reads; connected the existing resolver to the session-bound identity check; documented identity mapping and transaction lock ordering.
+- Why: Establish a database-backed authorization boundary for a future hosted caller without changing local SQLite, public tools, server selection, or migration startup behavior.
+- Validation: Focused resolver/PostgreSQL checks: 45 passed. Full Python suite: 309 passed, 20 skipped. Task-owned `git diff --check` and whitespace check passed. No PostgreSQL connection or migration was run.
+- Limitations: PostgreSQL SQL and lock behavior need validation on a disposable server. No authenticator, hosted MCP wiring, or hosted data-store integration is included.
+
+## 2026-10-14T21:35:20+05:30 — Enforce hosted source-message scope
+
+- Changed: Added a typed source-message ownership reference and required matching it against the resolved workspace/project before a hosted write callback runs. Documented the hosted storage/retrieval scope seam and added synthetic denial tests.
+- Why: Prevent decision provenance from crossing the authorized project boundary while keeping local stdio and public MCP contracts unchanged.
+- Validation: Focused hosted-scope, local authorization, and persistence tests: 33 passed. An earlier full run passed 292 tests with 20 skipped; the later full run reported 303 passed, 1 failed, 20 skipped. `git diff --check` and `git diff --cached --check` passed.
+- Limitations: The later suite failure is `tests/postgres/test_hosted_authorization.py::test_query_errors_are_redacted_and_transaction_rolls_back` (`connection.rolled_back` was false); that pre-existing untracked PostgreSQL work was preserved and not changed. No trusted authenticator is connected to MCP, no hosted backend is selected, and no live PostgreSQL/FK or concurrent revocation test was run.
+
+## 2026-10-14T21:25:50+05:30 — Add hosted identity and project scope boundary
+
+- Changed: Added immutable hosted principal/project-scope types, a fail-closed scope resolver and authorize-before-operation helper, synthetic unit tests, and `docs/hosted-identity-scope.md` describing the trust boundary and next integration seam.
+- Why: Establish an explicit application authorization contract before wiring hosted persistence or retrieval, without changing local stdio behavior or public MCP contracts.
+- Validation: Existing authorization/persistence baseline: 15 passed. Focused hosted-scope, local-authorization, and SQLite-persistence tests: 29 passed. Full suite: 288 passed, 20 skipped. `git diff --check` on the task-owned tracked documentation and a trailing-whitespace check on task-owned new files passed.
+- Limitations: No authenticator, PostgreSQL authorization session, transaction locking/revocation-race implementation, hosted backend selection, or PostgreSQL retrieval is included. The schema has no human-user active status field. No PostgreSQL connection was made.
+
+## 2026-10-14T21:14:32+05:30 — Add an injectable PostgreSQL memory store
+
+- Changed: Added `PostgresMemoryStore` implementing the existing `MemoryStore` contract, workspace-scoped lookup through `legacy_project_key`, transactional message insert/decision upsert/status update, and adapter-level record mapping. Added scripted connection tests and documented that this adapter is not selected by MCP and does not add hosted authorization or PostgreSQL retrieval.
+- Why: Establish the first hosted persistence adapter behind the existing storage port without changing SQLite defaults, MCP tool contracts, or automatic migration behavior.
+- Validation: Baseline focused suite before edits: 25 passed. Post-change focused suite: 31 passed. Full isolated suite: 274 passed, 20 skipped. All commands used `.venv/validation`; no live PostgreSQL connection or database was used.
+- Limitations: Tests exercise adapter SQL calls and transaction-context behavior with a scripted connection, not a live PostgreSQL server. The optional psycopg extra is not installed here. MCP backend selection, authenticated hosted authorization, and PostgreSQL retrieval remain unimplemented.
+
 ## 2026-10-14T21:07:12+05:30 — Separate reusable and Celestin-specific loop guidance
 
 - Changed: Extracted the multi-step engineering process into `docs/loop-engineering-core.md`; made `docs/loop-engineering.md` the local task-log template and entry guide; added `docs/celestin-loop-rules.md`; updated `AGENTS.md` to reference both layers and require explicit user approval for every push.
 - Why: Keep general engineering workflow portable while recording storage, compatibility, and tenant-security constraints in the Celestin layer.
 - Validation: Reviewed the documentation and instruction diffs; `git diff --check -- AGENTS.md CHANGELOG.md AI_USAGE.md` passed. No tests, application commands, database commands, commits, or pushes were run as requested.
 - Limitations: Changes are uncommitted and await review; the separate general checkout has not yet received the shared core reference.
+
+## 2026-10-14T20:50:27+05:30 — Add persistent loop-engineering guidance
+
+- Changed: Appended iterative implementation, bounded-retry, verification, and safe-Git rules to `AGENTS.md`; added `docs/loop-engineering.md` with the workflow and iteration log template; ignored local `.loop-engineering/` task logs in `.gitignore`.
+- Why: Make the workflow discoverable in future Codex chats using this checkout, while keeping per-task iteration notes local and preserving ongoing PostgreSQL/retrieval work.
+- Validation: Reviewed the workflow-file diff and ran `git diff --check` on the workflow changes. No tests were run, as requested.
+- Limitations: No verification runner was added; the guide uses the existing project Python/pytest commands. The in-progress application changes remain untouched and untested by this setup task.
+
+## 2026-10-14T20:45:29+05:30 — Add explicit PostgreSQL migration foundation
+
+- Changed: Added the packaged `0001_hosted_baseline.sql`, migration ledger and runner, `celestin-migrate` entry point, optional `postgres` dependency extra, migration unit tests, and operator documentation. Updated the README with the explicit setup path.
+- Why: Establish versioned, serialized hosted-schema migrations without changing SQLite startup or connecting to a database.
+- Validation: Focused migration tests passed (11); full isolated suite passed (268 passed, 20 skipped); editable install and `celestin-migrate --help` succeeded; packaged SQL matched the hosted schema draft after removing comments and its outer transaction wrapper; `git diff --check` passed.
+- Limitations: No live PostgreSQL check, actual session-lock contention test, storage adapter, data import, hosted auth, or existing-schema adoption path was implemented.
+
+## 2026-10-14T20:04:02+05:30 — Add database-neutral persistence protocol
+
+- Changed: Added stored message/decision records, the `MemoryStore` protocol, and `SQLiteMemoryStore`; rewired `PersistenceServices` to consume the protocol and map records to existing MCP DTOs. Added adapter, source-isolation, commit, status-update, protocol-injection, and best-effort-indexing tests.
+- Why: Create a small persistence boundary for future adapters while preserving SQLite behavior and leaving retrieval internals unchanged.
+- Validation: Focused database/persistence/authorization tests passed (42 tests); full isolated suite passed (251 passed, 20 skipped); `git diff --check` reviewed after implementation.
+- Limitations: No PostgreSQL adapter, schema change, or hosted authorization was introduced. Retrieval remains SQLite-specific. Existing unrelated work in `AI_USAGE.md`, `CHANGELOG.md`, and `tests/postgres/` was preserved.
+
+## 2026-10-14T19:50:38+05:30 — Make schema validation assertions count affected rows
+
+- Changed: Updated `tests/postgres/validate_hosted_schema.sql` so `expect_success` checks an explicit expected affected-row count (default one), and expanded post-rollback checks to cover all fixture user memberships, message IDs, and memory IDs.
+- Why: Prevent zero-row updates from appearing as passes and make cleanup verification account for every fixture record used by success and rejection cases.
+- Validation: Static review and `git diff --check`; no PostgreSQL connection, script execution, or schema change.
+- Limitations: The SQL has not been executed; runtime behavior remains unverified.
+
+## 2026-10-14T19:38:36+05:30 — Add disposable hosted-schema validation script
+
+- Changed: Added `tests/postgres/validate_hosted_schema.sql` with guarded, synthetic fixtures, explicit SQLSTATE assertions, provenance and deletion checks, archive/purge checks, an ownerless-workspace schema probe, savepoint rollback verification, and an outer transaction rollback.
+- Why: Make PostgreSQL constraint validation repeatable against the already-provisioned disposable schema without changing that schema or touching application code.
+- Validation: Reviewed the script against `docs/hosted-tenancy-schema.sql` and `docs/hosted-tenancy-spike.md`; `git diff --check` passed. The script was not connected to or executed against PostgreSQL.
+- Limitations: Runtime SQL behavior is unverified. Concurrent uniqueness and concurrent last-owner transitions require multiple sessions and are not tested by this single-session script; the schema permits an ownerless workspace and does not implement application authorization, purge authorization, or retention filtering.
 
 ## 2026-10-14T17:38:49+05:30 — Add provenance index and owner-concurrency validation requirements
 
@@ -122,6 +192,13 @@ Record each meaningful project change during the event, newest first. Update thi
 - Why: Rebrand the product and let reworded queries find saved memories without losing exact FTS5 matching.
 - Validation: Full suite with the semantic extra: 171 passed, 1 skipped (opt-in real-model test). The real-model test passed separately with `CELESTIN_RUN_MODEL_TESTS=1`. A venv without the extra: all non-semantic tests passed and the semantic tests skipped. A manual run against a disposable database with the real model found the reworded memory, kept the exact error-code match first, excluded other projects, and returned nothing for an unrelated query.
 - Limitations: No plugin manifest, marketplace entry or skill exists in the repository, so none was renamed. The similarity cut-off (0.6) comes from a small probe of one model and should be tuned. No MCP tool approves decisions, so approved decisions need `celestin-index sync`. Not tested on Windows/macOS. Vector search is brute-force. Remote embedding providers are not implemented. Historical entries below keep the Orbit name.
+
+## 2026-10-14T20:12:13+05:30 — Add retrieval data port and SQLite adapter
+
+- Changed: Added database-neutral retrieval records and a `RetrievalData` protocol; moved FTS5 searches, SQLite ID conversion, row mapping, and project-scoped authoritative reloads into `SQLiteRetrievalData`; updated FTS and semantic strategies to use the port.
+- Why: Separate SQLite retrieval mechanics from shared ranking, fusion, decision policy, and context assembly without changing the MCP contracts or optional retrieval behavior.
+- Validation: Focused retrieval/FTS/service/MCP command: 77 passed. Full suite: 257 passed, 20 skipped. `git diff --check` passed (Git emitted a line-ending conversion warning for a pre-existing modified persistence file).
+- Limitations: No PostgreSQL adapter or PostgreSQL validation was added. PageIndex and vector-index stores remain independently SQLite-backed.
 
 ## 2026-10-11T09:11:48+05:30 — Add reusable Orbit project-memory skill
 
