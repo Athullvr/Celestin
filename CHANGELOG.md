@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T00:20:56+05:30 — Validate Capability 1 and 2 domain integration seam
+
+- Changed: Added read-only `KnowledgeBundle` integration tests for absent records, saved verification versus independently checked evidence, historical source revisions, unresolved message references, and repository/database-artifact non-mutation. Updated this validation record and `AI_USAGE.md`.
+- Why: Check reconstruction against Capability 1's declared bundle model without depending on fake-store internals or introducing a persistence adapter.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/evidence/test_service.py tests/project_state/test_reconstructor.py` — 42 passed. The PageIndex-enabled stdio test timed out while awaiting MCP initialization; it also timed out on the parent baseline, and a probe hung at `initialize()` with PageIndex both enabled and disabled. The existing retrieval NameError was reproduced on a temporary archive of the current baseline in unchanged `tests/retrieval/test_strategies.py`. Broad run excluding the stdio test stopped at that NameError. `git diff --check` passed.
+- Limitations: Capability 1 has no project-scoped record-list operation, so reconstruction's injected protocol is not wired to its store/service. The stdio handshake cause remains undetermined; no full-suite pass is claimed.
+
 ## 2026-10-15T00:01:28+05:30 — Add read-only project-state reconstruction prototype
 
 - Changed: Added a pinned-revision Git inspector and structured findings for tracked source artifacts, open-work markers, unresolved sections, optional saved decisions and other Capability 1 knowledge, and evidence-backed next-step suggestions; added temporary-repository tests and `docs/project-state-reconstruction.md`.

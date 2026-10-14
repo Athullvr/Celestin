@@ -220,6 +220,109 @@ def test_superseded_memory_is_historical_not_current(tmp_path):
     assert decision.applicability is EvidenceClass.UNKNOWN
 
 
+def test_readonly_knowledge_interface_with_no_records_reports_absence(tmp_path):
+    root = repository(tmp_path, {"src/app.py": "READY = True\n"})
+    commit(root)
+
+    snapshot = reconstructor(root, KnowledgeSource(())).reconstruct()
+    disconnected = reconstructor(root).reconstruct()
+
+    assert snapshot.decisions == ()
+    assert snapshot.recorded_knowledge == ()
+    assert snapshot.unresolved == ()
+    assert disconnected.decisions == ()
+    assert disconnected.recorded_knowledge == ()
+    assert any("no saved knowledge records were loaded" in item for item in disconnected.limitations)
+
+
+def test_supplied_bundle_keeps_unverified_claim_separate_from_verified_reference(tmp_path):
+    root = repository(tmp_path, {"src/db.py": "DATABASE = 'sqlite'\n"})
+    head = commit(root)
+    reference = EvidenceRecord(
+        "e-db", "sample-project", EvidenceType.REPOSITORY_FILE, "src/db.py", "L1",
+        head, "hash-not-checked", NOW, ReferenceStatus.AVAILABLE,
+        VerificationStatus.VERIFIED, NOW, "reviewer",
+    )
+    claim = knowledge(
+        "db-choice", "Use SQLite for local persistence.",
+        status=VerificationStatus.VERIFIED,
+        evidence=(reference,),
+    )
+
+    decision = reconstructor(root, KnowledgeSource((claim,))).reconstruct().decisions[0]
+
+    assert decision.classification is EvidenceClass.UNVERIFIED
+    assert decision.recorded_verification == VerificationStatus.VERIFIED.value
+    assert decision.applicability is EvidenceClass.UNKNOWN
+    assert decision.evidence[0].classification is EvidenceClass.VERIFIED
+    assert decision.evidence[0].path == "src/db.py"
+    assert "L1" in decision.evidence[0].detail
+    assert "content hash was not verified" in decision.evidence[0].detail
+
+
+def test_supplied_bundle_preserves_historical_and_unverified_source_state(tmp_path):
+    root = repository(tmp_path, {"src/db.py": "DATABASE = 'sqlite'\n"})
+    old = commit(root, "old evidence revision")
+    (root / "src/db.py").write_text("DATABASE = 'postgresql'\n", encoding="utf-8")
+    head = commit(root, "current implementation")
+    reference = EvidenceRecord(
+        "e-old", "sample-project", EvidenceType.REPOSITORY_FILE, "src/db.py", "L1",
+        old, None, NOW, ReferenceStatus.AVAILABLE,
+    )
+    claim = knowledge(
+        "db-choice", "Use SQLite for local persistence.",
+        status=VerificationStatus.UNVERIFIED,
+        evidence=(reference,),
+    )
+
+    decision = reconstructor(root, KnowledgeSource((claim,))).reconstruct(head).decisions[0]
+
+    assert decision.classification is EvidenceClass.UNVERIFIED
+    assert decision.recorded_verification == VerificationStatus.UNVERIFIED.value
+    assert decision.applicability is EvidenceClass.UNKNOWN
+    assert decision.evidence[0].classification is EvidenceClass.HISTORICAL
+    assert "current applicability is unchecked" in decision.evidence[0].detail
+
+
+def test_unresolvable_bundle_evidence_remains_unknown_and_does_not_verify_claim(tmp_path):
+    root = repository(tmp_path, {"src/app.py": "READY = True\n"})
+    commit(root)
+    reference = EvidenceRecord(
+        "e-message", "sample-project", EvidenceType.MESSAGE, "conversation-7/message-3",
+        "message-3", None, None, NOW, ReferenceStatus.UNRESOLVED,
+        VerificationStatus.UNVERIFIED,
+    )
+    claim = knowledge(
+        "message-claim", "The API migration is complete.",
+        kind=KnowledgeType.COMPLETED_WORK,
+        status=VerificationStatus.VERIFIED,
+        evidence=(reference,),
+    )
+
+    finding = reconstructor(root, KnowledgeSource((claim,))).reconstruct().recorded_knowledge[0]
+
+    assert finding.classification is EvidenceClass.UNKNOWN
+    assert finding.recorded_verification == VerificationStatus.VERIFIED.value
+    assert finding.evidence[0].classification is EvidenceClass.UNKNOWN
+    assert "source reference not checked" in finding.evidence[0].detail
+
+
+def test_knowledge_consumption_does_not_mutate_repository_or_database_artifact(tmp_path):
+    root = repository(tmp_path, {"src/app.py": "READY = True\n"})
+    commit(root)
+    database_artifact = root / "local-memory.sqlite"
+    database_artifact.write_bytes(b"unchanged test sentinel")
+    before_status = git(root, "status", "--porcelain=v1", "--untracked-files=all")
+    before_bytes = database_artifact.read_bytes()
+    claim = knowledge("record-1", "A recorded claim.")
+
+    result = reconstructor(root, KnowledgeSource((claim,))).reconstruct()
+
+    assert result.decisions[0].classification is EvidenceClass.UNKNOWN
+    assert git(root, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+    assert database_artifact.read_bytes() == before_bytes
+
+
 def test_completed_work_is_preserved_as_an_unverified_claim_and_open_question(tmp_path):
     root = repository(tmp_path, {"src/app.py": "READY = True\n"})
     commit(root)
