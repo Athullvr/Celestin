@@ -166,4 +166,9 @@ CREATE TABLE project_memory (
 CREATE INDEX idx_project_memory_workspace_project
     ON project_memory (workspace_id, project_id);
 
+-- Supports project-scoped provenance lookups and child-row checks when a
+-- referenced chat_messages(project_id, id) row is updated or deleted.
+CREATE INDEX idx_project_memory_project_source_message
+    ON project_memory (project_id, source_message_id);
+
 COMMIT;
