@@ -515,8 +515,22 @@ class KnowledgeCapturePipeline:
         )
 
 
-def evidence_sources_for(candidate: KnowledgeCandidate) -> tuple[EvidenceSource, ...]:
-    """Map an approved candidate's origins to Capability 1 references, without saving."""
+def evidence_sources_for(
+    candidate: KnowledgeCandidate, *, target_project: str
+) -> tuple[EvidenceSource, ...]:
+    """Map an approved candidate's origins for the matching project, without saving.
+
+    The project match is a domain association guard, not authentication. Callers
+    must still obtain trusted project scope from the application's authorization
+    boundary before writing the returned sources.
+    """
+    target_project = _required_text(
+        target_project, "target_project", MAX_REFERENCE_CHARS
+    )
+    if candidate.project_id != target_project:
+        raise CaptureValidationError(
+            "candidate project does not match target project"
+        )
     if candidate.status is not ReviewStatus.APPROVED:
         raise InvalidReviewTransition("only approved candidates can be mapped to knowledge evidence")
     origins = tuple(

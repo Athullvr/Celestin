@@ -75,10 +75,13 @@ the process exits. It is a testable prototype repository, not durable storage.
 ## Capability 1 and 2 integration seam
 
 Capture reuses Capability 1's `EvidenceSource`, `EvidenceType`, and
-`VerificationStatus`. `evidence_sources_for(candidate)` maps the capture source
-reference to a Capability 1 `EvidenceType.OTHER` reference and retains any
-additional evidence links. It accepts only candidates whose review status is
-`approved`. This mapping is a conversion helper only; it does not create or
+`VerificationStatus`. `evidence_sources_for(candidate, target_project=...)`
+maps the capture source reference to a Capability 1 `EvidenceType.OTHER`
+reference and retains any additional evidence links. It requires the candidate
+project to match the explicit target project and accepts only candidates whose
+review status is `approved`. The project match is a domain association guard,
+not authentication; callers still need trusted authorization scope before
+writing. This mapping is a conversion helper only; it does not create or
 persist a `KnowledgeBundle` or change the candidate's unverified status.
 
 The mapping keeps the capture source type in the locator, but Capability 1 has

@@ -4,6 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T02:00:40+05:30 — Require project match for capture evidence conversion
+
+- Changed: `evidence_sources_for` now requires an explicit target project and rejects mismatched candidate scope before mapping provenance. Updated Capability 3 contract documentation, unit tests, and the Capability 1↔3 test bridge to exercise the domain guard.
+- Why: The prior conversion accepted any approved candidate without knowing which project would receive the resulting evidence, leaving cross-project association prevention only in an ad hoc test bridge.
+- Validation: Baseline affected suite — 115 passed, 12 subtests passed. Post-change focused capture and integration tests — 26 passed. Post-change affected capability, integration, and authorization suite — 116 passed, 12 subtests passed. No full suite or production persistence/authorization integration was run.
+- Limitations: The project match is not authentication. Callers still must obtain trusted project scope from the authorization boundary; persistence integration remains unimplemented.
+
+## 2026-10-15T01:43:35+05:30 — Add cross-capability integration test harness
+
+- Changed: Added test-only `tests/integration/test_capability_flow.py` composing Capabilities 1–4 through local bridges and fake storage/read adapters; updated `AI_USAGE.md`. No production interface, persistence, authorization, retrieval, System 1, PostgreSQL, or MCP implementation changed.
+- Why: Validate reviewed capture → evidence-linked knowledge → reconstructed state and event delivery, while making missing shared adapters and metadata loss visible without claiming production integration.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' --import-mode=importlib -q tests/integration/test_capability_flow.py tests/capture/test_pipeline.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/sync/test_service.py tests/test_mcp_authorization.py tests/test_hosted_scope.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py` — 143 passed, 12 subtests passed. `tests/retrieval/test_strategies.py` produced 5 setup errors from the existing `NameError: DecisionRepository` at line 36. The isolated PageIndex-enabled stdio test exceeded a 30-second timeout (exit 124). No full suite or live database/hosted test was run. `git diff --check` and whitespace checks passed.
+- Limitations: Test adapters are not production adapters. Typed capture uncertainty and conflict links do not cross all current interfaces; source occurrence timestamps are dropped by the Cap3→Cap1 evidence conversion. Same-batch `CaptureResult` can contain a stale conflict-link object even though the review queue has the final links.
+
 ## 2026-10-15T01:14:22+05:30 — Add bidirectional synchronization contract prototype
 
 - Changed: Added a versioned `orbit.sync` event model, authorized-scope service, idempotent in-memory adapter, project-bound sequence cursors and pagination, focused tests, and `docs/bidirectional-knowledge-synchronization.md`. Updated `AI_USAGE.md`.

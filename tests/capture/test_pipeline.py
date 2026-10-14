@@ -104,9 +104,9 @@ def test_structured_event_preserves_source_and_capability_one_evidence():
     assert candidate.source_references[0].locator == "report:fix-2"
     assert candidate.evidence == (evidence,)
     with pytest.raises(InvalidReviewTransition):
-        evidence_sources_for(candidate)
+        evidence_sources_for(candidate, target_project="celestin")
     approved = queue.approve("celestin", candidate.candidate_id, reviewer_id="reviewer-1")
-    mapped = evidence_sources_for(approved)
+    mapped = evidence_sources_for(approved, target_project="celestin")
     assert EvidenceSource(
         EvidenceType.OTHER,
         "run-42",
@@ -114,6 +114,19 @@ def test_structured_event_preserves_source_and_capability_one_evidence():
         revision="rev-123",
     ) in mapped
     assert evidence in mapped
+
+
+def test_evidence_mapping_requires_a_valid_matching_target_project():
+    queue = pipeline("alpha")
+    candidate = queue.capture(request("Decision: use SQLite", project="alpha")).candidates[0]
+    approved = queue.approve("alpha", candidate.candidate_id, reviewer_id="reviewer-1")
+
+    with pytest.raises(CaptureValidationError, match="target_project"):
+        evidence_sources_for(approved, target_project=" ")
+    with pytest.raises(CaptureValidationError, match="does not match"):
+        evidence_sources_for(approved, target_project="beta")
+
+    assert evidence_sources_for(approved, target_project="alpha")
 
 
 @pytest.mark.parametrize(
