@@ -142,7 +142,7 @@ class FtsStrategy:
             result.fts_tier = self._messages.last_tier
             result.candidates += [
                 Candidate(r.message_id, MESSAGE, r.project_id, r.content, r.timestamp, r.message_id,
-                          "fts", rank, r.relevance_score)
+                          "fts", rank, r.relevance_score, tier=result.fts_tier)
                 for rank, r in enumerate(found, start=1)
             ]
         if DECISION in kinds:
@@ -157,16 +157,17 @@ class FtsStrategy:
                 if row is None:  # index edited by hand: never emit without authoritative status
                     continue
                 rank += 1
-                result.candidates.append(decision_candidate(row, "fts", rank, r.relevance_score))
+                result.candidates.append(decision_candidate(row, "fts", rank, r.relevance_score,
+                                                            tier=result.decision_tier))
         return result
 
 
-def decision_candidate(row, method: str, rank: int, score: float | None) -> Candidate:
+def decision_candidate(row, method: str, rank: int, score: float | None, *, tier: str | None = None) -> Candidate:
     return Candidate(
         record_id=f"decision:{row['id']}", record_type=DECISION, project=row["project"],
         content=row["value"], timestamp=row["updated_at"],
         source_id=str(row["source_message_id"]) if row["source_message_id"] is not None else None,
-        method=method, rank=rank, score=score, status=row["status"],
+        method=method, rank=rank, score=score, status=row["status"], tier=tier,
     )
 
 

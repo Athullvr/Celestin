@@ -4,6 +4,33 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T19:55:17+05:30 — Benchmark local Laya retrieval path
+
+- Changed: Added paired H/L evaluation with three measured runs after local warmup on dev, held-out, and challenge sets at 2,000/20,000 budgets. Saved machine-readable per-query metrics and rendered reports under `eval/laya_results/`; corrected context byte/token reporting. Added timeout-worker backpressure so expired inference cannot build a queue, and kept Julia-1 direct ordering unchanged while Laya alone uses RRF.
+- Findings: Laya had zero inference failures, timeouts, or oversized-input skips. It did not show a consistent quality win and took 8.1–10.2 seconds/request on CPU versus 14–18 ms for H. The 614 MiB checkpoint added about 1.6 GiB RSS on load. Julia results are historical and use a different runtime.
+- Validation: Focused retrieval/eval/MCP tests: 38 passed. Full suite: 413 passed, 2 skipped, 1 failure because globally installed `orbit`/`memory-bridge` launch a different Orbit server; the current checkout’s MCP source-path protocol checks passed. `git diff --check` passed.
+- Limitations: Shared PostgreSQL memory, hosted identity, and membership authorization shown in the diagrams are not implemented or tested. Laya remains opt-in; no improvement is claimed.
+
+## 2026-10-14T18:30:00+05:30 — Add opt-in local Laya retrieval reranking
+
+- Changed: Added the local `convaiinnovations/laya-multilingual` batch reranker to `src/orbit/retrieval/service.py`; wired `CELESTIN_RETRIEVAL_PATH=system1` to Laya while keeping `baseline` as default and preserving Julia-1 under `julia1`. Added a pinned optional Laya dependency and focused tests for payloads, token limits, expected-relevance ordering, equal-weight RRF, exact-FTS protection, and safe fallback. Updated README setup and behavior notes.
+- Why: Test System 1 as a context reranker after the existing configured selector and search engines find authorized candidates.
+- Validation: Focused Laya/service tests passed; local smoke tests passed with the actual Laya checkpoint. Full suite passed with two unrelated environment-sensitive tests excluded; see handoff for details.
+- Limitations: The existing frozen evaluation harness has not been adapted to score Laya. No quality-improvement claim is made. The checkpoint is downloaded lazily; cold-start inference can exceed the request timeout and safely retain baseline order.
+
+## 2026-10-14T11:45:20+05:30 — Implement and evaluate local System 1 retrieval experiment
+
+- Changed: Added a lazy, pinned local Julia-1 reranker behind `CELESTIN_RETRIEVAL_PATH=system1`; kept the existing path as the default and preserved public MCP contracts, authorization, SQLite, decision policy, provenance, and context assembly. Added paired H/J evaluation support, regression tests, and frozen-set result artifacts.
+- Validation: Local CPU inference completed with no inference failures. Full suite: 404 passed, 2 skipped; `git diff --check` passed.
+- Findings: H exceeded J on answer-bearing context and MRR in all six dev/held-out/challenge and budget comparisons. J averaged 691–753 ms per request versus 48–90 ms for H; the 550.5 MiB checkpoint increased RSS by about 996 MiB during load/warmup. Julia-1 did not improve this experiment and remains opt-in. No hosted inference or training was added.
+
+## 2026-10-14T10:51:24+05:30 — Document local System 1 retrieval experiment
+
+- Changed: Added concise product, technical, flow, design, and schema-impact proposals; added links and status to `README.md`.
+- Why: Establish a local-first experiment without changing Celestin’s current architecture or hosted scope.
+- Validation: Reviewed claims against retrieval/evaluation code and published model documentation; per-document word counts and `git diff --check` checked. No runtime code or tests changed.
+- Limitations: The model is not integrated or benchmarked. Julia-1 CPU latency and retrieval quality remain to be measured; hosted inference is deferred.
+
 ## 2026-10-14T08:53:45+05:30 — Finalize hosted tenancy policy draft and validation plan
 
 - Changed: Rewrote `docs/hosted-tenancy-spike.md` with the explicit-membership-and-grant matrix, ownership/archive/purge rules, enforcement boundaries, updated index review, synthetic PostgreSQL test cases and secure commands; corrected stale PostgreSQL environment notes. Designated `celestin` as the repository's canonical memory project ID in `README.md` per user instruction.

@@ -22,6 +22,13 @@ memory-bridge = "orbit.mcp_server.server:main"
 semantic = ["sqlite-vec>=0.1.9,<0.2", "fastembed>=0.9,<1.0"]
 pageindex = ["pageindex>=0.4,<0.5"]
 test = ["pytest"]
+system1 = [
+    "torch>=2.6; python_version >= '3.11' and python_version < '3.14'",
+    "transformers>=5.0,<5.1; python_version >= '3.11' and python_version < '3.14'",
+    "safetensors>=0.5; python_version >= '3.11' and python_version < '3.14'",
+    "numpy>=1.26; python_version >= '3.11' and python_version < '3.14'",
+]
+system1-laya = ["laya==0.4.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
