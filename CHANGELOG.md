@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-14T23:48:15+05:30 — Add evidence-linked memory domain and service contract
+
+- Changed: Added storage-neutral knowledge/evidence records and an authorized-scope service for explicit provenance, reference resolution, verification metadata, idempotent evidence association, and non-destructive supersession; added deterministic service tests and `docs/evidence-linked-memory-contract.md`.
+- Why: Establish the first Resurrection Layer capability without creating an uncoordinated SQLite/PostgreSQL schema or changing existing persistence, authorization, retrieval, or MCP contracts.
+- Validation: `PYTHONPATH=src python3 -m pytest -p no:cacheprovider -o addopts='' tests/evidence/test_service.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py tests/test_hosted_scope.py` — 71 passed. MCP regression collection was attempted but could not run because the system Python environment lacks the `mcp` package; no validation virtual environment is present. `git diff --check` and a trailing-whitespace scan of all changed files passed.
+- Limitations: No SQLite/PostgreSQL adapter, migration, source resolver implementation, MCP tool, or production wiring. The storage port is a prototype contract requiring persistence-team agreement; tests use a test-only fake store.
+
 ## 2026-10-14T21:47:50+05:30 — Finalize hosted-foundation commit hygiene
 
 - Changed: Clarified that the authorization session protocol is implemented by hosted storage sessions and removed extra trailing blank lines from five newly added PostgreSQL files.
