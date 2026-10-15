@@ -74,19 +74,18 @@ celestin_it_20261014_a1b2c3d4
 celestin_it_user_a1b2c3d4
 ```
 
-For the currently authorized one-off validation only, the harness also permits
-the exact target tuple `celestin_it_20261014_a7f3c9` / role
-`celestin_it_20261014_a7f3c9` / `127.0.0.1:5432`. This is a fixed allowlist
-entry, not a configurable wildcard. It still requires explicit live-test
-opt-in, exact DSN-to-environment matching, runtime identity and non-superuser
-verification, and an empty database with no migration ledger. After its first
-successful migration it is no longer fresh and cannot be used to initialize
-again. Other nonconforming database names or roles remain rejected; provision
-a new nonce-named target for subsequent live runs.
+The previously attempted database `celestin_it_20261014_a7f3c9` is explicitly
+rejected by the harness and must not be reused: its failed initialization may
+have left a migration ledger. Provision a new nonce-named database and matching
+role for every initialization run.
 
 The role needs permission to create the Celestin tables and indexes in the
-database's `public` schema. Do not use `postgres`, a shared application role,
-production credentials, or a database containing data. Provide authentication
+database's `public` schema. It must not have `SUPERUSER`, `CREATEROLE`,
+`CREATEDB`, `REPLICATION`, or `BYPASSRLS`, and must not be a direct or indirect
+member of another role. The database owner's implicit membership in
+`pg_database_owner` is allowed; the fixture rejects other memberships. Do not
+use `postgres`, a shared application role, production credentials, or a
+database containing data. Provide authentication
 through an approved secret manager or a locally protected PostgreSQL password
 file; do not put passwords in the DSN, command history, repository, or test
 logs.
@@ -123,9 +122,10 @@ The authenticated user must also confirm through `psql` that no migration
 ledger, user schema, or application objects exist. The live fixture independently
 checks the actual connection identity and catalog state before invoking the
 migration runner. If the database is missing, the role differs, the endpoint
-is not loopback, the name is neither nonce-conforming nor the exact approved
-tuple, the user is a superuser, or any unexpected objects exist, the fixture
-stops without cleaning or modifying them.
+is not loopback, the database/role names do not follow the new nonce convention,
+the role has a prohibited attribute or membership, the user is a superuser, or
+any unexpected objects exist, the fixture stops without cleaning or modifying
+them.
 
 The DSN is held only in `CELESTIN_TEST_POSTGRES_DSN` for the local test process.
 The fixture accepts exactly four unquoted keyword/value parameters in the DSN:

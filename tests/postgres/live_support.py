@@ -19,15 +19,6 @@ _DSN_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 _DSN_VALUE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _ALLOWED_DSN_KEYS = frozenset({"host", "port", "dbname", "user"})
 _PASSWORD_DSN_KEYS = frozenset({"password", "sslpassword"})
-# One explicitly approved target for the current live-test run. It remains
-# subject to the same DSN, runtime identity, non-superuser, and empty-schema
-# checks as nonce-named targets. After migration it is no longer reusable.
-_APPROVED_TARGET = (
-    "celestin_it_20261014_a7f3c9",
-    "celestin_it_20261014_a7f3c9",
-    "127.0.0.1",
-    5432,
-)
 _REQUIRED_ENV = (
     "CELESTIN_TEST_POSTGRES_DSN",
     "CELESTIN_TEST_POSTGRES_DATABASE",
@@ -35,6 +26,20 @@ _REQUIRED_ENV = (
     "CELESTIN_TEST_POSTGRES_HOST",
     "CELESTIN_TEST_POSTGRES_PORT",
 )
+_IDENTITY_SQL = """
+SELECT current_database(), current_user, inet_server_addr()::text,
+       inet_server_port(), role.rolsuper, role.rolcreaterole,
+       role.rolcreatedb, role.rolreplication, role.rolbypassrls,
+       EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_roles AS granted_role
+            WHERE granted_role.oid <> role.oid
+              AND granted_role.rolname <> 'pg_database_owner'
+              AND pg_catalog.pg_has_role(current_user, granted_role.oid, 'MEMBER')
+       ) AS has_disallowed_memberships
+  FROM pg_catalog.pg_roles AS role
+ WHERE role.rolname = current_user
+"""
 
 
 @dataclass(frozen=True, repr=False)
@@ -66,26 +71,21 @@ def postgres_target_from_environment(
         values[name] = value
 
     database = values["CELESTIN_TEST_POSTGRES_DATABASE"]
-    approved_database = database == _APPROVED_TARGET[0]
-    if database == "celestin_schema_test_v2" or (
-        not approved_database and not _DATABASE_NAME.fullmatch(database)
-    ):
+    if database in {
+        "celestin_schema_test_v2",
+        "celestin_it_20261014_a7f3c9",
+    } or not _DATABASE_NAME.fullmatch(database):
         raise UnsafePostgresTestTarget(
             "the test database must use celestin_it_YYYYMMDD_<8-hex-nonce> "
-            "or the exact approved target"
+            "with a newly provisioned nonce"
         )
 
     user = values["CELESTIN_TEST_POSTGRES_USER"]
-    if approved_database:
-        if user != _APPROVED_TARGET[1]:
-            raise UnsafePostgresTestTarget(
-                "the approved database requires its exact approved role"
-            )
-    elif not _ROLE_NAME.fullmatch(user):
+    if not _ROLE_NAME.fullmatch(user):
         raise UnsafePostgresTestTarget(
             "the test role must use celestin_it_user_<8-hex-nonce>"
         )
-    if not approved_database and user.rsplit("_", 1)[-1] != database.rsplit("_", 1)[-1]:
+    if user.rsplit("_", 1)[-1] != database.rsplit("_", 1)[-1]:
         raise UnsafePostgresTestTarget(
             "the database and test role must use the same eight-hex nonce"
         )
@@ -104,11 +104,6 @@ def postgres_target_from_environment(
         raise UnsafePostgresTestTarget("the test port must be an integer") from None
     if not 1 <= port <= 65535:
         raise UnsafePostgresTestTarget("the test port is out of range")
-    if approved_database and (host, port) != (_APPROVED_TARGET[2], _APPROVED_TARGET[3]):
-        raise UnsafePostgresTestTarget(
-            "the approved database requires its exact loopback host and port"
-        )
-
     options = _parse_test_dsn(values["CELESTIN_TEST_POSTGRES_DSN"])
     expected = {"dbname": database, "user": user, "host": host, "port": str(port)}
     if options != expected:
@@ -124,6 +119,61 @@ def postgres_target_from_environment(
         host=str(address),
         port=port,
     )
+
+
+def server_address_matches_target(server_address: str | None, target_host: str) -> bool:
+    """Match PostgreSQL's inet text to the configured loopback IP only.
+
+    PostgreSQL may render ``inet_server_addr()`` with a host prefix such as
+    ``127.0.0.1/32``. Accept that representation only when its address exactly
+    matches the configured loopback address; never accept a remote address.
+    """
+    try:
+        observed = ipaddress.ip_interface(server_address).ip
+        expected = ipaddress.ip_address(target_host)
+    except (TypeError, ValueError):
+        return False
+    return expected.is_loopback and observed.is_loopback and observed == expected
+
+
+def verify_connection_identity(connection, target: PostgresTestTarget) -> None:
+    """Require the exact target and a minimally privileged database role.
+
+    The database owner's implicit ``pg_database_owner`` membership is expected
+    and excluded. Any other direct or transitive role membership is rejected.
+    """
+    identity = connection.execute(_IDENTITY_SQL).fetchone()
+    if identity is None:
+        raise UnsafePostgresTestTarget("could not verify the PostgreSQL connection identity")
+
+    (
+        database,
+        user,
+        host,
+        port,
+        is_superuser,
+        can_create_roles,
+        can_create_databases,
+        can_replicate,
+        can_bypass_row_security,
+        has_disallowed_memberships,
+    ) = identity
+    if (
+        database != target.database
+        or user != target.user
+        or not server_address_matches_target(host, target.host)
+        or port != target.port
+        or is_superuser
+        or can_create_roles
+        or can_create_databases
+        or can_replicate
+        or can_bypass_row_security
+        or has_disallowed_memberships
+    ):
+        raise UnsafePostgresTestTarget(
+            "the connected PostgreSQL identity or role privileges do not match "
+            "the approved local test target"
+        )
 
 
 def _parse_test_dsn(dsn: str) -> dict[str, str]:

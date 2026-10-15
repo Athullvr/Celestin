@@ -4,6 +4,24 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T17:18:51+05:30 — Reject elevated PostgreSQL live-test roles
+
+- Changed: The live fixture now rejects `SUPERUSER`, `CREATEROLE`, `CREATEDB`, `REPLICATION`, and `BYPASSRLS` role attributes and direct/transitive memberships other than PostgreSQL's implicit `pg_database_owner` membership. Added non-live identity tests and documented the role policy.
+- Why: A target-matched, non-superuser role can still carry excessive cluster or inherited privileges.
+- Validation: Focused non-live PostgreSQL tests: 76 passed. `git diff --check` passed. No database connection, live test, SQL, or migration was run.
+- Limitations: Fake identity rows test fail-closed policy handling but do not verify catalog query behavior on PostgreSQL. A new disposable target and least-privilege role still require owner approval before live testing.
+
+## 2026-10-15T16:41:01+05:30 — Reject the previously failed PostgreSQL test target
+
+- Changed: Removed the one-off allowlist for `celestin_it_20261014_a7f3c9`, added a rejection regression test, and corrected live-test setup guidance to require a newly provisioned nonce-named database and matching least-privilege role.
+- Why: The earlier migration attempt may have left an empty ledger, so allowing that target to pass name validation could invite an unsafe retry.
+- Validation: Non-live PostgreSQL tests and `git diff --check` run for this review; no live tests, database connections, SQL, or migrations were run.
+- Limitations: Freshness and PostgreSQL catalog-query behavior must still be checked during a separately authorized live run.
+
+## 2026-10-15T13:45:09+05:30 — Accept PostgreSQL loopback inet notation in live-test identity checks
+
+- Changed: Normalize the server address returned by PostgreSQL before comparing it with the configured loopback target; added coverage for IPv4/IPv6 loopback forms and malformed or non-loopback values in `tests/postgres/live_support.py`, `tests/postgres/conftest.py`, and `tests/postgres/test_live_support.py`.
+- Why: PostgreSQL may return `127.0.0.1/32`, while the fixture previously compared that string directly with `127.0.0.1` and rejected the verified local target.
 ## 2026-10-15T12:04:01+05:30 — Fix PostgreSQL migration fresh-database guard
 
 - Changed: Kept the initial object check inclusive of ledger-named objects; the post-ledger check now excludes only the migration ledger table and its catalog-linked array type. Empty pre-existing ledgers fail closed. Added scripted regression coverage and operator guidance.

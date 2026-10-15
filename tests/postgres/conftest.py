@@ -13,6 +13,7 @@ from tests.postgres.live_support import (
     UnsafePostgresTestTarget,
     initialize_fresh_database,
     postgres_target_from_environment,
+    verify_connection_identity,
 )
 
 
@@ -88,30 +89,6 @@ def _assert_fresh_database(connection) -> None:
         )
 
 
-def _verify_target_identity(connection, target) -> None:
-    identity = connection.execute(
-        """
-        SELECT current_database(), current_user, inet_server_addr()::text,
-               inet_server_port(), role.rolsuper
-          FROM pg_catalog.pg_roles AS role
-         WHERE role.rolname = current_user
-        """
-    ).fetchone()
-    if identity is None:
-        raise UnsafePostgresTestTarget("could not verify the PostgreSQL connection identity")
-    database, user, host, port, is_superuser = identity
-    if (
-        database != target.database
-        or user != target.user
-        or host != target.host
-        or port != target.port
-        or is_superuser
-    ):
-        raise UnsafePostgresTestTarget(
-            "the connected PostgreSQL identity does not match the configured local test target"
-        )
-
-
 @pytest.fixture(scope="session")
 def live_postgres(request):
     """Verify a fresh local target and initialize it through the migration runner.
@@ -155,7 +132,7 @@ def live_postgres(request):
             connection,
             target,
             migrations,
-            verify_identity=_verify_target_identity,
+            verify_identity=verify_connection_identity,
             assert_fresh=_assert_fresh_database,
             migration_runner=apply_migrations,
         )
