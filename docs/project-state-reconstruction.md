@@ -28,7 +28,13 @@ does not specify a hash algorithm.
 Recorded decisions preserve their claim and links, but their applicability is
 unknown until a real check compares the decision with the inspected state.
 Conflicting records remain separate; the prototype does not choose a winner or
-infer semantic contradictions between ordinary text claims.
+infer semantic contradictions between ordinary text claims. Explicit
+`capture_provenance.conflicts_with` links are treated as unresolved conflict
+signals. When only one endpoint carries a link (which can happen because
+reviewed capture candidates are immutable), reconstruction flags both endpoints
+if both are available in the supplied knowledge bundle. It does not modify or
+resolve either record. Explicit knowledge verification status `conflicting` is
+also preserved as a conflict classification.
 
 The inspector does not report tests as passing. That requires a future trusted,
 identifiable test-result source containing at least the result ID, command,
@@ -50,8 +56,10 @@ the caller must not pass a user-selected project string as authorization.
 
 Memory records are not treated as truth based on stored `verified` metadata.
 This is deliberate because Capability 1 currently accepts a free-form checker
-label. Stored `stale` status is preserved as metadata, while source staleness is
-classified only when the inspected revision shows a missing referenced path.
+label. Stored `stale` status remains separate from source inspection and
+classifies a current-lifecycle finding as stale; reconstruction does not promote
+it because a referenced file happens to exist. Source staleness is classified
+separately when the inspected revision shows a missing referenced path.
 Evidence whose project does not match the requested project is omitted from a
 bundle and reported as a limitation; the claim itself remains unknown when no
 in-scope evidence remains.
@@ -79,8 +87,12 @@ The scanners are intentionally lexical. They can miss tasks written without a
 recognized marker and can report stale TODOs or misleading headings. They do
 not establish runtime correctness, test outcomes, feature completeness,
 blockers outside the repository, or decision applicability. Conflicting prose
-is preserved only when an upstream record marks it conflicting; automatic
-natural-language conflict detection is not implemented.
+is preserved only when an upstream record marks it conflicting through
+verification status or an explicit capture conflict link; automatic
+natural-language conflict detection is not implemented. Legacy retrieval does
+not consume Capability 1 memory and its DTO has no verification, freshness, or
+conflict fields, so these distinctions are available through project-state
+reconstruction only until the shared-memory/retrieval contract is coordinated.
 
 Future shared-memory integration should supply only records authorized for the
 active project and preserve source IDs. Existing Celestin retrieval may later

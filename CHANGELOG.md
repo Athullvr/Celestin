@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T23:34:46+05:30 — Preserve linked conflicts and stale status in reconstruction
+
+- Changed: Project-state reconstruction now classifies saved knowledge marked stale as stale and uses capture-provenance conflict links to mark both available candidate endpoints as unresolved conflicts without mutating stored records. Added regression tests and clarified the behavior and retrieval integration gap in `docs/project-state-reconstruction.md`.
+- Why: Reconstruction previously ignored Capability 3 conflict links and could downgrade a saved stale knowledge status to unverified when its source path existed.
+- Validation: Baseline affected suite: 353 passed, 5 errors, 1 warning. The five errors are the known `DecisionRepository` `NameError` in `tests/retrieval/test_strategies.py`. Post-change project-state tests: 20 passed. Affected capture/evidence/project-state/sync/integration/retrieval (excluding that known failing module)/MCP-handler suite: 355 passed, 1 warning. `git diff --check` passed.
+- Limitations: Legacy retrieval does not consume Capability 1 knowledge and its DTO has no verification, freshness, or conflict metadata. The MCP stdio timeout was not part of this focused baseline.
+
 ## 2026-10-15T21:27:22+05:30 — Document retrieval content trust boundary
 
 - Changed: Added adversarial-content and status-semantics tests for context JSON serialization and the MCP retrieval handler. Documented that retrieved content is untrusted project data, decision approval is not verification, Capability 1 stale/conflict metadata is not present in the current retrieval contract, and the MCP item array inherits project scope from its response envelope. No retrieval ranking, MCP handler, model, or reranking implementation changed.

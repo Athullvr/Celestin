@@ -367,16 +367,29 @@ class ProjectStateReconstructor:
         except Exception as exc:
             return [], [], [], [f"Capability 1 knowledge could not be read: {type(exc).__name__}."]
 
-        decisions: list[StateFinding] = []
-        recorded: list[StateFinding] = []
-        questions: list[StateFinding] = []
         ignored_out_of_scope = False
         ignored_out_of_scope_evidence = False
+        project_bundles: list[KnowledgeBundle] = []
+        conflicting_candidate_ids: set[str] = set()
         for bundle in bundles:
             record = bundle.record
             if record.project != self._project_id:
                 ignored_out_of_scope = True
                 continue
+            project_bundles.append(bundle)
+            provenance = record.capture_provenance
+            if provenance is not None and provenance.conflicts_with:
+                # Terminal capture candidates are immutable, so a conflict can
+                # be linked from only one endpoint. Project that relation onto
+                # both available records without mutating stored provenance.
+                conflicting_candidate_ids.add(provenance.candidate_id)
+                conflicting_candidate_ids.update(provenance.conflicts_with)
+
+        decisions: list[StateFinding] = []
+        recorded: list[StateFinding] = []
+        questions: list[StateFinding] = []
+        for bundle in project_bundles:
+            record = bundle.record
             project_evidence = tuple(
                 item for item in bundle.evidence if item.project == self._project_id
             )
@@ -390,10 +403,20 @@ class ProjectStateReconstructor:
                 )
                 for item in project_evidence
             )
+            provenance = record.capture_provenance
+            has_capture_conflict = provenance is not None and (
+                provenance.candidate_id in conflicting_candidate_ids
+                or bool(provenance.conflicts_with)
+            )
             if record.lifecycle_status is not LifecycleStatus.CURRENT:
                 classification = EvidenceClass.HISTORICAL
-            elif record.verification_status is VerificationStatus.CONFLICTING:
+            elif (
+                record.verification_status is VerificationStatus.CONFLICTING
+                or has_capture_conflict
+            ):
                 classification = EvidenceClass.CONFLICTING
+            elif record.verification_status is VerificationStatus.STALE:
+                classification = EvidenceClass.STALE
             elif not evidence or any(
                 item.classification in {EvidenceClass.UNKNOWN, EvidenceClass.STALE}
                 for item in evidence
@@ -423,6 +446,21 @@ class ProjectStateReconstructor:
                 if record.knowledge_type.value == "open_question"
                 else FindingKind.MEMORY
             )
+            if has_capture_conflict:
+                rationale = (
+                    "Capture provenance links this claim to a conflicting candidate; "
+                    "no resolution is recorded, so neither claim is selected as settled."
+                )
+            elif record.verification_status is VerificationStatus.STALE:
+                rationale = (
+                    "The saved knowledge record is marked stale; its current applicability "
+                    "has not been re-established by reconstruction."
+                )
+            else:
+                rationale = (
+                    "Saved claims are preserved; current applicability or implementation "
+                    "is not inferred from stored status."
+                )
             target.append(
                 self._finding(
                     commit,
@@ -430,7 +468,7 @@ class ProjectStateReconstructor:
                     record.claim,
                     classification,
                     evidence,
-                    rationale="Saved claims are preserved; current applicability or implementation is not inferred from stored status.",
+                    rationale=rationale,
                     applicability=EvidenceClass.UNKNOWN,
                     recorded_verification=record.verification_status.value,
                     knowledge_type=record.knowledge_type.value,
