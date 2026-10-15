@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -248,16 +249,54 @@ def test_supplied_bundle_keeps_unverified_claim_separate_from_verified_reference
         status=VerificationStatus.VERIFIED,
         evidence=(reference,),
     )
+    claim = KnowledgeBundle(
+        replace(
+            claim.record,
+            checked_at=NOW,
+            checked_by="caller-supplied-checker-label",
+            check_note="checked against supplied evidence",
+        ),
+        claim.evidence,
+    )
 
     decision = reconstructor(root, KnowledgeSource((claim,))).reconstruct().decisions[0]
 
     assert decision.classification is EvidenceClass.UNVERIFIED
     assert decision.recorded_verification == VerificationStatus.VERIFIED.value
+    assert decision.verification_checked_at == NOW
+    assert decision.verification_checked_by == "caller-supplied-checker-label"
+    assert decision.verification_check_note == "checked against supplied evidence"
+    assert decision.lifecycle_status == LifecycleStatus.CURRENT.value
     assert decision.applicability is EvidenceClass.UNKNOWN
     assert decision.evidence[0].classification is EvidenceClass.VERIFIED
     assert decision.evidence[0].path == "src/db.py"
+    assert decision.evidence[0].evidence_record_id == "e-db"
+    assert decision.evidence[0].locator == "L1"
+    assert decision.evidence[0].content_hash == "hash-not-checked"
+    assert decision.evidence[0].recorded_reference_status == ReferenceStatus.AVAILABLE.value
+    assert decision.evidence[0].recorded_verification_status == VerificationStatus.VERIFIED.value
+    assert decision.evidence[0].checked_by == "reviewer"
     assert "L1" in decision.evidence[0].detail
     assert "content hash was not verified" in decision.evidence[0].detail
+
+
+def test_foreign_project_evidence_is_omitted_and_reported(tmp_path):
+    root = repository(tmp_path, {"src/app.py": "READY = True\n"})
+    commit(root)
+    foreign = EvidenceRecord(
+        "foreign-evidence", "another-project", EvidenceType.MESSAGE,
+        "private-conversation-9", None, None, None, NOW,
+        ReferenceStatus.AVAILABLE,
+    )
+    source = KnowledgeSource((knowledge("scoped-record", "Use SQLite.", evidence=(foreign,)),))
+
+    snapshot = reconstructor(root, source).reconstruct()
+
+    decision = snapshot.decisions[0]
+    assert decision.classification is EvidenceClass.UNKNOWN
+    assert all(item.source_id != "private-conversation-9" for item in decision.evidence)
+    assert decision.evidence[0].source_type == "knowledge_record"
+    assert any("evidence outside the requested project" in item for item in snapshot.limitations)
 
 
 def test_supplied_bundle_preserves_historical_and_unverified_source_state(tmp_path):

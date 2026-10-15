@@ -52,10 +52,20 @@ Memory records are not treated as truth based on stored `verified` metadata.
 This is deliberate because Capability 1 currently accepts a free-form checker
 label. Stored `stale` status is preserved as metadata, while source staleness is
 classified only when the inspected revision shows a missing referenced path.
+Evidence whose project does not match the requested project is omitted from a
+bundle and reported as a limitation; the claim itself remains unknown when no
+in-scope evidence remains.
 Superseded/archived records are historical; current decisions remain
 unverified or unknown and carry `applicability=unknown` until separately
 checked. File references are checked for presence at the selected Git revision;
 other reference types remain unknown without a resolver.
+When a `KnowledgeRecord` contains Capability 3 provenance, findings preserve that
+envelope, the knowledge record ID, and each evidence record ID. Stored evidence
+locator, hash, resolution status, verification status, and checker metadata are
+carried separately from the reconstruction's source-presence classification.
+Knowledge-level checker metadata and lifecycle/supersession links are also
+preserved as recorded fields; caller-supplied checker labels are not identity
+proof.
 
 ## Output and limitations
 

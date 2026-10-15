@@ -18,7 +18,9 @@ from orbit.capture import (
     KnowledgeCapturePipeline,
     ReviewStatus,
     SensitiveContentRejected,
+    capture_provenance_for,
     evidence_sources_for,
+    knowledge_type_for_candidate,
 )
 from orbit.evidence.model import EvidenceSource, EvidenceType, VerificationStatus
 
@@ -127,6 +129,75 @@ def test_evidence_mapping_requires_a_valid_matching_target_project():
         evidence_sources_for(approved, target_project="beta")
 
     assert evidence_sources_for(approved, target_project="alpha")
+
+
+def test_capture_provenance_preserves_review_uncertainty_and_source_occurrence():
+    queue = pipeline("alpha")
+    candidate = queue.capture(
+        request(
+            "Decision: this might be temporary",
+            project="alpha",
+            source_type=CaptureSourceType.EXECUTION_REPORT,
+            source_id="run-9",
+            evidence=(EvidenceSource(EvidenceType.GIT_COMMIT, "commit-9", revision="abc"),),
+        )
+    ).candidates[0]
+    edited = queue.edit_candidate(
+        "alpha",
+        candidate.candidate_id,
+        "This might be temporary after review",
+        reviewer_id="editor-label",
+    )
+    approved = queue.approve(
+        "alpha", candidate.candidate_id, reviewer_id="reviewer-label", note="Reviewed"
+    )
+
+    provenance = capture_provenance_for(approved, target_project="alpha")
+
+    assert provenance.candidate_id == approved.candidate_id
+    assert provenance.project_id == "alpha"
+    assert provenance.category == CandidateCategory.DECISION.value
+    assert provenance.certainty == CandidateCertainty.UNCERTAIN.value
+    assert provenance.review_status == ReviewStatus.APPROVED.value
+    assert provenance.reviewed_by == "reviewer-label"
+    assert provenance.review_note == "Reviewed"
+    assert provenance.original_claim == edited.original_claim
+    assert provenance.candidate_verification_status == VerificationStatus.UNVERIFIED.value
+    assert provenance.source_references[0].source_type == CaptureSourceType.EXECUTION_REPORT.value
+    assert provenance.source_references[0].source_id == "run-9"
+    assert provenance.source_references[0].occurred_at == "2026-10-14T23:00:00Z"
+    assert provenance.source_references[0].locator == "line:1"
+
+
+@pytest.mark.parametrize(
+    "category,expected",
+    [
+        (CandidateCategory.DECISION, "decision"),
+        (CandidateCategory.DISCOVERY, "discovery"),
+        (CandidateCategory.BUG_FIX, "bug_fix"),
+        (CandidateCategory.COMPLETED_WORK, "completed_work"),
+        (CandidateCategory.CONSTRAINT, "requirement"),
+        (CandidateCategory.IMPLEMENTATION_DETAIL, "implementation_finding"),
+    ],
+)
+def test_supported_candidate_categories_have_explicit_knowledge_mappings(category, expected):
+    candidate = pipeline().capture(
+        request((CaptureEvent(category, "A categorized claim."),))
+    ).candidates[0]
+
+    assert knowledge_type_for_candidate(candidate).value == expected
+
+
+@pytest.mark.parametrize(
+    "category", [CandidateCategory.INCOMPLETE_WORK, CandidateCategory.BLOCKER]
+)
+def test_unmapped_candidate_categories_fail_explicitly(category):
+    candidate = pipeline().capture(
+        request((CaptureEvent(category, "A claim requiring a dedicated knowledge type."),))
+    ).candidates[0]
+
+    with pytest.raises(CaptureValidationError, match="no agreed Capability 1 knowledge type"):
+        knowledge_type_for_candidate(candidate)
 
 
 @pytest.mark.parametrize(

@@ -81,30 +81,28 @@ reference and retains any additional evidence links. It requires the candidate
 project to match the explicit target project and accepts only candidates whose
 review status is `approved`. The project match is a domain association guard,
 not authentication; callers still need trusted authorization scope before
-writing. This mapping is a conversion helper only; it does not create or
-persist a `KnowledgeBundle` or change the candidate's unverified status.
+writing. `capture_provenance_for(candidate, target_project=...)` creates the
+storage-neutral provenance envelope carried by `KnowledgeRecord`. It accepts
+only approved candidates whose source verification status is unverified;
+approval does not set knowledge verification.
 
-The mapping keeps the capture source type in the locator, but Capability 1 has
-no dedicated evidence type for a supplied summary/report. Its `EvidenceSource`
-also has no source-occurrence timestamp; `EvidenceRecord.captured_at` is the
-time Celestin captured the reference and must not be overloaded with the source
-timestamp. A shared contract should decide whether to extend those fields or
-retain typed source metadata alongside the evidence reference.
+The original capture source type, ID, locator, revision, and occurrence time
+remain in capture provenance. Mapped `EvidenceType.OTHER` records remain the
+authoritative resolution references; `EvidenceRecord.captured_at` is persistence
+time and is distinct from source occurrence time. Candidate identity, category,
+certainty, review metadata, original edited claim, and conflict candidate IDs
+also remain in the provenance envelope. Reviewer labels are not authenticated
+identities.
 
-An eventual authorized adapter should expose only approved candidates to
-Capability 1, create a `KnowledgeRecord` with `verification_status=unverified`,
-and preserve every source/evidence reference. Capability 1 currently has no
-knowledge types specifically for incomplete work or blockers; the shared-memory
-owner must decide whether to extend `KnowledgeType` or how to map those
-categories without losing meaning. Candidate approval must remain distinct from
-verification. Rejected and pending candidates must not be included as accepted
-records. Capability 2 currently reads only supplied `KnowledgeBundle` values;
-it has no review-queue reader and should receive only approved, explicitly
-mapped records through a future authorized read interface.
+The existing `KnowledgeRecord` gets an optional `capture_provenance` field and
+Capability 2 returns it with the knowledge and evidence record IDs. Current
+category mappings are explicit; incomplete work and blockers are rejected until
+the shared-memory owner agrees on dedicated types or an equivalent mapping.
+Rejected and pending candidates are not accepted records. Capability 2 still
+reads only supplied `KnowledgeBundle` values and has no review-queue reader.
 
-Before persistent integration, owners must agree on a project-authorized
-candidate list/read contract, atomic idempotent upsert semantics, category
-mapping, a way to retain conflict-group links (Capability 1 currently has no
-explicit conflict relation), preservation of edits and review state, and which
-actor identity is trusted for review metadata. This prototype intentionally
-does not define a database schema, hosted authorization path, API, or MCP tool.
+Before persistent integration, owners must agree on how adapters serialize and
+round-trip `capture_provenance`, enforce unique `(project, candidate_id)`
+idempotency, query conflicts, and expose approved records under trusted project
+scope. This prototype intentionally does not define a database schema, hosted
+authorization path, API, or MCP tool.

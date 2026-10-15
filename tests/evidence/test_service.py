@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from orbit.evidence.model import (
+    CaptureKnowledgeProvenance,
+    CaptureSourceProvenance,
     EvidenceRecord,
     EvidenceSource,
     EvidenceType,
@@ -18,6 +20,7 @@ from orbit.evidence.model import (
     VerificationStatus,
 )
 from orbit.evidence.service import (
+    EvidenceMemoryError,
     EvidenceLinkedMemoryService,
     EvidenceReferenceMissing,
     EvidenceReferenceResolutionError,
@@ -191,6 +194,90 @@ def test_unresolved_reference_is_preserved_and_reported_on_read():
 
     assert loaded.evidence[0].reference_status is ReferenceStatus.UNRESOLVED
     assert loaded.record.verification_status is VerificationStatus.UNVERIFIED
+
+
+def test_read_rejects_evidence_returned_outside_the_authorized_project():
+    store = FakeEvidenceStore()
+    service = make_service(store=store)
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "Use SQLite.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+    key = ("p", created.record.knowledge_id)
+    evidence_id = created.evidence[0].evidence_id
+    store.evidence[key][evidence_id] = replace(
+        created.evidence[0], project="another-project"
+    )
+
+    with pytest.raises(EvidenceMemoryError, match="outside the requested project"):
+        service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+
+@pytest.mark.parametrize(
+    "project_id,review_status,candidate_verification_status",
+    [
+        ("other", "approved", "unverified"),
+        ("p", "pending_review", "unverified"),
+        ("p", "approved", "verified"),
+    ],
+)
+def test_capture_provenance_requires_matching_project_approval_and_unverified_candidate(
+    project_id, review_status, candidate_verification_status
+):
+    provenance = CaptureKnowledgeProvenance(
+        candidate_id="candidate-1",
+        project_id=project_id,
+        category="decision",
+        certainty="uncertain",
+        review_status=review_status,
+        candidate_verification_status=candidate_verification_status,
+        source_references=(),
+        candidate_created_at="2026-10-14T12:00:00Z",
+        candidate_updated_at="2026-10-14T12:00:00Z",
+        reviewed_by="reviewer-label",
+        reviewed_at="2026-10-14T12:00:00Z",
+    )
+    service = make_service()
+
+    with pytest.raises(EvidenceValidationError):
+        service.create_knowledge(
+            authorized("p"),
+            KnowledgeType.DECISION,
+            "Use SQLite.",
+            (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+            capture_provenance=provenance,
+        )
+
+
+def test_capture_source_provenance_must_match_an_associated_evidence_source():
+    provenance = CaptureKnowledgeProvenance(
+        candidate_id="candidate-1",
+        project_id="p",
+        category="decision",
+        certainty="unqualified",
+        review_status="approved",
+        candidate_verification_status=VerificationStatus.UNVERIFIED.value,
+        source_references=(
+            CaptureSourceProvenance(
+                "conversation_summary", "summary-1", "2026-10-14T12:00:00Z", None, "event:1"
+            ),
+        ),
+        candidate_created_at="2026-10-14T12:00:00Z",
+        candidate_updated_at="2026-10-14T12:00:00Z",
+        reviewed_by="reviewer-label",
+        reviewed_at="2026-10-14T12:00:00Z",
+    )
+
+    with pytest.raises(EvidenceValidationError, match="no matching evidence source"):
+        make_service().create_knowledge(
+            authorized("p"),
+            KnowledgeType.DECISION,
+            "A claim.",
+            (EvidenceSource(EvidenceType.OTHER, "different-summary"),),
+            capture_provenance=provenance,
+        )
 
 
 def test_missing_source_fails_before_persistence():

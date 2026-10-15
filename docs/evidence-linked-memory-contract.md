@@ -31,12 +31,47 @@ The service never marks evidence verified automatically. A source that a
 resolver cannot check remains `unresolved`; a source the resolver confirms is
 missing is rejected before persistence. Readback re-resolves source
 availability, but availability alone does not establish freshness or truth.
+The service rejects evidence rows returned by a storage adapter when their
+project differs from the authorized read scope. Project-state reconstruction
+also omits out-of-scope evidence from a supplied bundle and reports that
+limitation, so a faulty read adapter cannot expose a foreign source reference
+through the snapshot.
 
 Conflicting claims remain separate records. Supersession creates a new record
 and asks the persistence adapter to mark the previous record as superseded in
 the same atomic operation. It does not delete the old claim or its evidence.
 The service does not choose a source of truth by timestamp; that requires
 project-specific authority policy and evidence review.
+
+## Capability 3 conversion contract (domain prototype)
+
+`KnowledgeRecord.capture_provenance` is an optional storage-neutral
+`CaptureKnowledgeProvenance` value. `capture_provenance_for(candidate,
+target_project=...)` creates it only for an approved, unverified candidate in
+the matching project. This is a domain project check, not authentication. The
+normal `KnowledgeRecord.verification_status` remains `unverified` at creation;
+reviewer labels are untrusted provenance and are never copied into
+`checked_by`.
+
+| Capability 3 field | Capability 1 representation | Contract semantics |
+| --- | --- | --- |
+| Candidate ID and project | `capture_provenance.candidate_id/project_id`; `KnowledgeRecord.project` is the destination scope | Candidate ID remains the stable origin key. C1 validates provenance project against authorized scope. A durable adapter should enforce unique `(project, candidate_id)` conversion and idempotent replay. |
+| Claim and category | `KnowledgeRecord.claim`, `KnowledgeRecord.knowledge_type`, and provenance `original_claim/category` | Current edited claim is authoritative as `claim`; original text is retained when present. Supported category mappings are decision→decision, discovery→discovery, bug fix→bug fix, completed work→completed work, constraint→requirement, and implementation detail→implementation finding. Incomplete work and blocker have no agreed C1 type and are rejected by the mapping helper. Raw category remains in provenance. |
+| Source IDs, source type, locator, revision, occurrence time | Evidence associations are `EvidenceRecord` rows; raw typed origins are `capture_provenance.source_references` | Evidence rows remain authoritative for C1 resolution/verification state. Capture source references preserve original source type and `occurred_at`; their source IDs, locators, and revisions link them to mapped `EvidenceType.OTHER` rows. `EvidenceRecord.captured_at` and `KnowledgeRecord.created_at` are C1 persistence time, distinct from source occurrence and candidate/review timestamps. C2 reports original locator/hash and recorded resolution status. |
+| Evidence relationships and IDs | Store associates each `EvidenceRecord` with `knowledge_id`; reconstruction exposes `knowledge_record_id` and `evidence_record_id` | The existing store association is authoritative. Capability 2 carries both generated C1 identifiers in its output. |
+| Review status and reviewer provenance | `capture_provenance.review_status`, `reviewed_by`, `reviewed_at`, `review_note` | Only `approved` provenance is accepted. These labels describe a review assertion; they are not authenticated identities and do not imply verification. Candidate creation/update times and original claim are retained in this value too. |
+| Verification and checker provenance | `KnowledgeRecord.verification_status`, `checked_by`, `checked_at`, `check_note`; candidate status is retained separately as `candidate_verification_status` | Conversion requires candidate status `unverified` and creates C1 knowledge unverified. A later explicit C1 verification assertion owns the destination checker fields. The C1 service does not authenticate the supplied checker label. C2 carries those assertion fields separately from its own evidence classification. |
+| Uncertainty | `capture_provenance.certainty` | Preserved verbatim (`uncertain` or `unqualified`); it is not a confidence score and does not change verification. |
+| Conflicts | `capture_provenance.conflicts_with` | Candidate IDs remain linkable across records. No semantic conflict resolution occurs. The adapter must support querying by candidate ID or the conflict IDs are only retained, not conveniently traversable. |
+| Lifecycle/supersession | Existing `KnowledgeRecord.lifecycle_status`, `supersedes_id`, `superseded_by_id` | These remain authoritative and separate from capture review. Superseded records retain their own capture provenance and evidence. Capability 3 candidates do not currently express lifecycle transitions. |
+
+This is a domain contract only. PostgreSQL/SQLite adapters must agree on a
+representation that round-trips `capture_provenance`, preserves source-to-
+evidence associations, knowledge/evidence record IDs, checker metadata,
+lifecycle links, and candidate idempotency before persistence integration. No
+database schema is implied by these dataclasses. A storage
+adapter that cannot preserve the optional value must reject/flag the conversion
+instead of silently dropping it.
 
 ## Storage port required for integration
 

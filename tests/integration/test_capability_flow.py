@@ -26,7 +26,9 @@ from orbit.capture import (
     InvalidReviewTransition,
     KnowledgeCapturePipeline,
     ReviewStatus,
+    capture_provenance_for,
     evidence_sources_for,
+    knowledge_type_for_candidate,
 )
 from orbit.evidence.model import (
     EvidenceRecord,
@@ -251,9 +253,12 @@ def _persist_approved_decision(memory, scope, candidate):
     sources = evidence_sources_for(candidate, target_project=scope.project)
     return memory.create_knowledge(
         scope,
-        KnowledgeType.DECISION,
+        knowledge_type_for_candidate(candidate),
         candidate.claim,
         sources,
+        capture_provenance=capture_provenance_for(
+            candidate, target_project=scope.project
+        ),
     )
 
 
@@ -291,6 +296,10 @@ def test_approved_uncertain_candidate_flows_through_capabilities_1_2_and_4(tmp_p
 
     assert bundle.record.claim == approved.claim
     assert bundle.record.verification_status is VerificationStatus.UNVERIFIED
+    assert bundle.record.capture_provenance.candidate_id == approved.candidate_id
+    assert bundle.record.capture_provenance.certainty == CandidateCertainty.UNCERTAIN.value
+    assert bundle.record.capture_provenance.review_status == ReviewStatus.APPROVED.value
+    assert bundle.record.capture_provenance.reviewed_by == "reviewer-test"
     assert {item.source_id for item in bundle.evidence} == {
         "conversation-42",
         "src/storage.py",
@@ -299,9 +308,11 @@ def test_approved_uncertain_candidate_flows_through_capabilities_1_2_and_4(tmp_p
         item for item in bundle.evidence if item.source_id == "conversation-42"
     )
     assert conversation_evidence.locator == "conversation_summary: summary:decision-1"
-    # Capture source occurrence time has no field in Capability 1 EvidenceRecord.
     assert approved.source_references[0].source_timestamp == SOURCE_AT
-    assert not hasattr(conversation_evidence, "source_timestamp")
+    assert (
+        bundle.record.capture_provenance.source_references[0].occurred_at
+        == SOURCE_AT
+    )
 
     snapshot = ProjectStateReconstructor(
         root,
@@ -317,7 +328,12 @@ def test_approved_uncertain_candidate_flows_through_capabilities_1_2_and_4(tmp_p
         "conversation-42",
         "src/storage.py",
     }
-    assert not hasattr(finding, "certainty")
+    assert finding.knowledge_record_id == bundle.record.knowledge_id
+    assert finding.capture_provenance == bundle.record.capture_provenance
+    assert finding.capture_provenance.certainty == CandidateCertainty.UNCERTAIN.value
+    file_evidence = next(item for item in bundle.evidence if item.source_id == "src/storage.py")
+    file_reference = next(item for item in finding.evidence if item.source_id == "src/storage.py")
+    assert file_reference.evidence_record_id == file_evidence.evidence_id
     repository_evidence = next(
         item for item in finding.evidence if item.source_id == "src/storage.py"
     )
@@ -358,7 +374,7 @@ def test_approved_uncertain_candidate_flows_through_capabilities_1_2_and_4(tmp_p
     assert not hasattr(page.events[0], "review_status")
 
 
-def test_conflicting_capture_claims_survive_conversion_but_conflict_link_does_not(tmp_path):
+def test_conflicting_capture_claims_keep_their_links_through_reconstruction(tmp_path):
     root, revision = _repository(tmp_path)
     pipeline = _capture_pipeline()
     evidence = EvidenceSource(EvidenceType.REPOSITORY_FILE, "src/storage.py", revision=revision)
@@ -390,14 +406,20 @@ def test_conflicting_capture_claims_survive_conversion_but_conflict_link_does_no
         saved.append(_persist_approved_decision(memory, _scope(PROJECT, WRITE), approved))
 
     assert {item.record.claim for item in saved} == {"Use SQLite.", "Use PostgreSQL."}
-    assert all(not hasattr(item.record, "conflicts_with") for item in saved)
+    assert all(item.record.capture_provenance.conflicts_with for item in saved)
     snapshot = ProjectStateReconstructor(
         root,
         PROJECT,
         knowledge_source=BoundKnowledgeView(store, PROJECT),
     ).reconstruct(revision)
     assert {item.claim for item in snapshot.decisions} == {"Use SQLite.", "Use PostgreSQL."}
-    assert all(item.classification is not EvidenceClass.CONFLICTING for item in snapshot.decisions)
+    findings = {item.claim: item for item in snapshot.decisions}
+    assert findings["Use SQLite."].capture_provenance.conflicts_with == (
+        queue_candidates[1].candidate_id,
+    )
+    assert findings["Use PostgreSQL."].capture_provenance.conflicts_with == (
+        queue_candidates[0].candidate_id,
+    )
 
 
 def test_same_batch_capture_result_can_precede_final_conflict_links():
@@ -476,6 +498,12 @@ def test_superseded_decision_is_historical_and_both_claims_remain_visible(tmp_pa
     }
     assert by_claim["Use SQLite."].classification is EvidenceClass.HISTORICAL
     assert by_claim["Use SQLite."].recorded_verification == "unverified"
+    assert by_claim["Use SQLite."].knowledge_record_id == first.record.knowledge_id
+    assert by_claim["Use SQLite."].capture_provenance.candidate_id == approved.candidate_id
+    assert by_claim["Use SQLite."].lifecycle_status == LifecycleStatus.SUPERSEDED.value
+    assert by_claim["Use SQLite."].superseded_by_knowledge_id == successor.record.knowledge_id
+    assert successor.record.supersedes_id == first.record.knowledge_id
+    assert by_claim[successor.record.claim].supersedes_knowledge_id == first.record.knowledge_id
     assert by_claim[successor.record.claim].applicability is EvidenceClass.UNKNOWN
 
 

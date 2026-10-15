@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Protocol, Sequence
 
 from orbit.evidence.model import (
+    EvidenceRecord,
     EvidenceType,
     KnowledgeBundle,
     LifecycleStatus,
@@ -364,22 +365,24 @@ class ProjectStateReconstructor:
         recorded: list[StateFinding] = []
         questions: list[StateFinding] = []
         ignored_out_of_scope = False
+        ignored_out_of_scope_evidence = False
         for bundle in bundles:
             record = bundle.record
             if record.project != self._project_id:
                 ignored_out_of_scope = True
                 continue
+            project_evidence = tuple(
+                item for item in bundle.evidence if item.project == self._project_id
+            )
+            if len(project_evidence) != len(bundle.evidence):
+                ignored_out_of_scope_evidence = True
             evidence = tuple(
                 self._memory_evidence_ref(
-                    item.evidence_type,
-                    item.source_id,
-                    item.locator,
-                    item.revision,
-                    item.content_hash,
+                    item,
                     commit,
                     blobs,
                 )
-                for item in bundle.evidence
+                for item in project_evidence
             )
             if record.lifecycle_status is not LifecycleStatus.CURRENT:
                 classification = EvidenceClass.HISTORICAL
@@ -425,25 +428,38 @@ class ProjectStateReconstructor:
                     applicability=EvidenceClass.UNKNOWN,
                     recorded_verification=record.verification_status.value,
                     knowledge_type=record.knowledge_type.value,
+                    knowledge_record_id=record.knowledge_id,
+                    capture_provenance=record.capture_provenance,
+                    verification_checked_at=record.checked_at,
+                    verification_checked_by=record.checked_by,
+                    verification_check_note=record.check_note,
+                    lifecycle_status=record.lifecycle_status.value,
+                    supersedes_knowledge_id=record.supersedes_id,
+                    superseded_by_knowledge_id=record.superseded_by_id,
                 )
             )
-        limitations = (
-            ["Capability 1 returned records outside the requested project; those records were ignored."]
-            if ignored_out_of_scope
-            else []
-        )
+        limitations = []
+        if ignored_out_of_scope:
+            limitations.append(
+                "Capability 1 returned records outside the requested project; those records were ignored."
+            )
+        if ignored_out_of_scope_evidence:
+            limitations.append(
+                "Capability 1 returned evidence outside the requested project; those references were ignored."
+            )
         return decisions, recorded, questions, limitations
 
     @staticmethod
     def _memory_evidence_ref(
-        evidence_type: EvidenceType,
-        source_id: str,
-        locator: str | None,
-        source_revision: str | None,
-        content_hash: str | None,
+        evidence_record: EvidenceRecord,
         commit: str,
         blobs: dict[str, str],
     ) -> EvidenceReference:
+        evidence_type = evidence_record.evidence_type
+        source_id = evidence_record.source_id
+        locator = evidence_record.locator
+        source_revision = evidence_record.revision
+        content_hash = evidence_record.content_hash
         path = source_id if evidence_type is EvidenceType.REPOSITORY_FILE else None
         detail = f"{evidence_type.value}: {source_id}"
         if locator:
@@ -473,6 +489,14 @@ class ProjectStateReconstructor:
             path,
             detail=detail,
             classification=classification,
+            evidence_record_id=evidence_record.evidence_id,
+            locator=locator,
+            content_hash=content_hash,
+            recorded_reference_status=evidence_record.reference_status.value,
+            recorded_verification_status=evidence_record.verification_status.value,
+            checked_at=evidence_record.checked_at,
+            checked_by=evidence_record.checked_by,
+            check_note=evidence_record.check_note,
         )
 
     def _finding(
@@ -487,6 +511,14 @@ class ProjectStateReconstructor:
         applicability: EvidenceClass | None = None,
         recorded_verification: str | None = None,
         knowledge_type: str | None = None,
+        knowledge_record_id: str | None = None,
+        capture_provenance: CaptureKnowledgeProvenance | None = None,
+        verification_checked_at: str | None = None,
+        verification_checked_by: str | None = None,
+        verification_check_note: str | None = None,
+        lifecycle_status: str | None = None,
+        supersedes_knowledge_id: str | None = None,
+        superseded_by_knowledge_id: str | None = None,
     ) -> StateFinding:
         identity = "\0".join(
             [
@@ -520,6 +552,14 @@ class ProjectStateReconstructor:
             applicability,
             recorded_verification,
             knowledge_type,
+            knowledge_record_id,
+            capture_provenance,
+            verification_checked_at,
+            verification_checked_by,
+            verification_check_note,
+            lifecycle_status,
+            supersedes_knowledge_id,
+            superseded_by_knowledge_id,
         )
 
 

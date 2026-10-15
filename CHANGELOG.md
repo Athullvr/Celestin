@@ -4,6 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T09:03:58+05:30 — Preserve capture provenance through knowledge reconstruction
+
+- Changed: Added optional `CaptureKnowledgeProvenance` to `KnowledgeRecord`, a capture conversion helper and explicit category mapping; validated project, approved/unverified state, and source-to-evidence association. Capability 2 now returns capture provenance, knowledge/evidence record IDs, evidence resolution/verification/checker fields, and lifecycle/supersession fields. Updated contract documentation and integration tests.
+- Why: Approved capture metadata was discarded at the Capability 3→1 boundary and reconstructed findings lost generated IDs, checker assertions, evidence statuses, and explicit supersession links.
+- Validation: Baseline affected suite before edits — 123 passed, 12 subtests passed. Focused capture/evidence/reconstruction/integration suite after edits — 83 passed. Affected suite with authorization and storage regressions — 136 passed, 12 subtests passed. `git diff --check` passed. No full suite or production database/MCP/hosted validation was run.
+- Limitations: The optional provenance value changes the storage-neutral record contract only. Shared-memory adapters/migrations must agree on a round-trip representation, candidate-ID idempotency, and lookup of conflict links. Checker/reviewer labels remain caller-supplied metadata, not authenticated identity.
+
+## 2026-10-15T08:50:27+05:30 — Enforce evidence project scope on read
+
+- Changed: Capability 1 now rejects evidence rows from storage when their project differs from the authorized read scope. Capability 2 omits out-of-project evidence from supplied knowledge bundles, leaves the claim unknown if no in-scope evidence remains, and reports the omission. Added regression tests and clarified both contracts.
+- Why: A faulty storage adapter or read-only knowledge source could return evidence belonging to another project alongside an in-scope record; before this change, the foreign source identifier could be returned to the caller.
+- Validation: Baseline focused provenance suite — 121 passed, 12 subtests passed. Focused changed-service tests — 44 passed. Post-change capture/evidence/project-state/integration/auth/storage suite — 123 passed, 12 subtests passed. `git diff --check` passed. Full suite and live persistence/hosted authorization were not run.
+- Limitations: This blocks foreign evidence leakage at these read boundaries; it does not authenticate the caller or prove that evidence supports a claim. Cross-capability storage fields for capture certainty, review metadata, conflict links, and source-occurrence timestamps remain unagreed.
+
 ## 2026-10-15T02:00:40+05:30 — Require project match for capture evidence conversion
 
 - Changed: `evidence_sources_for` now requires an explicit target project and rejects mismatched candidate scope before mapping provenance. Updated Capability 3 contract documentation, unit tests, and the Capability 1↔3 test bridge to exercise the domain guard.

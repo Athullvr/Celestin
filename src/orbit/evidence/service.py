@@ -14,6 +14,8 @@ from uuid import uuid4
 from orbit.mcp_server.authorization import AuthorizedProject, READ, WRITE
 
 from .model import (
+    CaptureKnowledgeProvenance,
+    CaptureSourceProvenance,
     EvidenceRecord,
     EvidenceSource,
     EvidenceType,
@@ -56,6 +58,10 @@ class InvalidKnowledgeTransition(EvidenceMemoryError):
 
 class EvidenceLinkedMemoryStore(Protocol):
     """Minimal persistence contract; adapters must enforce project-scoped IDs.
+
+    Adapters must round-trip optional ``KnowledgeRecord.capture_provenance``
+    without dropping or rewriting it. An adapter that cannot preserve it must
+    explicitly reject writes that contain capture provenance.
 
     ``create_knowledge`` and ``supersede_knowledge`` are atomic operations.
     ``attach_evidence`` is idempotent for the same project, knowledge record,
@@ -127,6 +133,8 @@ class EvidenceLinkedMemoryService:
         knowledge_type: KnowledgeType,
         claim: str,
         evidence_sources: Sequence[EvidenceSource],
+        *,
+        capture_provenance: CaptureKnowledgeProvenance | None = None,
     ) -> KnowledgeBundle:
         project = _require_scope(scope, WRITE)
         claim = _required_text(claim, "claim")
@@ -134,6 +142,7 @@ class EvidenceLinkedMemoryService:
             raise EvidenceValidationError("knowledge_type must be a KnowledgeType")
         if not evidence_sources:
             raise EvidenceValidationError("at least one evidence source is required")
+        _validate_capture_provenance(capture_provenance, project, evidence_sources)
 
         now = self._now()
         evidence = self._new_evidence(project, evidence_sources, now)
@@ -144,6 +153,7 @@ class EvidenceLinkedMemoryService:
             claim=claim,
             created_at=now,
             updated_at=now,
+            capture_provenance=capture_provenance,
         )
         self._store.create_knowledge(record, evidence)
         return KnowledgeBundle(record=record, evidence=evidence)
@@ -167,6 +177,13 @@ class EvidenceLinkedMemoryService:
         knowledge_id = _required_text(knowledge_id, "knowledge_id")
         record = self._require_record(project, knowledge_id)
         evidence = tuple(self._store.list_evidence(project, knowledge_id))
+        if any(
+            not isinstance(item, EvidenceRecord) or item.project != project
+            for item in evidence
+        ):
+            raise EvidenceMemoryError(
+                "storage returned evidence outside the requested project"
+            )
         # Re-resolve references at read time. Availability is not proof that
         # evidence is current or that it supports the claim.
         refreshed = tuple(
@@ -263,6 +280,8 @@ class EvidenceLinkedMemoryService:
         knowledge_type: KnowledgeType,
         claim: str,
         evidence_sources: Sequence[EvidenceSource],
+        *,
+        capture_provenance: CaptureKnowledgeProvenance | None = None,
     ) -> KnowledgeBundle:
         project = _require_scope(scope, WRITE)
         previous_id = _required_text(previous_id, "previous_id")
@@ -274,6 +293,7 @@ class EvidenceLinkedMemoryService:
             raise EvidenceValidationError("knowledge_type must be a KnowledgeType")
         if not evidence_sources:
             raise EvidenceValidationError("at least one evidence source is required")
+        _validate_capture_provenance(capture_provenance, project, evidence_sources)
 
         now = self._now()
         evidence = self._new_evidence(project, evidence_sources, now)
@@ -285,6 +305,7 @@ class EvidenceLinkedMemoryService:
             created_at=now,
             updated_at=now,
             supersedes_id=previous_id,
+            capture_provenance=capture_provenance,
         )
         self._store.supersede_knowledge(project, previous_id, successor, evidence)
         return KnowledgeBundle(record=successor, evidence=evidence)
@@ -419,3 +440,89 @@ def _verification_metadata(
     if note is not None and not isinstance(note, str):
         raise EvidenceValidationError("note must be a string or None")
     return checked_by, note.strip() if note else None
+
+
+def _validate_capture_provenance(
+    provenance: CaptureKnowledgeProvenance | None,
+    project: str,
+    evidence_sources: Sequence[EvidenceSource],
+) -> None:
+    if provenance is None:
+        return
+    if not isinstance(provenance, CaptureKnowledgeProvenance):
+        raise EvidenceValidationError(
+            "capture_provenance must be a CaptureKnowledgeProvenance or None"
+        )
+    if _required_text(provenance.project_id, "capture provenance project") != project:
+        raise EvidenceValidationError(
+            "capture provenance project does not match authorized project"
+        )
+    for field, value in (
+        ("candidate_id", provenance.candidate_id),
+        ("category", provenance.category),
+        ("certainty", provenance.certainty),
+        ("review_status", provenance.review_status),
+        ("candidate_verification_status", provenance.candidate_verification_status),
+        ("candidate_created_at", provenance.candidate_created_at),
+        ("candidate_updated_at", provenance.candidate_updated_at),
+    ):
+        _required_text(value, f"capture provenance {field}")
+    if provenance.review_status != "approved":
+        raise EvidenceValidationError(
+            "only approved capture provenance can be attached to knowledge"
+        )
+    _required_text(provenance.reviewed_by, "capture provenance reviewed_by")
+    _required_text(provenance.reviewed_at, "capture provenance reviewed_at")
+    if provenance.candidate_verification_status != VerificationStatus.UNVERIFIED.value:
+        raise EvidenceValidationError(
+            "capture candidate verification must remain unverified during conversion"
+        )
+    if not isinstance(provenance.source_references, tuple):
+        raise EvidenceValidationError("capture source references must be a tuple")
+    for reference in provenance.source_references:
+        if not isinstance(reference, CaptureSourceProvenance):
+            raise EvidenceValidationError(
+                "capture source references must be CaptureSourceProvenance values"
+            )
+        _required_text(reference.source_type, "capture source type")
+        _required_text(reference.source_id, "capture source ID")
+        for name in ("occurred_at", "revision", "locator"):
+            value = getattr(reference, name)
+            if value is not None:
+                _required_text(value, f"capture source {name}")
+    mapped_sources: set[tuple[str, str, str | None, str | None]] = set()
+    for source in evidence_sources:
+        if not isinstance(source, EvidenceSource) or not isinstance(
+            source.evidence_type, EvidenceType
+        ):
+            raise EvidenceValidationError("each evidence source must be an EvidenceSource")
+        mapped_sources.add(
+            (
+                source.evidence_type.value,
+                _required_text(source.source_id, "source_id"),
+                _optional_text(source.locator, "locator"),
+                _optional_text(source.revision, "revision"),
+            )
+        )
+    for reference in provenance.source_references:
+        mapped_locator = ": ".join(
+            part for part in (reference.source_type, reference.locator) if part
+        )
+        expected = (
+            EvidenceType.OTHER.value,
+            reference.source_id,
+            mapped_locator,
+            reference.revision,
+        )
+        if expected not in mapped_sources:
+            raise EvidenceValidationError(
+                "capture source provenance has no matching evidence source"
+            )
+    if not isinstance(provenance.conflicts_with, tuple):
+        raise EvidenceValidationError("capture conflict references must be a tuple")
+    for candidate_id in provenance.conflicts_with:
+        _required_text(candidate_id, "conflicting candidate ID")
+    for field in ("reviewed_by", "reviewed_at", "review_note", "original_claim"):
+        value = getattr(provenance, field)
+        if value is not None and not isinstance(value, str):
+            raise EvidenceValidationError(f"capture provenance {field} must be text or None")
