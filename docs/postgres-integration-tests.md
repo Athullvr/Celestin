@@ -128,11 +128,23 @@ tuple, the user is a superuser, or any unexpected objects exist, the fixture
 stops without cleaning or modifying them.
 
 The DSN is held only in `CELESTIN_TEST_POSTGRES_DSN` for the local test process.
-Credentials should be supplied by a protected local password file or approved
-secret manager that Psycopg/libpq can use. Do not print the environment, use
-PowerShell transcript capture while entering secrets, or paste credentials
-into Codex. The fixture sanitizes driver failures and never includes the DSN
-in target representations or assertion messages.
+The fixture accepts exactly four unquoted keyword/value parameters in the DSN:
+`host`, `port`, `dbname`, and `user`, each once and matching the separate
+environment variables. Password parameters, duplicate keys, URI-form DSNs,
+quoted values, and all other parameters are rejected before opening a database
+connection. Do not put credentials in the DSN. Supply authentication through
+`PGPASSFILE` or an approved secret manager supported by Psycopg/libpq.
+
+On Windows, libpq's default password file is
+`%APPDATA%\postgresql\pgpass.conf`; `PGPASSFILE` can point to another local
+file. Lines use `host:port:database:user:password` format. Create and manage it
+outside the repository with an approved credential tool. PostgreSQL does not
+check password-file ACLs on Windows, so ensure the file is in a protected user
+directory and its NTFS ACL restricts access to the user and trusted system
+administrators. Verify that the file exists without displaying its contents.
+Do not print the environment, use PowerShell transcript capture while entering
+secrets, or paste credentials into Codex. The fixture sanitizes driver failures
+and never includes the DSN in target representations or assertion messages.
 
 After a run, fixture records are deleted by their generated workspace/project
 IDs in foreign-key-safe order. The migration schema is intentionally retained.

@@ -137,7 +137,7 @@ def live_postgres(request):
 
     try:
         target = postgres_target_from_environment(
-            os.environ, psycopg.conninfo.conninfo_to_dict
+            os.environ
         )
     except UnsafePostgresTestTarget as exc:
         pytest.fail(str(exc))

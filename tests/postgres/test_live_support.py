@@ -29,12 +29,8 @@ def target_environment(**changes):
     return values
 
 
-def parse_conninfo(value):
-    return dict(part.split("=", 1) for part in value.split() if "=" in part)
-
-
 def test_accepts_only_explicit_matching_loopback_target_and_hides_dsn():
-    target = postgres_target_from_environment(target_environment(), parse_conninfo)
+    target = postgres_target_from_environment(target_environment())
 
     assert target.database == f"celestin_it_20261014_{NONCE}"
     assert target.user == f"celestin_it_user_{NONCE}"
@@ -54,7 +50,7 @@ def test_accepts_exactly_the_approved_non_nonce_target():
         CELESTIN_TEST_POSTGRES_USER=approved_database,
     )
 
-    target = postgres_target_from_environment(values, parse_conninfo)
+    target = postgres_target_from_environment(values)
 
     assert target.database == approved_database
     assert target.user == approved_database
@@ -72,13 +68,21 @@ def test_accepts_exactly_the_approved_non_nonce_target():
         ({"CELESTIN_TEST_POSTGRES_USER": "postgres"}, "test role"),
         ({"CELESTIN_TEST_POSTGRES_USER": "celestin_it_user_ffffffff"}, "same eight-hex nonce"),
         ({"CELESTIN_TEST_POSTGRES_HOST": "192.0.2.50"}, "loopback"),
-        ({"CELESTIN_TEST_POSTGRES_PORT": "5433"}, "explicitly match"),
-        ({"CELESTIN_TEST_POSTGRES_DSN": "dbname=other"}, "explicitly match"),
+        ({"CELESTIN_TEST_POSTGRES_PORT": "5433"}, "configured target"),
+        (
+            {
+                "CELESTIN_TEST_POSTGRES_DSN": (
+                    "host=127.0.0.1 port=5432 dbname=other "
+                    "user=celestin_it_user_a1b2c3d4"
+                )
+            },
+            "configured target",
+        ),
     ],
 )
 def test_rejects_unsafe_or_mismatched_target(changes, message):
     with pytest.raises(UnsafePostgresTestTarget, match=message):
-        postgres_target_from_environment(target_environment(**changes), parse_conninfo)
+        postgres_target_from_environment(target_environment(**changes))
 
 
 def test_missing_target_field_is_rejected_without_database_fallback():
@@ -86,19 +90,54 @@ def test_missing_target_field_is_rejected_without_database_fallback():
     del values["CELESTIN_TEST_POSTGRES_DSN"]
 
     with pytest.raises(UnsafePostgresTestTarget, match="CELESTIN_TEST_POSTGRES_DSN must be set"):
-        postgres_target_from_environment(values, parse_conninfo)
+        postgres_target_from_environment(values)
 
 
-def test_conninfo_parser_failure_does_not_echo_dsn():
-    invalid_dsn = "this-is-not-valid-connection-info"
-    values = target_environment(CELESTIN_TEST_POSTGRES_DSN=invalid_dsn)
-
-    def reject(_value):
-        raise ValueError(invalid_dsn)
-
-    with pytest.raises(UnsafePostgresTestTarget) as error:
-        postgres_target_from_environment(values, reject)
-    assert invalid_dsn not in str(error.value)
+@pytest.mark.parametrize(
+    "dsn, message",
+    [
+        (
+            "host=127.0.0.1 port=5432 dbname=celestin_it_20261014_a1b2c3d4 "
+            "user=celestin_it_user_a1b2c3d4 password=do-not-echo",
+            "password parameters",
+        ),
+        (
+            "host=127.0.0.1 port=5432 dbname=celestin_it_20261014_a1b2c3d4 "
+            "user=celestin_it_user_a1b2c3d4 sslpassword=do-not-echo",
+            "password parameters",
+        ),
+        (
+            "host=127.0.0.1 port=5432 dbname=celestin_it_20261014_a1b2c3d4 "
+            "user=celestin_it_user_a1b2c3d4 application_name=unexpected",
+            "exactly host, port, dbname, and user",
+        ),
+        (
+            "host=127.0.0.1 host=127.0.0.1 port=5432 "
+            "dbname=celestin_it_20261014_a1b2c3d4 user=celestin_it_user_a1b2c3d4",
+            "duplicate parameter",
+        ),
+        (
+            "host=127.0.0.1 host=127.0.0.2 port=5432 "
+            "dbname=celestin_it_20261014_a1b2c3d4 user=celestin_it_user_a1b2c3d4",
+            "duplicate parameter",
+        ),
+        ("postgresql://user:do-not-echo@127.0.0.1:5432/db", "malformed"),
+        ("host='127.0.0.1' port=5432", "malformed"),
+        ("host= port=5432", "malformed"),
+        (
+            "host=127.0.0.1 port=bad dbname=celestin_it_20261014_a1b2c3d4 "
+            "user=celestin_it_user_a1b2c3d4",
+            "configured target",
+        ),
+    ],
+)
+def test_rejects_password_unknown_duplicate_and_malformed_dsns_without_echoing_secrets(
+    dsn, message
+):
+    values = target_environment(CELESTIN_TEST_POSTGRES_DSN=dsn)
+    with pytest.raises(UnsafePostgresTestTarget, match=message) as error:
+        postgres_target_from_environment(values)
+    assert "do-not-echo" not in str(error.value)
 
 
 def test_approved_target_rejects_a_different_role_or_endpoint():
@@ -124,7 +163,7 @@ def test_approved_target_rejects_a_different_role_or_endpoint():
             f"user={values['CELESTIN_TEST_POSTGRES_USER']}"
         )
         with pytest.raises(UnsafePostgresTestTarget, match=expected):
-            postgres_target_from_environment(values, parse_conninfo)
+            postgres_target_from_environment(values)
 
 
 class _MigrationResult:

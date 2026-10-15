@@ -15,6 +15,10 @@ class UnsafePostgresTestTarget(ValueError):
 
 _DATABASE_NAME = re.compile(r"^celestin_it_[0-9]{8}_[a-f0-9]{8}$")
 _ROLE_NAME = re.compile(r"^celestin_it_user_[a-f0-9]{8}$")
+_DSN_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+_DSN_VALUE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_ALLOWED_DSN_KEYS = frozenset({"host", "port", "dbname", "user"})
+_PASSWORD_DSN_KEYS = frozenset({"password", "sslpassword"})
 # One explicitly approved target for the current live-test run. It remains
 # subject to the same DSN, runtime identity, non-superuser, and empty-schema
 # checks as nonce-named targets. After migration it is no longer reusable.
@@ -51,9 +55,8 @@ class PostgresTestTarget:
 
 def postgres_target_from_environment(
     environ: Mapping[str, str],
-    parse_conninfo: Callable[[str], Mapping[str, str]],
 ) -> PostgresTestTarget:
-    """Require an exact, local, nonce-named disposable database configuration."""
+    """Require a password-free, exact, local disposable database configuration."""
 
     values: dict[str, str] = {}
     for name in _REQUIRED_ENV:
@@ -106,16 +109,12 @@ def postgres_target_from_environment(
             "the approved database requires its exact loopback host and port"
         )
 
-    try:
-        options = parse_conninfo(values["CELESTIN_TEST_POSTGRES_DSN"])
-    except Exception:
-        # Conninfo parser exceptions can include the input DSN and its password.
-        raise UnsafePostgresTestTarget("the test DSN is invalid") from None
-
+    options = _parse_test_dsn(values["CELESTIN_TEST_POSTGRES_DSN"])
     expected = {"dbname": database, "user": user, "host": host, "port": str(port)}
-    if any(options.get(key) != value for key, value in expected.items()):
+    if options != expected:
         raise UnsafePostgresTestTarget(
-            "the DSN must explicitly match the configured database, role, host, and port"
+            "the password-free DSN must contain only host, port, dbname, and user "
+            "with values matching the configured target"
         )
 
     return PostgresTestTarget(
@@ -125,6 +124,38 @@ def postgres_target_from_environment(
         host=str(address),
         port=port,
     )
+
+
+def _parse_test_dsn(dsn: str) -> dict[str, str]:
+    """Parse the deliberately small keyword DSN format accepted by live tests.
+
+    Requiring simple unquoted values makes duplicate keys visible before a
+    driver can normalize them into a mapping. Credentials must come from the
+    approved libpq password-file mechanism, never from this DSN.
+    """
+    if not dsn or dsn != dsn.strip() or "\n" in dsn or "\r" in dsn:
+        raise UnsafePostgresTestTarget("the test DSN is malformed")
+
+    options: dict[str, str] = {}
+    for token in dsn.split():
+        if token.count("=") != 1:
+            raise UnsafePostgresTestTarget("the test DSN is malformed")
+        key, value = token.split("=", 1)
+        if not _DSN_KEY.fullmatch(key) or not value or not _DSN_VALUE.fullmatch(value):
+            raise UnsafePostgresTestTarget("the test DSN is malformed")
+        if key in options:
+            raise UnsafePostgresTestTarget("the test DSN contains a duplicate parameter")
+        options[key] = value
+
+    if _PASSWORD_DSN_KEYS.intersection(options):
+        raise UnsafePostgresTestTarget(
+            "password parameters are not allowed in the test DSN; use a protected password file"
+        )
+    if options.keys() != _ALLOWED_DSN_KEYS:
+        raise UnsafePostgresTestTarget(
+            "the test DSN must contain exactly host, port, dbname, and user"
+        )
+    return options
 
 
 class TrackedConnection:

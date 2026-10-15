@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T11:05:36+05:30 — Reject unsafe PostgreSQL test DSNs
+
+- Changed: Replaced driver-normalized DSN parsing with strict validation for exactly four password-free target parameters; added tests for credentials, extra and duplicate parameters, malformed syntax, and target mismatches; documented the accepted form and Windows password-file handling.
+- Why: Ensure unsafe or ambiguous connection strings fail before the fixture can connect or invoke migrations.
+- Validation: Focused target-safety tests and `git diff --check` passed. No live tests, PostgreSQL connections, SQL, or migrations were run.
+- Limitations: Live PostgreSQL behavior remains unverified; the database owner must confirm the target is fresh and exclusively reserved before an authorized live run.
+
 ## 2026-10-15T10:36:52+05:30 — Tighten live PostgreSQL test-target exception and migration sequence
 
 - Changed: Allowed only the exact user-approved `celestin_it_20261014_a7f3c9` database/role at `127.0.0.1:5432` in addition to the existing nonce-named target policy. The live fixture now verifies runtime identity and emptiness before one migration-runner invocation, then checks ledger/checksums. Added unit coverage and documented the one-run lifecycle.
