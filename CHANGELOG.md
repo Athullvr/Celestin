@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T21:27:22+05:30 — Document retrieval content trust boundary
+
+- Changed: Added adversarial-content and status-semantics tests for context JSON serialization and the MCP retrieval handler. Documented that retrieved content is untrusted project data, decision approval is not verification, Capability 1 stale/conflict metadata is not present in the current retrieval contract, and the MCP item array inherits project scope from its response envelope. No retrieval ranking, MCP handler, model, or reranking implementation changed.
+- Why: Retrieved messages and excerpts are returned to clients as source content, but the repository has no downstream coding-agent prompt assembler to enforce trust semantics.
+- Validation: Baseline focused retrieval/MCP/PageIndex suite: 92 passed, 1 warning. Final focused suite: 98 passed, 1 warning. Broader capture/evidence/project-state/sync/integration/retrieval/MCP-handler/PageIndex suite: 215 passed, 1 warning. The isolated stdio protocol test exceeded a 20-second timeout; cause not established. `git diff --check` passed.
+- Limitations: Tests verify serialization and status separation, not model compliance. A consuming-client injection test remains necessary. PageIndex sends document outline snippets in its navigation prompt; replies are restricted to known section references, but prompt injection can still affect which valid same-project section is selected.
+
 ## 2026-10-15T20:34:33+05:30 — Reauthorize Resurrection Layer service operations
 
 - Changed: Evidence and synchronization services now treat `AuthorizedProject` as a project/action selector and re-check every operation through an injected `ProjectAuthorizer` using a principal fixed at trusted service construction. Added regressions for caller-constructed scopes, cross-project access, and stable service-principal use. Strengthened the MCP tool registration test to assert that Capabilities 1–4 remain internal-only. Documented the remaining repository-root binding limitation.

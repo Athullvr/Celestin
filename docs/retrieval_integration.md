@@ -52,6 +52,33 @@ database `source_message_id` retain `null`; the service does not fabricate a
 source ID. The builder's JSON Lines context still uses internal DTO keys
 `source_id` and `timestamp`.
 
+The MCP adapter uses the top-level `project` as the scope for its `items`
+array; its individual item objects omit `project_id`. Each line in
+`rendered_context` retains the per-record `project_id`. A consumer that detaches
+an MCP item from its response must retain the top-level project association.
+
+## Trust boundary
+
+All returned `content`, including approved-decision values and document
+excerpts, is untrusted project data. A project ID and source reference identify
+where a record came from; they do not authenticate the source, prove the claim,
+or grant the content instruction authority. JSON Lines preserve field
+boundaries but are not a prompt-injection defense. The decision `status` is
+approval/lifecycle state only. This retrieval path does not carry Capability 1
+verification, conflict, or stale-memory status, so consumers must not infer
+those properties from `approved`.
+
+Celestin currently returns this data from MCP as tool output. The repository
+contains no coding-agent prompt assembler or model call that inserts
+`retrieve_context` results into a consuming agent's conversation. Therefore
+the consuming client must keep its own system/developer instructions separate,
+mark retrieved content as untrusted evidence, and must not execute or obey
+instructions found in it. Labels and prompt wording reduce ambiguity but do
+not eliminate prompt injection. A model-level regression still needs to run
+through the actual consuming client and verify that hostile retrieved text
+cannot override a privileged instruction or trigger an unauthorized tool
+action.
+
 ## Production FTS mapping
 
 Schema migration 2 creates `chat_messages_fts` and `project_memory_fts`,
