@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T17:24:52+05:30 — Prepare safe PostgreSQL live-test preflight
+
+- Changed: Added read-only SQL checks for database identity, prohibited role attributes and memberships, migration-ledger absence, and unexpected objects to `docs/postgres-integration-tests.md`; clarified the exact acceptance conditions before an opted-in live run.
+- Why: Operators need a reproducible preflight for a newly owner-approved disposable database and must not reuse the previously failed target.
+- Validation: Focused non-live PostgreSQL tests: 76 passed; complete `tests/postgres` subset: 76 passed, 18 skipped; full suite: 357 passed, 38 skipped; `git diff --check` passed. No database connection, SQL execution, migration, or live test was performed.
+- Limitations: The catalog queries are documented for future operator use and were not executed. PostgreSQL catalog behavior and migrations remain unverified against a live server.
+
 ## 2026-10-15T17:18:51+05:30 — Reject elevated PostgreSQL live-test roles
 
 - Changed: The live fixture now rejects `SUPERUSER`, `CREATEROLE`, `CREATEDB`, `REPLICATION`, and `BYPASSRLS` role attributes and direct/transitive memberships other than PostgreSQL's implicit `pg_database_owner` membership. Added non-live identity tests and documented the role policy.
@@ -13,7 +20,7 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## 2026-10-15T16:41:01+05:30 — Reject the previously failed PostgreSQL test target
 
-- Changed: Removed the one-off allowlist for `celestin_it_20261014_a7f3c9`, added a rejection regression test, and corrected live-test setup guidance to require a newly provisioned nonce-named database and matching least-privilege role.
+- Changed: Removed the one-off allowlist for `celestin_it_20261014_a7f3c9`, added a regression case proving it is rejected, and documented that a newly provisioned nonce-named database and matching least-privilege role are required.
 - Why: The earlier migration attempt may have left an empty ledger, so allowing that target to pass name validation could invite an unsafe retry.
 - Validation: Non-live PostgreSQL tests and `git diff --check` run for this review; no live tests, database connections, SQL, or migrations were run.
 - Limitations: Freshness and PostgreSQL catalog-query behavior must still be checked during a separately authorized live run.
@@ -22,12 +29,16 @@ Record each meaningful project change during the event, newest first. Update thi
 
 - Changed: Normalize the server address returned by PostgreSQL before comparing it with the configured loopback target; added coverage for IPv4/IPv6 loopback forms and malformed or non-loopback values in `tests/postgres/live_support.py`, `tests/postgres/conftest.py`, and `tests/postgres/test_live_support.py`.
 - Why: PostgreSQL may return `127.0.0.1/32`, while the fixture previously compared that string directly with `127.0.0.1` and rejected the verified local target.
+- Validation: Focused non-live tests: 34 passed. `git diff --check` passed. No database connection, SQL, migration, or live integration test was run.
+- Limitations: The database's freshness and exclusive reservation remain unverified and must be confirmed by its owner before migration.
+
 ## 2026-10-15T12:04:01+05:30 — Fix PostgreSQL migration fresh-database guard
 
 - Changed: Kept the initial object check inclusive of ledger-named objects; the post-ledger check now excludes only the migration ledger table and its catalog-linked array type. Empty pre-existing ledgers fail closed. Added scripted regression coverage and operator guidance.
 - Why: PostgreSQL creates a composite row type and associated array type for the ledger table; the previous second guard counted the generated array type as an unrelated public type and stopped before migration 1.
 - Validation: Focused runner tests: 13 passed. Complete non-live PostgreSQL subset: 54 passed. Full suite: 335 passed, 38 skipped. `git diff --check` passed. No live database connection or SQL was run for this fix.
 - Limitations: Scripted tests do not verify the catalog query against PostgreSQL. The failed target was not inspected and may contain an empty ledger; a database owner must provision a new disposable database before another initialization attempt.
+
 ## 2026-10-15T11:05:36+05:30 — Reject unsafe PostgreSQL test DSNs
 
 - Changed: Replaced driver-normalized DSN parsing with strict validation for exactly four password-free target parameters; added tests for credentials, extra and duplicate parameters, malformed syntax, and target mismatches; documented the accepted form and Windows password-file handling.

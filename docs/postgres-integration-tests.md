@@ -127,6 +127,77 @@ the role has a prohibited attribute or membership, the user is a superuser, or
 any unexpected objects exist, the fixture stops without cleaning or modifying
 them.
 
+### Read-only preflight checklist
+
+Only after the database owner has provisioned and approved the new disposable
+database and matching role, connect with the interactive `psql -W` command
+above. Do not use the previously failed `celestin_it_20261014_a7f3c9` target.
+Run these read-only queries in that `psql` session before opting into pytest:
+
+```sql
+SELECT current_database() AS database,
+       current_user AS role,
+       inet_server_addr() AS server_address,
+       inet_server_port() AS server_port;
+
+SELECT rolname,
+       rolsuper,
+       rolcreaterole,
+       rolcreatedb,
+       rolreplication,
+       rolbypassrls
+FROM pg_catalog.pg_roles
+WHERE rolname = current_user;
+
+SELECT granted_role.rolname,
+       pg_catalog.pg_has_role(current_user, granted_role.oid, 'USAGE') AS inherits_privileges,
+       pg_catalog.pg_has_role(current_user, granted_role.oid, 'SET') AS can_set_role
+FROM pg_catalog.pg_roles AS granted_role
+WHERE granted_role.oid <> (
+          SELECT self_role.oid
+          FROM pg_catalog.pg_roles AS self_role
+          WHERE self_role.rolname = current_user
+      )
+  AND granted_role.rolname <> 'pg_database_owner'
+  AND pg_catalog.pg_has_role(current_user, granted_role.oid, 'MEMBER')
+ORDER BY granted_role.rolname;
+
+SELECT to_regclass('public.celestin_schema_migrations') AS migration_ledger;
+
+SELECT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_namespace AS n
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'public')
+      AND n.nspname !~ '^pg_'
+    UNION ALL
+    SELECT 1
+    FROM pg_catalog.pg_class AS c
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+    UNION ALL
+    SELECT 1
+    FROM pg_catalog.pg_proc AS p
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+    UNION ALL
+    SELECT 1
+    FROM pg_catalog.pg_type AS t
+    JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typrelid = 0
+) AS has_unexpected_user_objects;
+```
+
+Proceed only when the first row exactly matches the approved database and role
+on `127.0.0.1:5432`; the role-attribute flags are all `false`; the membership
+query returns no rows (the implicit `pg_database_owner` membership is omitted);
+the migration-ledger result is `NULL`; and `has_unexpected_user_objects` is
+`false`. Stop and ask the database owner if any result is unexpected or
+uncertain. These commands do not display or inspect password-file contents.
+The harness repeats identity, role-privilege, and freshness checks immediately
+before its one migration-runner call; the SQL preflight is not a substitute for
+those checks.
+
 The DSN is held only in `CELESTIN_TEST_POSTGRES_DSN` for the local test process.
 The fixture accepts exactly four unquoted keyword/value parameters in the DSN:
 `host`, `port`, `dbname`, and `user`, each once and matching the separate
