@@ -60,6 +60,41 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: Read-only comparison against the current hosted baseline, `MemoryStore`, and `PostgresMemoryStore`; `git diff --check` passed. No tests or database operations were run.
 - Limitations: The referenced Resurrection Layer contract was not present in the local worktree or Git history, so field-level reconciliation remains pending. All semantics in the new document are proposals, not approved schema decisions.
 
+## 2026-10-15T01:14:22+05:30 — Add bidirectional synchronization contract prototype
+
+- Changed: Added a versioned `orbit.sync` event model, authorized-scope service, idempotent in-memory adapter, project-bound sequence cursors and pagination, focused tests, and `docs/bidirectional-knowledge-synchronization.md`. Updated `AI_USAGE.md`.
+- Why: Define and validate both logical synchronization directions without introducing a competing persistence schema, hosted endpoint, MCP tool, or remote authorization path.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' --import-mode=importlib -q tests/sync/test_service.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/capture/test_pipeline.py tests/test_mcp_authorization.py tests/test_hosted_scope.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py` — 136 passed, 12 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/sync` and `git diff --check` passed. The default import-mode attempt hit duplicate `test_service` module names during collection; rerunning with `--import-mode=importlib` passed. Full suite and live database/hosted integration were not run.
+- Limitations: The adapter is process-local, non-durable, and not thread-safe. The service requires an `AuthorizedProject` provided by a trusted caller; this prototype cannot prevent a same-process caller from constructing/reusing that dataclass. Persistence, hosted authorization, and network integration require owner contracts.
+
+## 2026-10-15T00:44:16+05:30 — Add isolated automatic knowledge capture prototype
+
+- Changed: Added `orbit.capture` explicit-input extraction, validation, secret-like content suppression, normalized candidate deduplication, explicit conflict links, an ephemeral project-scoped review queue, tests, and `docs/automatic-knowledge-capture.md`. Updated `AI_USAGE.md`.
+- Why: Reduce manual knowledge-saving effort while requiring human review and keeping approval separate from verification and shared-memory persistence.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' -q tests/capture/test_pipeline.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/database/test_decisions.py tests/database/test_messages.py tests/test_hosted_scope.py` — 100 passed, 6 subtests passed. `PYTHONPATH=src .venv/bin/python -m compileall -q src/orbit/capture` and `git diff --check` passed. No full suite or live database check was run.
+- Limitations: Queue state is in-memory only. Extraction requires labeled lines or structured events, conflict detection requires an explicit shared key, and secret detection is heuristic. Hosted authorization, durable storage, and lossless category mapping need owner coordination.
+
+## 2026-10-15T00:20:56+05:30 — Validate Capability 1 and 2 domain integration seam
+
+- Changed: Added read-only `KnowledgeBundle` integration tests for absent records, saved verification versus independently checked evidence, historical source revisions, unresolved message references, and repository/database-artifact non-mutation. Updated this validation record and `AI_USAGE.md`.
+- Why: Check reconstruction against Capability 1's declared bundle model without depending on fake-store internals or introducing a persistence adapter.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/evidence/test_service.py tests/project_state/test_reconstructor.py` — 42 passed. The PageIndex-enabled stdio test timed out while awaiting MCP initialization; it also timed out on the parent baseline, and a probe hung at `initialize()` with PageIndex both enabled and disabled. The existing retrieval NameError was reproduced on a temporary archive of the current baseline in unchanged `tests/retrieval/test_strategies.py`. Broad run excluding the stdio test stopped at that NameError. `git diff --check` passed.
+- Limitations: Capability 1 has no project-scoped record-list operation, so reconstruction's injected protocol is not wired to its store/service. The stdio handshake cause remains undetermined; no full-suite pass is claimed.
+
+## 2026-10-15T00:01:28+05:30 — Add read-only project-state reconstruction prototype
+
+- Changed: Added a pinned-revision Git inspector and structured findings for tracked source artifacts, open-work markers, unresolved sections, optional saved decisions and other Capability 1 knowledge, and evidence-backed next-step suggestions; added temporary-repository tests and `docs/project-state-reconstruction.md`.
+- Why: Let a returning agent inspect current project evidence without writing memory, invoking MCP, or treating saved claims and file presence as proof of correctness.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -q tests/project_state/test_reconstructor.py tests/evidence/test_service.py` — 37 passed, including a Git environment-redirection boundary test. Full-suite run timed out in an existing PageIndex-enabled stdio test; excluding that test exposed a pre-existing `NameError` (`DecisionRepository`) in `tests/retrieval/test_strategies.py`. `git diff --check` passed.
+- Limitations: Lexical markers can be noisy or incomplete; decisions remain applicability-unknown; no test-result resolver, persistent Capability 1 reader, automatic conflict detector, MCP exposure, or database integration.
+
+## 2026-10-14T23:48:15+05:30 — Add evidence-linked memory domain and service contract
+
+- Changed: Added storage-neutral knowledge/evidence records and an authorized-scope service for explicit provenance, reference resolution, verification metadata, idempotent evidence association, and non-destructive supersession; added deterministic service tests and `docs/evidence-linked-memory-contract.md`.
+- Why: Establish the first Resurrection Layer capability without creating an uncoordinated SQLite/PostgreSQL schema or changing existing persistence, authorization, retrieval, or MCP contracts.
+- Validation: `PYTHONPATH=src python3 -m pytest -p no:cacheprovider -o addopts='' tests/evidence/test_service.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py tests/test_hosted_scope.py` — 71 passed. MCP regression collection was attempted but could not run because the system Python environment lacks the `mcp` package; no validation virtual environment is present. `git diff --check` and a trailing-whitespace scan of all changed files passed.
+- Limitations: No SQLite/PostgreSQL adapter, migration, source resolver implementation, MCP tool, or production wiring. The storage port is a prototype contract requiring persistence-team agreement; tests use a test-only fake store.
+
 ## 2026-10-14T22:28:00+05:30 — Prepare opt-in live PostgreSQL authorization tests
 
 - Changed: Added a dedicated live PostgreSQL test target guard and fixture, synthetic hosted authorization/transaction/constraint/concurrency tests, target-parser unit tests, and operator guidance in the README and PostgreSQL docs.
@@ -151,6 +186,13 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: Focused database/persistence/authorization tests passed (42 tests); full isolated suite passed (251 passed, 20 skipped); `git diff --check` reviewed after implementation.
 - Limitations: No PostgreSQL adapter, schema change, or hosted authorization was introduced. Retrieval remains SQLite-specific. Existing unrelated work in `AI_USAGE.md`, `CHANGELOG.md`, and `tests/postgres/` was preserved.
 
+## 2026-10-14T19:55:17+05:30 — Benchmark local Laya retrieval path
+
+- Changed: Added paired H/L evaluation with three measured runs after local warmup on dev, held-out, and challenge sets at 2,000/20,000 budgets. Saved machine-readable per-query metrics and rendered reports under `eval/laya_results/`; corrected context byte/token reporting. Added timeout-worker backpressure so expired inference cannot build a queue, and kept Julia-1 direct ordering unchanged while Laya alone uses RRF.
+- Findings: Laya had zero inference failures, timeouts, or oversized-input skips. It did not show a consistent quality win and took 8.1–10.2 seconds/request on CPU versus 14–18 ms for H. The 614 MiB checkpoint added about 1.6 GiB RSS on load. Julia results are historical and use a different runtime.
+- Validation: Focused retrieval/eval/MCP tests: 38 passed. Full suite: 413 passed, 2 skipped, 1 failure because globally installed `orbit`/`memory-bridge` launch a different Orbit server; the current checkout’s MCP source-path protocol checks passed. `git diff --check` passed.
+- Limitations: Shared PostgreSQL memory, hosted identity, and membership authorization shown in the diagrams are not implemented or tested. Laya remains opt-in; no improvement is claimed.
+
 ## 2026-10-14T19:50:38+05:30 — Make schema validation assertions count affected rows
 
 - Changed: Updated `tests/postgres/validate_hosted_schema.sql` so `expect_success` checks an explicit expected affected-row count (default one), and expanded post-rollback checks to cover all fixture user memberships, message IDs, and memory IDs.
@@ -165,12 +207,25 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: Reviewed the script against `docs/hosted-tenancy-schema.sql` and `docs/hosted-tenancy-spike.md`; `git diff --check` passed. The script was not connected to or executed against PostgreSQL.
 - Limitations: Runtime SQL behavior is unverified. Concurrent uniqueness and concurrent last-owner transitions require multiple sessions and are not tested by this single-session script; the schema permits an ownerless workspace and does not implement application authorization, purge authorization, or retention filtering.
 
+## 2026-10-14T18:30:00+05:30 — Add opt-in local Laya retrieval reranking
+
+- Changed: Added the local `convaiinnovations/laya-multilingual` batch reranker to `src/orbit/retrieval/service.py`; wired `CELESTIN_RETRIEVAL_PATH=system1` to Laya while keeping `baseline` as default and preserving Julia-1 under `julia1`. Added a pinned optional Laya dependency and focused tests for payloads, token limits, expected-relevance ordering, equal-weight RRF, exact-FTS protection, and safe fallback. Updated README setup and behavior notes.
+- Why: Test System 1 as a context reranker after the existing configured selector and search engines find authorized candidates.
+- Validation: Focused Laya/service tests passed; local smoke tests passed with the actual Laya checkpoint. Full suite passed with two unrelated environment-sensitive tests excluded; see handoff for details.
+- Limitations: The existing frozen evaluation harness has not been adapted to score Laya. No quality-improvement claim is made. The checkpoint is downloaded lazily; cold-start inference can exceed the request timeout and safely retain baseline order.
+
 ## 2026-10-14T17:38:49+05:30 — Add provenance index and owner-concurrency validation requirements
 
 - Changed: Added non-partial `project_memory(project_id, source_message_id)` to the hosted PostgreSQL schema draft; documented its provenance/FK-check purpose, the workspace-row lock/recheck protocol for owner changes, required concurrent-owner and hosted authorization tests, and the user-reported behavioral validation outcome. Clarified that the new index has not been applied to the already-used test database.
 - Why: Cover the referencing-side FK index gap and make clear that the active-owner invariant needs serialized application transactions; accurately distinguish reported DB evidence from work independently verified in this update.
 - Validation: Static SQL/documentation review and `git diff --check`; no database connection, schema execution, or test suite run.
 - Limitations: User-reported validation of the previous draft was not independently rerun. The added index, owner concurrency, hosted application authorization, search/cache isolation, and purge authorization remain unverified or unimplemented.
+
+## 2026-10-14T11:45:20+05:30 — Implement and evaluate local System 1 retrieval experiment
+
+- Changed: Added a lazy, pinned local Julia-1 reranker behind `CELESTIN_RETRIEVAL_PATH=system1`; kept the existing path as the default and preserved public MCP contracts, authorization, SQLite, decision policy, provenance, and context assembly. Added paired H/J evaluation support, regression tests, and frozen-set result artifacts.
+- Validation: Local CPU inference completed with no inference failures. Full suite: 404 passed, 2 skipped; `git diff --check` passed.
+- Findings: H exceeded J on answer-bearing context and MRR in all six dev/held-out/challenge and budget comparisons. J averaged 691–753 ms per request versus 48–90 ms for H; the 550.5 MiB checkpoint increased RSS by about 996 MiB during load/warmup. Julia-1 did not improve this experiment and remains opt-in. No hosted inference or training was added.
 
 ## 2026-10-14T08:53:45+05:30 — Finalize hosted tenancy policy draft and validation plan
 
@@ -214,19 +269,19 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_celestin_rename.py` — 7 passed in the Celestin editable environment.
 - Limitations: This changes test comparison only; database path resolution and behavior are unchanged.
 
-## 2026-10-13T12:03:32+05:30 — Add an untuned reranking challenge set
-
-- Changed: Added six documentation and three chat questions in `eval/rerank_challenge.py`, integrated the set and its pinned hash with the evaluation harness, recorded the full six-variant sweep and a separate four-variant lexical ablation in `eval/results_rerank_challenge*`, and made the chat-recall table labels reflect the set size. Updated the reranking analysis in `docs/context-optimization.md`.
-- Why: Check the candidate ranking signal on questions added after the dev and held-out reranker comparisons.
-- Validation: Reproduced S on dev and held-out (dataset hashes unchanged); ran all six variants on the challenge set. Focused reranker/evaluation tests passed (35). The broader suite passed with documented live-LLM and stdio subprocess exclusions; full optional-dependency collection errors in installed `litellm` during its background cost-map retry.
-- Limitations: Challenge set is small and cannot replace the two original frozen evaluations. Each variant answered all six documentation questions; chat recall was 2/3 for every variant. Real-LLM evaluation was not run. No commit or push made.
-
 ## 2026-10-13T12:06:52+05:30 — Evaluate opt-in section reranking
 
 - Changed: Audited the already-committed reranker at `a80e7b8`; added development, held-out, and new-query challenge evaluation artifacts; recorded full candidate ordering and chat query outcomes; added a pinned six-question documentation challenge set; documented controls and findings; corrected service-test queries so they retrieve multiple sections and the approved decision under test. No retrieval behavior, defaults, dependencies, frozen datasets, or MCP contracts changed.
 - Why: Determine whether candidate reordering improves answer-bearing evidence per byte on both frozen question sets.
 - Validation: Reproduced S and S+0.08 baselines at budget 20,000 with frozen dataset hashes unchanged; evaluated reranking variants on dev and held-out and then on six new documentation questions plus three chat questions. Margin+cross-encoder RRF+top-8 improved measured gold evidence per byte without answer loss in these runs, but top-8 was selected after prior held-out inspection. All 35 targeted reranker/evaluation tests passed. Broad tests passed with optional dependencies after excluding the live-LLM import and three stdio subprocess tests; the no-optional-dependency suite exited successfully with two protocol test files excluded. Full unfiltered collection failed in the installed optional `litellm` module; real-LLM retrieval was not run.
 - Limitations: The new challenge has six document questions on the same corpus; it is too small to justify changing defaults. Plain cross-encoder scoring lost one held-out answer. All controls remain opt-in. Memory was not measured; the local cross-encoder artifact was 90.9 MB. No commit or push made.
+
+## 2026-10-13T12:03:32+05:30 — Add an untuned reranking challenge set
+
+- Changed: Added six documentation and three chat questions in `eval/rerank_challenge.py`, integrated the set and its pinned hash with the evaluation harness, recorded the full six-variant sweep and a separate four-variant lexical ablation in `eval/results_rerank_challenge*`, and made the chat-recall table labels reflect the set size. Updated the reranking analysis in `docs/context-optimization.md`.
+- Why: Check the candidate ranking signal on questions added after the dev and held-out reranker comparisons.
+- Validation: Reproduced S on dev and held-out (dataset hashes unchanged); ran all six variants on the challenge set. Focused reranker/evaluation tests passed (35). The broader suite passed with documented live-LLM and stdio subprocess exclusions; full optional-dependency collection errors in installed `litellm` during its background cost-map retry.
+- Limitations: Challenge set is small and cannot replace the two original frozen evaluations. Each variant answered all six documentation questions; chat recall was 2/3 for every variant. Real-LLM evaluation was not run. No commit or push made.
 
 ## 2026-10-13T11:06:45+05:30 — Context-noise diagnosis and opt-in section relevance filtering
 
@@ -304,3 +359,5 @@ Record each meaningful project change during the event, newest first. Update thi
 - Why: Give participants a consistent starting point for event rules, basic coding patterns, documented changes, and regular commits.
 - Validation: Checked local Markdown links, event detail consistency, required documents, and diff whitespace before publishing.
 - Limitations: Documentation scaffolding only; no participant project, application, or working demo is included. GitHub publication and template status are verified separately after creation.
+
+## Template setup — 10 October 2026

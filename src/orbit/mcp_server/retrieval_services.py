@@ -10,7 +10,9 @@ from typing import Any
 
 from orbit.database.engine import connect
 from orbit.retrieval import RetrievalService
+from orbit.retrieval.service import build_laya_reranker
 from orbit.retrieval.rerank import build_reranker
+from orbit.retrieval.system1 import build_julia1_reranker
 from orbit.pageindex.config import build_pageindex_backend, sections_store_path, selector_mode
 from orbit.semantic.config import build_semantic_search
 
@@ -33,6 +35,21 @@ def _reranker_from_env():
         return build_reranker(mode, model_id=os.environ.get("CELESTIN_SECTION_RERANK_MODEL") or None)
     except ValueError as exc:
         logging.getLogger(__name__).warning("%s; reranking disabled", exc)
+        return None
+
+
+def _system1_from_env():
+    """Opt-in, lazy local reranker; baseline remains the default on unset/invalid values."""
+    mode = os.environ.get("CELESTIN_RETRIEVAL_PATH", "baseline").strip().lower()
+    if mode == "baseline":
+        return None
+    if mode == "system1":
+        return build_laya_reranker()
+    if mode == "julia1":
+        model_path = os.environ.get("CELESTIN_SYSTEM1_MODEL_PATH") or None
+        return build_julia1_reranker(model_path)
+    else:
+        logging.getLogger(__name__).warning("unknown CELESTIN_RETRIEVAL_PATH=%r; using baseline", mode)
         return None
 
 
@@ -81,6 +98,7 @@ class RetrievalServices:
         return response
 
     def retrieve_context(self, project: str, query: str, token_budget: int) -> dict[str, Any]:
+        system1_reranker = _system1_from_env()
         with closing(connect(self._db_path)) as connection:
             service = RetrievalService(
                 connection,
@@ -90,7 +108,8 @@ class RetrievalServices:
                 sections=sections_store_path(self._db_path),
                 selector=selector_mode(),
                 section_top_k=_optional_int("CELESTIN_SECTION_TOP_K"),
-                section_reranker=_reranker_from_env(),
+                section_reranker=None if system1_reranker is not None else _reranker_from_env(),
+                system1_reranker=system1_reranker,
                 rerank_shortlist=max(2, _optional_int("CELESTIN_SECTION_RERANK_SHORTLIST") or 20),
                 section_excerpt_bytes=_clamp_excerpt(_optional_int("CELESTIN_SECTION_EXCERPT_BYTES")),
             )

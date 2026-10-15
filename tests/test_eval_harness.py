@@ -145,6 +145,95 @@ def test_noise_variants_are_registered_as_selector_variants_with_defaults_off():
     assert (combined.section_margin, combined.rerank, combined.top_k) == (0.08, "cross_encoder_rrf", 8)
 
 
+def test_system1_spec_matches_heading_baseline_and_requires_local_model_preflight(monkeypatch):
+    baseline, system1 = run_eval.SPECS["H"], run_eval.SPECS["J"]
+    assert (system1.docs, system1.semantic, system1.selector, system1.navigator) == (
+        baseline.docs, baseline.semantic, baseline.selector, baseline.navigator
+    )
+    assert system1.system1 and not baseline.system1
+    monkeypatch.delenv("CELESTIN_SYSTEM1_MODEL_PATH", raising=False)
+    with pytest.raises(SystemExit, match="cannot run system J"):
+        run_eval.check_system1(None, required=True)
+
+
+def test_laya_spec_matches_heading_baseline_and_historical_reference_hashes():
+    baseline, laya = run_eval.SPECS["H"], run_eval.SPECS["L"]
+    assert (laya.docs, laya.semantic, laya.selector, laya.navigator) == (
+        baseline.docs, baseline.semantic, baseline.selector, baseline.navigator
+    )
+    assert laya.system1 and laya.system1_backend == "laya"
+    from dataset import DATASET_VERSION, DOCS
+    import heldout
+    from pathlib import Path
+
+    assert DATASET_VERSION
+    assert DOCS
+    assert Path(run_eval.HERE / "system1_results" / "dev" / "results.json").is_file()
+    saved = json.loads((run_eval.HERE / "system1_results" / "heldout" / "results.json").read_text())
+    with pytest.raises(ValueError, match="question hash differs"):
+        run_eval.load_historical_julia_reference("heldout", "wrong", saved["meta"]["corpus_sha256"], (2000, 20000))
+    assert heldout.HELDOUT_VERSION
+
+
+def test_laya_eval_repeats_same_frozen_pipeline_and_carries_julia_reference(tmp_path, monkeypatch):
+    class FakeLaya:
+        name = "laya-test-double"
+
+        def rerank(self, query, candidates):
+            return [candidate.record_id for candidate in candidates]
+
+    monkeypatch.setattr(run_eval, "semantic_for", lambda *a, **k: (None, None))
+    monkeypatch.setattr(run_eval, "check_laya", lambda required: (None, {
+        "name": "laya-multilingual", "revision": "test", "load_ms": 2.0, "warmup_ms": 1.0,
+        "checkpoint_bytes": 300, "rss_before_bytes": 100, "rss_after_load_bytes": 200,
+        "rss_after_warmup_bytes": 200, "package_version": "test", "torch_version": "test",
+        "device": "cpu", "repo": "test", "python_version": "test", "torch_threads": 1,
+    }))
+    monkeypatch.setattr(run_eval, "build_laya_reranker", lambda: FakeLaya())
+    assert run_eval.main([
+        "--systems", "H,L", "--budgets", "2000,20000", "--dataset", "heldout", "--repeats", "3",
+        "--out", str(tmp_path),
+    ]) == 0
+    data = json.loads((tmp_path / "results_heldout.json").read_text())
+    meta, systems = data["meta"], data["systems"]
+    assert meta["measured_repeats"] == 3 and meta["warmup_count"] == 1
+    assert meta["historical_julia_reference"]["verified_hashes"] is True
+    assert len(systems["L"]["queries"]["20000"]) == 3 * meta["doc_queries"]
+    assert len(systems["L"]["chat_queries"]["20000"]) == 3 * meta["chat_queries"]
+    assert systems["L"]["budgets"]["20000"]["p50_total_latency_ms"] > 0
+    assert systems["L"]["budgets"]["20000"]["p95_total_latency_ms"] >= systems["L"]["budgets"]["20000"]["p50_total_latency_ms"]
+    report = (tmp_path / "results_heldout.md").read_text()
+    assert "Saved Julia-1 reference" in report and "Dataset and corpus hashes were checked" in report
+
+
+def test_system1_eval_compares_against_h_on_the_same_frozen_questions(tmp_path, monkeypatch):
+    class FakeSystem1:
+        name = "julia-1-test-double"
+
+        def health_check(self):
+            return {
+                "name": self.name, "revision": "test", "weights_sha256": "test",
+                "load_ms": 2.0, "warmup_ms": 1.0, "rss_before_bytes": 100,
+                "rss_after_bytes": 200, "weights_file_bytes": 300, "torch_threads": 1,
+            }
+
+        def rerank(self, query, candidates):
+            return [candidate.record_id for candidate in candidates]
+
+    monkeypatch.setattr(run_eval, "semantic_for", lambda *a, **k: (None, None))
+    monkeypatch.setattr(run_eval, "build_julia1_reranker", lambda path: FakeSystem1())
+    assert run_eval.main([
+        "--systems", "H,J", "--system1-model-path", "fake-local-checkout", "--budgets", "20000",
+        "--dataset", "heldout", "--fts-relax", "off", "--out", str(tmp_path),
+    ]) == 0
+    data = json.loads((tmp_path / "results_heldout_strict_fts.json").read_text())
+    assert data["meta"]["comparison_baseline"] == "H"
+    assert data["systems"]["J"]["answers_lost_vs_H"]["20000"] == []
+    assert "mean_system1_rerank_ms" in data["systems"]["J"]["budgets"]["20000"]
+    assert "system1_inference_failures" in data["systems"]["J"]["budgets"]["20000"]
+    assert data["systems"]["J"]["system1_runtime"]["torch_threads"] == 1
+
+
 def test_noise_sweep_run_records_answers_lost_and_candidate_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(run_eval, "semantic_for", lambda *a, **k: (None, None))  # offline: keyword search only
     assert run_eval.main(["--systems", "S,S+k3", "--budgets", "20000", "--dataset", "heldout", "--out", str(tmp_path)]) == 0
