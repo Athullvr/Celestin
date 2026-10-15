@@ -11,7 +11,14 @@ from datetime import datetime, timezone
 from typing import Callable, Protocol, Sequence
 from uuid import uuid4
 
-from orbit.mcp_server.authorization import AuthorizedProject, READ, WRITE
+from orbit.mcp_server.authorization import (
+    AuthenticatedPrincipal,
+    AuthorizedProject,
+    ProjectAccessDenied,
+    ProjectAuthorizer,
+    READ,
+    WRITE,
+)
 
 from .model import (
     CaptureKnowledgeProvenance,
@@ -109,9 +116,11 @@ class EvidenceReferenceResolver(Protocol):
 class EvidenceLinkedMemoryService:
     """Create, associate, inspect, verify, and supersede project knowledge.
 
-    Every operation requires an ``AuthorizedProject`` produced by Celestin's
-    existing authorization boundary. Verification status changes are explicit
-    caller assertions; this service never checks source truth on its own.
+    A supplied ``AuthorizedProject`` is a project/action selector, not proof of
+    authorization. Each operation is checked by the configured authorizer
+    using the principal fixed when the trusted caller builds this service.
+    Verification status changes are explicit caller assertions; this service
+    never checks source truth on its own.
     """
 
     def __init__(
@@ -119,11 +128,15 @@ class EvidenceLinkedMemoryService:
         store: EvidenceLinkedMemoryStore,
         resolver: EvidenceReferenceResolver,
         *,
+        authorizer: ProjectAuthorizer,
+        principal: AuthenticatedPrincipal | None = None,
         id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._resolver = resolver
+        self._authorizer = authorizer
+        self._principal = principal
         self._id_factory = id_factory or (lambda: str(uuid4()))
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
@@ -136,7 +149,7 @@ class EvidenceLinkedMemoryService:
         *,
         capture_provenance: CaptureKnowledgeProvenance | None = None,
     ) -> KnowledgeBundle:
-        project = _require_scope(scope, WRITE)
+        project = self._require_scope(scope, WRITE)
         claim = _required_text(claim, "claim")
         if not isinstance(knowledge_type, KnowledgeType):
             raise EvidenceValidationError("knowledge_type must be a KnowledgeType")
@@ -164,7 +177,7 @@ class EvidenceLinkedMemoryService:
         knowledge_id: str,
         source: EvidenceSource,
     ) -> EvidenceRecord:
-        project = _require_scope(scope, WRITE)
+        project = self._require_scope(scope, WRITE)
         knowledge_id = _required_text(knowledge_id, "knowledge_id")
         self._require_record(project, knowledge_id)
         evidence = self._new_evidence(project, (source,), self._now())[0]
@@ -173,7 +186,7 @@ class EvidenceLinkedMemoryService:
     def get_knowledge(
         self, scope: AuthorizedProject, knowledge_id: str
     ) -> KnowledgeBundle:
-        project = _require_scope(scope, READ)
+        project = self._require_scope(scope, READ)
         knowledge_id = _required_text(knowledge_id, "knowledge_id")
         record = self._require_record(project, knowledge_id)
         evidence = tuple(self._store.list_evidence(project, knowledge_id))
@@ -213,7 +226,7 @@ class EvidenceLinkedMemoryService:
         checked_by: str | None = None,
         note: str | None = None,
     ) -> KnowledgeRecord:
-        project = _require_scope(scope, WRITE)
+        project = self._require_scope(scope, WRITE)
         record = self._require_record(project, _required_text(knowledge_id, "knowledge_id"))
         checked_by, note = _verification_metadata(status, checked_by, note)
         now = self._now()
@@ -245,7 +258,7 @@ class EvidenceLinkedMemoryService:
         checked_by: str | None = None,
         note: str | None = None,
     ) -> EvidenceRecord:
-        project = _require_scope(scope, WRITE)
+        project = self._require_scope(scope, WRITE)
         knowledge_id = _required_text(knowledge_id, "knowledge_id")
         evidence_id = _required_text(evidence_id, "evidence_id")
         self._require_record(project, knowledge_id)
@@ -283,7 +296,7 @@ class EvidenceLinkedMemoryService:
         *,
         capture_provenance: CaptureKnowledgeProvenance | None = None,
     ) -> KnowledgeBundle:
-        project = _require_scope(scope, WRITE)
+        project = self._require_scope(scope, WRITE)
         previous_id = _required_text(previous_id, "previous_id")
         previous = self._require_record(project, previous_id)
         if previous.lifecycle_status is not LifecycleStatus.CURRENT:
@@ -396,6 +409,22 @@ class EvidenceLinkedMemoryService:
         value = self._id_factory()
         return _required_text(value, "generated identifier")
 
+    def _require_scope(self, scope: AuthorizedProject, action: str) -> str:
+        if not isinstance(scope, AuthorizedProject) or scope.action != action:
+            raise PermissionError(f"a project {action} selector is required")
+        project = _required_text(scope.project, "project")
+        try:
+            checked = self._authorizer.authorize(self._principal, project, action)
+        except ProjectAccessDenied:
+            raise PermissionError("project access denied") from None
+        if (
+            not isinstance(checked, AuthorizedProject)
+            or checked.project != project
+            or checked.action != action
+        ):
+            raise PermissionError("project access denied")
+        return project
+
     def _now(self) -> str:
         value = self._clock()
         if not isinstance(value, datetime) or value.tzinfo is None:
@@ -403,12 +432,6 @@ class EvidenceLinkedMemoryService:
         return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
             "+00:00", "Z"
         )
-
-
-def _require_scope(scope: AuthorizedProject, action: str) -> str:
-    if not isinstance(scope, AuthorizedProject) or scope.action != action:
-        raise PermissionError(f"an authorized project {action} scope is required")
-    return _required_text(scope.project, "authorized project")
 
 
 def _required_text(value: str, field: str) -> str:

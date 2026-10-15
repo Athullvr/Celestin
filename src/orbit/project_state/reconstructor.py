@@ -51,7 +51,13 @@ _UNRESOLVED_HEADING = re.compile(
 
 
 class ProjectStateReconstructor:
-    """Inspect a repository at a commit without reading or changing its worktree."""
+    """Inspect a repository at a commit without reading or changing its worktree.
+
+    This internal prototype accepts a repository path directly and does not
+    authenticate a caller or bind that path to ``project_id``. Applications
+    must resolve the path from a trusted project registry before construction;
+    do not expose this constructor to untrusted requests.
+    """
 
     def __init__(
         self,

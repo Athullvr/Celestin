@@ -65,6 +65,17 @@ class ToolContractTests(unittest.TestCase):
             "ping",
         ):
             self.assertEqual(names.count(expected), 1)
+        self.assertEqual(
+            set(names),
+            {
+                "ingest_chat_message",
+                "save_decision",
+                "search_chat_history",
+                "retrieve_context",
+                "ping",
+            },
+            "Resurrection Layer domain services must remain internal-only",
+        )
         schemas = {tool.name: tool.parameters for tool in tools}
         self.assertEqual(set(schemas["ingest_chat_message"]["properties"]), {"project", "conversation_id", "role", "content"})
         self.assertEqual(set(schemas["save_decision"]["properties"]), {"project", "key", "value", "source_message_id"})

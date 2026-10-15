@@ -8,10 +8,15 @@ The current `MemoryStore` port supports messages and decisions only. No evidence
 schema or adapter contract has been approved, so this change deliberately adds
 no migration and changes no existing persistence or MCP behavior.
 
-The service accepts an `AuthorizedProject` produced by Celestin's existing
-authorization boundary. It does not authorize caller-supplied project strings
-or replace hosted scope checks. A future application adapter must obtain the
-authorized scope before calling it.
+The service accepts an `AuthorizedProject` as a project/action selector and
+re-authorizes each operation through an injected `ProjectAuthorizer`. The
+trusted service factory fixes the principal on the service instance; the
+principal carried by a caller-supplied scope is not used for authorization.
+This is a domain guard, not transport authentication: untrusted callers must
+not be allowed to construct a service with a permissive authorizer or choose
+its principal. No Resurrection Layer operation is currently exposed through
+MCP. Hosted integration must supply the trusted principal and authorizer at
+the application boundary and continue checking membership on every request.
 
 ## Domain records
 

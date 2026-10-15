@@ -203,6 +203,7 @@ def _memory_service(store=None, resolver=None):
     return EvidenceLinkedMemoryService(
         store or MemoryStoreDouble(),
         resolver or EvidenceResolver(),
+        authorizer=ProjectAccessPolicy(local_access={PROJECT: [READ, WRITE]}),
         id_factory=lambda: next(ids),
         clock=lambda: CAPTURED_AT,
     )
@@ -339,7 +340,11 @@ def test_approved_uncertain_candidate_flows_through_capabilities_1_2_and_4(tmp_p
     )
     assert repository_evidence.classification is EvidenceClass.VERIFIED
 
-    sync = ProjectSyncService(InMemorySyncEventStore(), clock=lambda: CAPTURED_AT)
+    sync = ProjectSyncService(
+        InMemorySyncEventStore(),
+        authorizer=ProjectAccessPolicy(local_access={PROJECT: [READ, WRITE]}),
+        clock=lambda: CAPTURED_AT,
+    )
     submission = SyncEventSubmission(
         schema_version=CURRENT_SCHEMA_VERSION,
         project_id=PROJECT,
@@ -448,7 +453,11 @@ def test_sync_delivery_of_pending_candidate_does_not_approve_or_persist_knowledg
     candidate = _candidate(_capture_pipeline(), revision, "Use SQLite.")
     assert candidate.status is ReviewStatus.PENDING
     memory_store = MemoryStoreDouble()
-    sync = ProjectSyncService(InMemorySyncEventStore(), clock=lambda: CAPTURED_AT)
+    sync = ProjectSyncService(
+        InMemorySyncEventStore(),
+        authorizer=ProjectAccessPolicy(local_access={PROJECT: [READ, WRITE]}),
+        clock=lambda: CAPTURED_AT,
+    )
     submission = SyncEventSubmission(
         CURRENT_SCHEMA_VERSION,
         PROJECT,
@@ -567,7 +576,11 @@ def test_project_scope_mismatches_are_rejected_or_ignored_at_each_available_boun
     with pytest.raises(CaptureValidationError, match="does not match"):
         _persist_approved_decision(memory, _scope("other-project", WRITE), approved)
 
-    sync = ProjectSyncService(InMemorySyncEventStore(), clock=lambda: CAPTURED_AT)
+    sync = ProjectSyncService(
+        InMemorySyncEventStore(),
+        authorizer=ProjectAccessPolicy(local_access={PROJECT: [READ, WRITE]}),
+        clock=lambda: CAPTURED_AT,
+    )
     bad_submission = SyncEventSubmission(
         CURRENT_SCHEMA_VERSION,
         "other-project",

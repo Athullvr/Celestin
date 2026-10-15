@@ -34,8 +34,8 @@ NOW = datetime(2026, 10, 14, 12, 30, tzinfo=timezone.utc)
 
 
 def authorized(project: str, action: str = WRITE) -> AuthorizedProject:
-    policy = ProjectAccessPolicy(local_access={project: [READ, WRITE]})
-    return policy.authorize(None, project, action)
+    # Deliberately constructible: the service must authorize the selector again.
+    return AuthorizedProject(project=project, action=action, principal=None)
 
 
 class Resolver:
@@ -132,6 +132,12 @@ def make_service(store=None, resolver=None):
     return EvidenceLinkedMemoryService(
         store or FakeEvidenceStore(),
         resolver or Resolver(),
+        authorizer=ProjectAccessPolicy(
+            local_access={
+                project: [READ, WRITE]
+                for project in ("p", "project-a", "project-b")
+            }
+        ),
         id_factory=lambda: next(ids),
         clock=lambda: NOW,
     )
@@ -472,16 +478,57 @@ def test_project_scope_isolation_and_missing_record_errors():
         )
 
 
+def test_caller_constructed_scope_does_not_grant_evidence_access():
+    store = FakeEvidenceStore()
+    service = EvidenceLinkedMemoryService(
+        store,
+        Resolver(),
+        authorizer=ProjectAccessPolicy(local_access={"project-a": [READ]}),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.create_knowledge(
+            AuthorizedProject("project-a", WRITE, None),
+            KnowledgeType.DISCOVERY,
+            "caller supplied scope",
+            (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+        )
+    assert store.records == {}
+
+
+def test_forged_scope_cannot_switch_the_service_principal_to_another_project():
+    from orbit.mcp_server.authorization import AuthenticatedPrincipal
+
+    member = AuthenticatedPrincipal("test-issuer", "member-a")
+    attacker = AuthenticatedPrincipal("test-issuer", "attacker")
+    service = EvidenceLinkedMemoryService(
+        FakeEvidenceStore(),
+        Resolver(),
+        authorizer=ProjectAccessPolicy(
+            principal_access={member: {"project-a": [READ, WRITE]}}
+        ),
+        principal=member,
+        clock=lambda: NOW,
+    )
+
+    # The scope's principal is ignored; the service uses its pinned principal.
+    with pytest.raises(KnowledgeNotFound):
+        service.get_knowledge(AuthorizedProject("project-a", READ, attacker), "missing")
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.get_knowledge(AuthorizedProject("project-b", READ, member), "missing")
+
+
 def test_authorized_action_is_required_for_each_operation():
     service = make_service()
-    with pytest.raises(PermissionError, match="write scope"):
+    with pytest.raises(PermissionError, match="write selector"):
         service.create_knowledge(
             authorized("p", READ),
             KnowledgeType.DISCOVERY,
             "Claim",
             (EvidenceSource(EvidenceType.MESSAGE, "m-1"),),
         )
-    with pytest.raises(PermissionError, match="read scope"):
+    with pytest.raises(PermissionError, match="read selector"):
         service.get_knowledge(authorized("p", WRITE), "missing")
 
 

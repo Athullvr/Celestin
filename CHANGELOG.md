@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T20:34:33+05:30 — Reauthorize Resurrection Layer service operations
+
+- Changed: Evidence and synchronization services now treat `AuthorizedProject` as a project/action selector and re-check every operation through an injected `ProjectAuthorizer` using a principal fixed at trusted service construction. Added regressions for caller-constructed scopes, cross-project access, and stable service-principal use. Strengthened the MCP tool registration test to assert that Capabilities 1–4 remain internal-only. Documented the remaining repository-root binding limitation.
+- Why: `AuthorizedProject` is a publicly constructible dataclass and its presence alone cannot establish trusted authorization. Project-state reconstruction also accepts an explicit root with no project-to-repository resolver.
+- Validation: Pre-change selected baseline passed with `--import-mode=importlib` (the repository's default pytest mode failed collection because `tests/evidence/test_service.py` and `tests/sync/test_service.py` share the same module basename). Final targeted suite: 106 passed, 6 subtests passed. Broader capture/evidence/project-state/sync/integration/auth/storage suite: 195 passed, 15 subtests passed. `git diff --check` passed.
+- Limitations: This adds domain reauthorization only when a trusted caller configures the authorizer and pins the principal. It does not authenticate transports. Resurrection capabilities remain unexposed through MCP. Reconstruction needs an application-owned authorized project-to-repository resolver before external exposure; current path and symlink checks are not project authorization.
+
 ## 2026-10-15T19:37:01+05:30 — Keep reviewed capture candidates immutable
 
 - Changed: Terminal approved/rejected candidates now remain unchanged on exact retries; additional source/evidence or changed claim surface/certainty under the same normalized identity is reported as suppressed. Different claims or conflict keys remain new pending identities. New conflict candidates can link to terminal claims without backfilling the terminal record's conflict history. Added focused regression tests and clarified the capture contract.
