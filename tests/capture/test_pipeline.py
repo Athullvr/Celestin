@@ -267,6 +267,24 @@ def test_explicit_conflicts_are_linked_without_selecting_a_winner():
     assert all(item.verification_status is VerificationStatus.UNVERIFIED for item in (sqlite_after, postgres_after))
 
 
+def test_same_batch_conflicts_are_reflected_in_every_returned_candidate():
+    queue = pipeline()
+    result = queue.capture(
+        request(
+            (
+                CaptureEvent(CandidateCategory.DECISION, "Use SQLite.", conflict_key="storage"),
+                CaptureEvent(CandidateCategory.DECISION, "Use PostgreSQL.", conflict_key="storage"),
+            )
+        )
+    )
+
+    sqlite, postgres = result.candidates
+    assert sqlite.conflicts_with == (postgres.candidate_id,)
+    assert postgres.conflicts_with == (sqlite.candidate_id,)
+    assert queue.get_candidate("celestin", sqlite.candidate_id) == sqlite
+    assert queue.get_candidate("celestin", postgres.candidate_id) == postgres
+
+
 def test_uncertain_completion_stays_uncertain_unverified_and_pending():
     queue = pipeline()
     result = queue.capture(

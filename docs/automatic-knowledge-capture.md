@@ -57,6 +57,10 @@ and optional conflict key. Whitespace/case-normalized repeats merge source and
 evidence references. Replaying the same input is idempotent within the in-memory
 repository; a new source with the same claim adds provenance to the same
 candidate. Distinct claims remain separate, including conflicting claims.
+For structured input that updates a candidate more than once or links later
+conflicts in the same batch, `CaptureResult` returns the final saved version
+for each returned candidate ID, so its source and conflict references agree
+with the review queue at the end of that call.
 
 New candidates start `pending_review` and `unverified`. Uncertainty words mark
 the candidate `uncertain`, but do not change the claim to a fact. `unqualified`

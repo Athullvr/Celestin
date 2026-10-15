@@ -422,7 +422,7 @@ def test_conflicting_capture_claims_keep_their_links_through_reconstruction(tmp_
     )
 
 
-def test_same_batch_capture_result_can_precede_final_conflict_links():
+def test_same_batch_capture_result_contains_final_conflict_links():
     pipeline = _capture_pipeline()
     result = pipeline.capture(
         CaptureInput(
@@ -436,11 +436,11 @@ def test_same_batch_capture_result_can_precede_final_conflict_links():
         )
     )
     stored_first = pipeline.get_candidate(PROJECT, result.candidates[0].candidate_id)
+    stored_second = pipeline.get_candidate(PROJECT, result.candidates[1].candidate_id)
 
-    # The queue holds the final symmetric links, but the result tuple contains
-    # the first candidate object created before the second event linked it.
-    assert len(stored_first.conflicts_with) == 1
-    assert result.candidates[0].conflicts_with == ()
+    assert stored_first.conflicts_with == (stored_second.candidate_id,)
+    assert stored_second.conflicts_with == (stored_first.candidate_id,)
+    assert result.candidates == (stored_first, stored_second)
 
 
 def test_sync_delivery_of_pending_candidate_does_not_approve_or_persist_knowledge(tmp_path):

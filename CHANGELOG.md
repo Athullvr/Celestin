@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T11:08:45+05:30 — Return consistent same-batch capture results
+
+- Changed: Refresh accepted capture candidates from the review repository after processing the complete input batch, so returned source merges and conflict links match the saved queue state. Added a unit regression and updated the cross-capability assertion and capture contract documentation.
+- Why: A later candidate in one structured input could add reciprocal conflict links to an earlier candidate, while the earlier object in `CaptureResult` remained stale.
+- Validation: Before implementation, the Resurrection Layer baseline passed 106 tests. The new regression failed against the old behavior. After the fix, the capability suite passed 107 tests; the capability plus authorization/storage regression suite passed 160 tests and 12 subtests. Broad suite excluding known broken retrieval setup and stdio tests: 544 passed, 2 skipped, 1 deselected, 15 subtests passed. `git diff --check` passed.
+- Limitations: Five tests in `tests/retrieval/test_strategies.py` still fail during setup with `NameError: DecisionRepository`; the PageIndex-enabled stdio test timed out after 35 seconds without output. The broad run excluded that retrieval module and stdio tests. No shared-memory or production persistence behavior was validated.
+
 ## 2026-10-15T09:03:58+05:30 — Preserve capture provenance through knowledge reconstruction
 
 - Changed: Added optional `CaptureKnowledgeProvenance` to `KnowledgeRecord`, a capture conversion helper and explicit category mapping; validated project, approved/unverified state, and source-to-evidence association. Capability 2 now returns capture provenance, knowledge/evidence record IDs, evidence resolution/verification/checker fields, and lifecycle/supersession fields. Updated contract documentation and integration tests.

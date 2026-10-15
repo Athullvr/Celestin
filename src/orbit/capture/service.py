@@ -229,6 +229,17 @@ class KnowledgeCapturePipeline:
             candidate = self._link_conflicts(candidate)
             accepted.append(candidate)
 
+        # Later events in this batch can merge source references or add conflict
+        # links to candidates already returned above. Return the final queue
+        # state for each accepted identity so the result is internally consistent.
+        if accepted:
+            saved_candidates = {item.candidate_id: item for item in self._list()}
+            try:
+                accepted = [saved_candidates[item.candidate_id] for item in accepted]
+            except KeyError as exc:
+                raise CaptureRepositoryError(
+                    "review repository omitted a candidate accepted in this batch"
+                ) from exc
         return CaptureResult(tuple(accepted), tuple(suppressed), duplicate_count)
 
     def list_candidates(
