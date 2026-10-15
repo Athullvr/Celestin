@@ -4,6 +4,27 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T10:36:52+05:30 — Tighten live PostgreSQL test-target exception and migration sequence
+
+- Changed: Allowed only the exact user-approved `celestin_it_20261014_a7f3c9` database/role at `127.0.0.1:5432` in addition to the existing nonce-named target policy. The live fixture now verifies runtime identity and emptiness before one migration-runner invocation, then checks ledger/checksums. Added unit coverage and documented the one-run lifecycle.
+- Why: Enable the specifically approved target without admitting arbitrary database names or migrating before fixture checks.
+- Validation: Focused PostgreSQL tests: 43 passed, 18 live tests skipped. Full suite: 324 passed, 38 skipped. `git diff --check` passed. No PostgreSQL connection or migrations were run.
+- Limitations: Real PostgreSQL integration remains unverified. After the approved target receives migrations it is no longer eligible as a fresh target; future live runs need a new nonce-named database and matching role.
+
+## 2026-10-15T09:51:12+05:30 — Review evidence-linked memory storage semantics
+
+- Changed: Added a proposed contract review in `docs/evidence-linked-memory-contract.md` covering candidate identity, retry behavior, provenance versioning, typed evidence, conflict history, transaction atomicity, and the authorization boundary.
+- Why: Give the team a concrete storage contract to ratify before the persistence owner designs an additive PostgreSQL migration.
+- Validation: Read-only comparison against the current hosted baseline, `MemoryStore`, and `PostgresMemoryStore`; `git diff --check` passed. No tests or database operations were run.
+- Limitations: The referenced Resurrection Layer contract was not present in the local worktree or Git history, so field-level reconciliation remains pending. All semantics in the new document are proposals, not approved schema decisions.
+
+## 2026-10-14T22:28:00+05:30 — Prepare opt-in live PostgreSQL authorization tests
+
+- Changed: Added a dedicated live PostgreSQL test target guard and fixture, synthetic hosted authorization/transaction/constraint/concurrency tests, target-parser unit tests, and operator guidance in the README and PostgreSQL docs.
+- Why: Provide a safe way to validate migrations and transaction/locking behavior against an explicitly provisioned disposable PostgreSQL database without making ordinary tests depend on a server.
+- Validation: Focused non-live PostgreSQL tests: 38 passed, 18 live tests skipped. Full suite: 319 passed, 38 skipped. `git diff --check` and the untracked-file whitespace scan passed. No PostgreSQL connection, migration, database provisioning, dependency install, staging, commit, or push was performed.
+- Limitations: Live tests remain unrun; the fixture deliberately requires a new empty nonce-named local database and a matching non-superuser role. The active-owner invariant remains an application-policy gap.
+
 ## 2026-10-14T21:47:50+05:30 — Finalize hosted-foundation commit hygiene
 
 - Changed: Clarified that the authorization session protocol is implemented by hosted storage sessions and removed extra trailing blank lines from five newly added PostgreSQL files.

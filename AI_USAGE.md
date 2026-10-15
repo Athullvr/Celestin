@@ -4,6 +4,11 @@ Use Codex during the hackathon and briefly document its actual contribution here
 
 ## Event build log
 
+| 2026-10-15T10:36:52+05:30 | Codex (GPT-6) | Tighten live PostgreSQL target and migration sequencing | Added an exact approved-target allowlist, retained runtime identity/empty-database checks, made the live fixture call the migration runner once, added unit coverage, and updated test guidance. | Pending human review; no database connection, migration, staging, commit, or push. Existing work was preserved. | Focused tests: 43 passed, 18 live skipped. Full suite: 324 passed, 38 skipped. `git diff --check` passed. No live integration claim. |
+
+| 2026-10-14T22:28:00+05:30 | Codex (GPT-6) | Prepare opt-in live PostgreSQL integration tests | Added a safety-gated fixture, real-server tests for hosted authorization, schema constraints, transactions, cleanup and revocation ordering, pure target-validation tests, and operator guidance. | Pending human review; no database operations, dependency installation, staging, commit, or push. Existing work was preserved. | Focused non-live PostgreSQL tests: 38 passed, 18 live tests skipped. Full suite: 319 passed, 38 skipped. `git diff --check` and untracked-file whitespace scan passed; live PostgreSQL behavior remains untested. |
+| 2026-10-15T09:51:12+05:30 | Codex (GPT-6) | Review evidence-linked knowledge storage contract | Added a proposal document comparing teammate requirements with the hosted schema and storage port. No application, migration, or Resurrection Layer code changed. | Pending team review; existing PostgreSQL integration-test changes preserved. | Read-only source review and `git diff --check` passed; no tests or database operations run. The detailed domain contract was unavailable locally, so exact field reconciliation remains open. |
+
 Codex contributions during the event are recorded below. Mark human review as pending until someone has reviewed the contribution.
 
 | Date and time with timezone | Tool / model, if known | Task | Assistance and affected files | Human review / corrections | Validation and result |
