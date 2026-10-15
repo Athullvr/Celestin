@@ -4,6 +4,12 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T12:04:01+05:30 — Fix PostgreSQL migration fresh-database guard
+
+- Changed: Kept the initial object check inclusive of ledger-named objects; the post-ledger check now excludes only the migration ledger table and its catalog-linked array type. Empty pre-existing ledgers fail closed. Added scripted regression coverage and operator guidance.
+- Why: PostgreSQL creates a composite row type and associated array type for the ledger table; the previous second guard counted the generated array type as an unrelated public type and stopped before migration 1.
+- Validation: Focused runner tests: 13 passed. Complete non-live PostgreSQL subset: 54 passed. Full suite: 335 passed, 38 skipped. `git diff --check` passed. No live database connection or SQL was run for this fix.
+- Limitations: Scripted tests do not verify the catalog query against PostgreSQL. The failed target was not inspected and may contain an empty ledger; a database owner must provision a new disposable database before another initialization attempt.
 ## 2026-10-15T11:05:36+05:30 — Reject unsafe PostgreSQL test DSNs
 
 - Changed: Replaced driver-normalized DSN parsing with strict validation for exactly four password-free target parameters; added tests for credentials, extra and duplicate parameters, malformed syntax, and target mismatches; documented the accepted form and Windows password-file handling.
