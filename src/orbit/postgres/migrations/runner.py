@@ -99,7 +99,7 @@ SELECT EXISTS (
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-      AND c.relname <> 'celestin_schema_migrations'
+      AND (NOT %s OR c.relname <> 'celestin_schema_migrations')
     UNION ALL
     SELECT 1
     FROM pg_catalog.pg_proc p
@@ -110,6 +110,20 @@ SELECT EXISTS (
     FROM pg_catalog.pg_type t
     JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'public' AND t.typrelid = 0
+      AND (
+          NOT %s
+          OR NOT EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_class ledger
+              JOIN pg_catalog.pg_namespace ledger_ns
+                ON ledger_ns.oid = ledger.relnamespace
+              JOIN pg_catalog.pg_type ledger_row_type
+                ON ledger_row_type.oid = ledger.reltype
+              WHERE ledger_ns.nspname = 'public'
+                AND ledger.relname = 'celestin_schema_migrations'
+                AND ledger_row_type.typarray = t.oid
+          )
+      )
 )
 """
 _CREATE_LEDGER_SQL = f"""
@@ -145,8 +159,13 @@ def apply_migrations(
     _lock(connection)
     try:
         ledger_exists = connection.execute(_LEDGER_EXISTS_SQL, (LEDGER_TABLE,)).fetchone()[0]
-        if ledger_exists is None:
-            has_objects = bool(connection.execute(_HAS_EXISTING_OBJECTS_SQL).fetchone()[0])
+        ledger_created_here = ledger_exists is None
+        if ledger_created_here:
+            # The first pass does not exclude anything. In particular, a user
+            # object named like the ledger cannot make a fresh database look empty.
+            has_objects = bool(
+                connection.execute(_HAS_EXISTING_OBJECTS_SQL, (False, False)).fetchone()[0]
+            )
             if has_objects:
                 raise MigrationError(
                     "database has user objects but no Celestin migration ledger; "
@@ -171,8 +190,13 @@ def apply_migrations(
             applied[version] = (str(name), str(checksum))
 
         if not applied:
+            if not ledger_created_here:
+                raise MigrationError(
+                    "existing migration ledger has no applied migration records; "
+                    "refusing to adopt it"
+                )
             has_untracked_objects = bool(
-                connection.execute(_HAS_EXISTING_OBJECTS_SQL).fetchone()[0]
+                connection.execute(_HAS_EXISTING_OBJECTS_SQL, (True, True)).fetchone()[0]
             )
             if has_untracked_objects:
                 raise MigrationError(

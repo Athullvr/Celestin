@@ -11,6 +11,7 @@ import pytest
 from orbit.postgres.migrations.runner import (
     Migration,
     MigrationError,
+    _HAS_EXISTING_OBJECTS_SQL,
     apply_migrations,
     load_migrations,
     validate_migrations,
@@ -33,8 +34,11 @@ class FakeDatabase:
         self.migration_lock = Lock()
         self.ledger_exists = False
         self.ledger_schema = ""
+        self.ledger_array_type_exists = False
         self.ledger = []
         self.objects = False
+        self.unrelated_objects_added_after_ledger = False
+        self.object_guard_calls = []
         self.executed_migrations = []
 
 
@@ -57,10 +61,22 @@ class FakeConnection:
             return Result([("public.celestin_schema_migrations",)] if self.database.ledger_exists else [(None,)])
         if normalized.startswith("SET LOCAL search_path TO public"):
             return Result()
-        if "FROM pg_catalog.pg_namespace n" in query:
-            return Result([(self.database.objects,)])
+        if normalized.startswith("SELECT EXISTS") and "FROM pg_catalog.pg_namespace n" in query:
+            ignore_ledger_relation, ignore_ledger_array_type = params
+            self.database.object_guard_calls.append(params)
+            found = self.database.objects
+            if self.database.ledger_exists:
+                if not ignore_ledger_relation:
+                    found = True
+                if self.database.ledger_array_type_exists and not ignore_ledger_array_type:
+                    found = True
+                if self.database.unrelated_objects_added_after_ledger:
+                    found = True
+            return Result([(found,)])
         if normalized.startswith("CREATE TABLE public.celestin_schema_migrations"):
             self.database.ledger_exists = True
+            # CREATE TABLE creates a composite row type and its associated array type.
+            self.database.ledger_array_type_exists = True
             self.database.ledger_schema = normalized
             return Result()
         if normalized.startswith("SELECT version, name, checksum"):
@@ -133,6 +149,7 @@ def test_apply_is_repeatable_and_checksums_are_immutable():
     assert second.current_version == 2
     assert len(database.executed_migrations) == 2
     assert [row[0] for row in database.ledger] == [1, 2]
+    assert database.object_guard_calls == [(False, False), (True, True)]
 
     changed = [migration(1, "CREATE TEST CHANGED;"), migrations[1]]
     with pytest.raises(MigrationError, match="checksum or name differs"):
@@ -157,6 +174,48 @@ def test_refuses_nonempty_untracked_database_without_creating_ledger():
     with pytest.raises(MigrationError, match="no Celestin migration ledger"):
         apply_migrations(FakeConnection(database), [migration(1)])
     assert database.ledger_exists is False
+    assert database.executed_migrations == []
+
+
+def test_post_ledger_check_ignores_only_runner_ledger_relation_and_array_type():
+    database = FakeDatabase()
+
+    result = apply_migrations(FakeConnection(database), [migration(1)])
+
+    assert result.applied_versions == (1,)
+    assert database.ledger_exists is True
+    assert database.ledger_array_type_exists is True
+    assert database.object_guard_calls == [(False, False), (True, True)]
+    assert database.executed_migrations == ["CREATE TEST;"]
+    assert (
+        "AND (NOT %s OR c.relname <> 'celestin_schema_migrations')"
+        in _HAS_EXISTING_OBJECTS_SQL
+    )
+    assert "ledger_row_type.typarray = t.oid" in _HAS_EXISTING_OBJECTS_SQL
+
+
+def test_post_ledger_check_still_rejects_unrelated_objects():
+    database = FakeDatabase()
+    database.unrelated_objects_added_after_ledger = True
+
+    with pytest.raises(MigrationError, match="no applied migration records"):
+        apply_migrations(FakeConnection(database), [migration(1)])
+
+    assert database.ledger_exists is True
+    assert database.ledger == []
+    assert database.object_guard_calls == [(False, False), (True, True)]
+    assert database.executed_migrations == []
+
+
+def test_refuses_to_adopt_a_preexisting_empty_migration_ledger():
+    database = FakeDatabase()
+    database.ledger_exists = True
+
+    with pytest.raises(MigrationError, match="existing migration ledger has no applied"):
+        apply_migrations(FakeConnection(database), [migration(1)])
+
+    assert database.ledger == []
+    assert database.object_guard_calls == []
     assert database.executed_migrations == []
 
 
