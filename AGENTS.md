@@ -38,7 +38,15 @@
 5. Commit completed work before a handoff, a long break, or the end of a work session. If work is incomplete, document its state and use an honest `wip:` message for a useful checkpoint.
 6. Use short, descriptive messages, such as `feat: add project search`, `fix: handle empty results`, or `docs: explain local demo setup`.
 7. Do not create empty commits to satisfy the clock. Do not backdate commits, squash away the event development record, force-push, or rewrite shared history.
-8. Push committed checkpoints to the team's repository regularly, when network access is available and the team has authorized that remote. Resolve conflicts with care.
+8. Push only after the user explicitly approves pushing the specific branch and changes. After that approval, push committed checkpoints when appropriate and resolve conflicts with care.
+
+## Optional granular commit watcher
+
+- `.codex/agents/commit-granular.toml` defines the repository-local `commit_granular` agent. It may create separate, coherent local commits for independent completed changes; it must never push or rewrite history.
+- Start the foreground watcher with `pwsh -NoProfile -File scripts/commit-watcher.ps1`. It requires a clean tree and a checked-out branch at startup, waits 90 quiet seconds (polling every 3 seconds), then asks Codex CLI to review and commit the snapshot. Use `-QuietPeriodSeconds` and `-PollIntervalSeconds` to configure timing.
+- Stop with Ctrl+C. For scripted graceful shutdown, pass `-StopFilePath <path>` and create that file. The watcher stops on branch changes, Git operation markers, a CLI error, or changes left uncommitted after a successful CLI run; review and restart manually.
+- The watcher does not run network or remote Git commands. It uses Codex CLI `exec` with the `workspace-write` sandbox and enables custom agents for that invocation. The watcher only runs while its terminal process is active.
+- Check the watcher using `pwsh -NoProfile -File scripts/test-commit-watcher.ps1`. `scripts/test-commit-agent.ps1` exercises the actual Codex agent in a disposable repository when the local CLI helper environment is available.
 
 The 30-minute target is this repository's working convention. It does not replace event rules or organizer instructions.
 
@@ -54,6 +62,14 @@ The 30-minute target is this repository's working convention. It does not replac
 - Complete [SUBMISSION.md](SUBMISSION.md), replacing all participant placeholders.
 - Confirm the README gives reproducible setup and demo steps.
 - Check that the working demo matches the submitted code and that known limitations are disclosed.
-- Update the changelog and AI usage record, commit the final coherent change, and push it.
+- Update the changelog and AI usage record and commit the final coherent change. Push only after the user explicitly approves pushing that branch and those changes.
 - Record the final submitted commit SHA in the submission details. Documentation may record that SHA in a subsequent commit; do not claim later implementation changes belong to the earlier demo.
 - Follow the organizers' actual submission method and timing. The event wraps up by 10:00 AM IST on 11 October 2026.
+
+## Iterative engineering workflow
+
+For work requiring more than one edit/check cycle, follow the [reusable Loop Engineering core](docs/loop-engineering-core.md), the [Celestin-specific engineering rules](docs/celestin-loop-rules.md), and the [task-log template](docs/loop-engineering.md). These documents supplement the project instructions above; they do not override the current user's task or approval requirements.
+
+Before editing, inspect the worktree and preserve all pre-existing changes. Keep task logs under `.loop-engineering/`; that directory is ignored by Git and remains local to this checkout. For future Codex chats, read this file, the core, the Celestin rules, and the active task log before continuing.
+
+Pushes always require explicit user approval for the specific branch and changes. Never push automatically.

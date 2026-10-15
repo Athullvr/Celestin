@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import json
 import math
-import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -14,9 +13,8 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from orbit.database.engine import connect
-from orbit.repositories.decisions import DecisionRepository
 from orbit.retrieval.context_builder import ContextBundle, build_context_bundle
-from orbit.retrieval.fts import FtsMessageSearch, FtsSchema, SearchResult
+from orbit.retrieval.fts import SearchResult
 from orbit.retrieval.hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
 from orbit.retrieval.ranking import RankingPolicy, RetrievalCandidate
 from pathlib import Path
@@ -30,6 +28,8 @@ from orbit.retrieval.selector import SelectorContext, plan_query
 from orbit.retrieval.strategies import (
     Candidate, FtsStrategy, PageIndexStrategy, RetrievalRequest, SectionStrategy, SemanticStrategy, StrategyResult,
 )
+from orbit.retrieval.data import RetrievalData
+from orbit.retrieval.sqlite_data import DECISION_FTS_SCHEMA, MESSAGE_FTS_SCHEMA, SQLiteRetrievalData
 from orbit.semantic.search import SemanticSearch, SemanticUnavailable
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ LAYA_MODEL_REPO = "convaiinnovations/laya-multilingual"
 LAYA_MODEL_REVISION = "1720e3e3357cfe1e281542e223f8273b0890ca34"
 LAYA_STATE_TOKENS = 2_048
 LAYA_HEAD_TOKENS = 256
-LAYA_MAX_LEN = LAYA_STATE_TOKENS + LAYA_HEAD_TOKENS + 1  # includes the state-closing separator
+LAYA_MAX_LEN = LAYA_STATE_TOKENS + LAYA_HEAD_TOKENS + 1
 LAYA_TIMEOUT_SECONDS = 30.0
 LAYA_BATCH_SIZE = 8
 LAYA_RRF_K = 60
@@ -117,21 +117,14 @@ class LayaCandidateReranker:
                 token_ids = token_ids[0]
             if len(token_ids) > LAYA_STATE_TOKENS:
                 raise LayaInputTooLong("candidate state exceeds the configured token budget")
-            requests.append({
-                "state": state,
-                "questions": {"relevance": {
-                    "type": "choice",
-                    "instructions": "How useful is this candidate for answering the query?",
-                    "criteria": LAYA_CLASSES,
-                }},
-            })
+            requests.append({"state": state, "questions": {"relevance": {
+                "type": "choice", "instructions": "How useful is this candidate for answering the query?",
+                "criteria": LAYA_CLASSES,
+            }}})
         results = agent.predict_batch(
-            [request["state"] for request in requests],
-            requests[0]["questions"],
-            batch_size=min(LAYA_BATCH_SIZE, len(requests)),
-            max_len=LAYA_MAX_LEN,
-            head_max_len=LAYA_HEAD_TOKENS,
-            sort_by_length=True,
+            [request["state"] for request in requests], requests[0]["questions"],
+            batch_size=min(LAYA_BATCH_SIZE, len(requests)), max_len=LAYA_MAX_LEN,
+            head_max_len=LAYA_HEAD_TOKENS, sort_by_length=True,
         )
         if not isinstance(results, list) or len(results) != len(payloads):
             raise ValueError("Laya returned an invalid batch")
@@ -151,8 +144,6 @@ class LayaCandidateReranker:
                 if not math.isfinite(value) or not 0 <= value <= 1:
                     raise ValueError("Laya returned an invalid probability")
                 checked[label] = value
-            # Laya serializes choice probabilities to four decimal places, so a valid
-            # distribution can differ from 1.0 by a few ten-thousandths.
             if not math.isclose(sum(checked.values()), 1.0, rel_tol=0.0, abs_tol=1e-3):
                 raise ValueError("Laya probabilities are not normalized")
             utilities[payload["record_id"]] = sum(
@@ -168,25 +159,6 @@ def build_laya_reranker() -> LayaCandidateReranker:
     return LayaCandidateReranker()
 
 
-MESSAGE_FTS_SCHEMA = FtsSchema(
-    table="chat_messages_fts",
-    message_id="message_id",
-    project_id="project_id",
-    source_id="source_id",
-    created_at="created_at",
-    content="content",
-)
-
-DECISION_FTS_SCHEMA = FtsSchema(
-    table="project_memory_fts",
-    message_id="decision_id",
-    project_id="project_id",
-    source_id="source_id",
-    created_at="updated_at",
-    content="value",
-)
-
-
 class RetrievalService:
     """Project-scoped search and context assembly over the production schema.
 
@@ -196,8 +168,9 @@ class RetrievalService:
 
     def __init__(
         self,
-        connection: sqlite3.Connection,
+        connection=None,
         *,
+        retrieval_data: RetrievalData | None = None,
         candidate_limit: int = 100,
         semantic: SemanticSearch | None = None,
         documents: PageIndexBackend | None = None,
@@ -211,17 +184,18 @@ class RetrievalService:
         system1_reranker=None,
         rerank_shortlist: int = 20,
     ) -> None:
-        if not isinstance(connection, sqlite3.Connection):
-            raise TypeError("connection must be a sqlite3.Connection")
+        if retrieval_data is not None and connection is not None:
+            raise ValueError("provide either connection or retrieval_data, not both")
+        if retrieval_data is None:
+            if connection is None:
+                raise TypeError("connection or retrieval_data is required")
+            retrieval_data = SQLiteRetrievalData(connection)
         if isinstance(candidate_limit, bool) or not isinstance(candidate_limit, int):
             raise TypeError("candidate_limit must be an integer")
         if candidate_limit < 1:
             raise ValueError("candidate_limit must be at least 1")
 
-        self._message_search = FtsMessageSearch(connection, MESSAGE_FTS_SCHEMA)
-        self._decision_search = FtsMessageSearch(connection, DECISION_FTS_SCHEMA)
-        self._decisions = DecisionRepository(connection)
-        self._connection = connection
+        self._data = retrieval_data
         self._candidate_limit = candidate_limit
         self._semantic = semantic
         self._rrf_k = rrf_k
@@ -247,10 +221,10 @@ class RetrievalService:
         self._system1_trace: dict = {}
         self._sections = SectionStrategy(Path(sections), semantic, section_excerpt_bytes) if sections is not None else None
         self._strategies: dict = {
-            "fts": FtsStrategy(self._message_search, self._decision_search, self._decisions),
+            "fts": FtsStrategy(self._data),
         }
         if semantic is not None:
-            self._strategies["semantic"] = SemanticStrategy(semantic, connection, self._decisions)
+            self._strategies["semantic"] = SemanticStrategy(semantic, self._data)
         if self._sections is not None:
             self._strategies["sections"] = self._sections
         if documents is not None:
@@ -297,17 +271,6 @@ class RetrievalService:
                  "run: celestin-index sync",),
             )
 
-    def _load_messages(self, project: str, ids: list[int]) -> dict[int, sqlite3.Row]:
-        """Authoritative message rows, re-filtered by project."""
-        if not ids:
-            return {}
-        marks = ",".join("?" * len(ids))
-        rows = self._connection.execute(
-            f"SELECT * FROM chat_messages WHERE project = ? AND id IN ({marks})",
-            (project, *ids),
-        )
-        return {int(row["id"]): row for row in rows}
-
     def _fuse_messages(
         self, project: str, fts: list[SearchResult], vector_hits
     ) -> tuple[list[SearchResult], int]:
@@ -316,26 +279,29 @@ class RetrievalService:
         ``relevance_score`` of fused results is ``-rrf_score`` so that, like
         BM25, a lower value is better.
         """
-        by_id = {int(r.message_id): r for r in fts}
-        rows = self._load_messages(
-            project, [h.record_id for h in vector_hits if h.record_id not in by_id]
+        by_id = {str(r.message_id): r for r in fts}
+        rows = self._data.load_messages(
+            project, [str(h.record_id) for h in vector_hits if str(h.record_id) not in by_id]
         )
-        semantic_ids = [h.record_id for h in vector_hits if h.record_id in by_id or h.record_id in rows]
+        semantic_ids = [
+            str(h.record_id) for h in vector_hits
+            if str(h.record_id) in by_id or str(h.record_id) in rows
+        ]
         stale = len(vector_hits) - len(semantic_ids)
         fused = reciprocal_rank_fusion([list(by_id), semantic_ids], self._rrf_k)
         results = []
         for record_id, score in fused:
-            if record_id in by_id:
-                base = by_id[record_id]
+            if str(record_id) in by_id:
+                base = by_id[str(record_id)]
                 results.append(SearchResult(
                     base.message_id, base.project_id, base.source_id,
                     base.content, base.timestamp, -score,
                 ))
             else:
-                row = rows[record_id]
+                row = rows[str(record_id)]
                 results.append(SearchResult(
-                    str(record_id), row["project"], row["conversation_id"],
-                    row["content"], row["created_at"], -score,
+                    row.message_id, row.project, row.conversation_id,
+                    row.content, row.created_at, -score,
                 ))
         return results, stale
 
@@ -347,11 +313,19 @@ class RetrievalService:
         Each result includes the chat message ID, project, conversation ID in
         ``source_id``, content, timestamp, and relevance score.
         """
-        fts = self._message_search.search(
-            query, project_id=project, limit=max(limit, self._candidate_limit)
-            if self._semantic is not None else limit,
+        fts_page = self._data.search_messages(
+            project,
+            query,
+            max(limit, self._candidate_limit) if self._semantic is not None else limit,
             relax=self._fts_relax,
         )
+        fts = [
+            SearchResult(
+                match.record_id, match.project, match.source_id or "", match.content,
+                match.timestamp, match.score,
+            )
+            for match in fts_page.matches
+        ]
         hits = self._semantic_hits(project, query, (MESSAGE_KIND,), self._candidate_limit)
         if hits is None:
             return fts[:limit]
@@ -569,6 +543,102 @@ class RetrievalService:
                               "ms": round((time.perf_counter() - start) * 1000, 2)}
         return {rid: -1.0 / (self._rrf_k + pos) for pos, rid in enumerate(final, start=1)}
 
+    def _rerank_system1(self, record_type: str, request: RetrievalRequest, by_id: dict,
+                        scores: dict, lists) -> dict:
+        """Rerank authorized candidates while preserving baseline scores and strong FTS order."""
+        ordered = [rid for rid, _ in sorted(scores.items(), key=lambda kv: (kv[1], kv[0]))]
+        eligible = [rid for rid in ordered if by_id[rid].project == request.project and (
+            record_type != "canonical_decision" or by_id[rid].status == "approved"
+        )]
+        shortlist_ids = eligible[: min(self._rerank_shortlist, SYSTEM1_MAX_CHOICES)]
+        shortlist = [by_id[rid] for rid in shortlist_ids]
+        group = {"before": ordered, "after": ordered, "eligible": len(eligible),
+                 "shortlist": len(shortlist), "calls": int(len(shortlist) >= 2), "failures": 0,
+                 "input_skips": 0, "ms": 0.0}
+        started = time.perf_counter()
+        if len(shortlist) >= 2:
+            try:
+                if isinstance(self._system1_reranker, LayaCandidateReranker):
+                    evidence: dict[str, list[dict[str, Any]]] = {rid: [] for rid in shortlist_ids}
+                    for (_, method), hits in lists.items():
+                        for hit in hits:
+                            if hit.record_id in evidence:
+                                evidence[hit.record_id].append({
+                                    "method": method, "rank": hit.rank, "score": hit.score,
+                                })
+                    payloads = []
+                    for baseline_rank, candidate in enumerate(shortlist, start=1):
+                        candidate_evidence = evidence[candidate.record_id] or [{
+                            "method": candidate.method, "rank": candidate.rank, "score": candidate.score,
+                        }]
+                        payload_state = {
+                            "query": request.query,
+                            "baseline_rank": baseline_rank,
+                            "candidate_type": candidate.record_type,
+                            "candidate_text": candidate.content,
+                            "retrieval_evidence": candidate_evidence,
+                        }
+                        payloads.append({
+                            "record_id": candidate.record_id,
+                            "baseline_rank": baseline_rank,
+                            "state": json.dumps(payload_state, ensure_ascii=False, separators=(",", ":")),
+                        })
+                    model_order = self._system1_reranker.rank_payloads(payloads)
+                else:
+                    model_order = self._system1_reranker.rerank(request.query, shortlist)
+                if len(model_order) != len(shortlist_ids) or set(model_order) != set(shortlist_ids):
+                    raise ValueError("reranker returned inconsistent candidate IDs")
+                strong = {rid for rid in shortlist_ids if any(
+                    c.method in {"fts", "sections_fts"} and c.tier != "relaxed_or"
+                    for c in _candidate_hits(lists, rid)
+                )}
+                baseline_rank = {rid: rank for rank, rid in enumerate(shortlist_ids, start=1)}
+                if isinstance(self._system1_reranker, LayaCandidateReranker):
+                    model_rank = {rid: rank for rank, rid in enumerate(model_order, start=1)}
+                    rrf_scores = {
+                        rid: 1.0 / (LAYA_RRF_K + baseline_rank[rid])
+                        + 1.0 / (LAYA_RRF_K + model_rank[rid])
+                        for rid in shortlist_ids
+                    }
+                    fused_order = sorted(
+                        shortlist_ids, key=lambda rid: (-rrf_scores[rid], baseline_rank[rid]),
+                    )
+                else:
+                    fused_order = model_order
+                strong_in_order = [rid for rid in shortlist_ids if rid in strong]
+                fused_non_strong = [rid for rid in fused_order if rid not in strong]
+                tail = [rid for rid in ordered if rid not in set(shortlist_ids)]
+                group["after"] = strong_in_order + fused_non_strong + tail
+            except LayaInputTooLong:
+                group["input_skips"] = 1
+                self._system1_warnings.append(
+                    f"Laya reranking skipped for {record_type} (input_over_budget); baseline order retained"
+                )
+                logger.warning("Laya reranking skipped for %s (input_over_budget); baseline order retained", record_type)
+            except Exception as exc:
+                group["failures"] = 1
+                self._system1_warnings.append(
+                    f"System 1 reranking failed for {record_type} ({type(exc).__name__}); baseline order retained"
+                )
+                logger.warning("System 1 reranking failed for %s (%s); baseline order retained",
+                               record_type, type(exc).__name__)
+        group["ms"] = round((time.perf_counter() - started) * 1000, 2)
+        self._system1_trace[record_type] = group
+        if record_type == "document_section":
+            self._rerank_trace = {
+                "reranker": self._system1_reranker.name, "shortlist": group["shortlist"],
+                "before": group["before"], "after": group["after"], "ms": group["ms"],
+                "failures": group["failures"],
+            }
+        if group["after"] == ordered:
+            return scores
+        updated = dict(scores)
+        shortlist_scores = sorted(scores[rid] for rid in shortlist_ids)
+        final_shortlist = group["after"][:len(shortlist_ids)]
+        for position, (record_id, score) in enumerate(zip(final_shortlist, shortlist_scores)):
+            updated[record_id] = score + position * 1e-12
+        return updated
+
     def _describe(self, results: dict[str, StrategyResult], selector_info: dict | None) -> RetrievalInfo:
         warnings: list[str] = []
         mode, pageindex, sections, navigation = "fts", None, None, None
@@ -614,124 +684,6 @@ class RetrievalService:
             warnings.append(self._rerank_note)
         warnings.extend(self._system1_warnings)
         return RetrievalInfo(mode, tuple(warnings), pageindex, navigation, sections, selector_info)
-
-    def _rerank_system1(self, record_type: str, request: RetrievalRequest, by_id: dict,
-                        scores: dict, lists) -> dict:
-        """Rerank authorized candidates while preserving baseline scores, tail, and strong FTS order."""
-        ordered = [rid for rid, _ in sorted(scores.items(), key=lambda kv: (kv[1], kv[0]))]
-        eligible = [rid for rid in ordered if by_id[rid].project == request.project and (
-            record_type != "canonical_decision" or by_id[rid].status == "approved"
-        )]
-        shortlist_ids = eligible[: min(self._rerank_shortlist, SYSTEM1_MAX_CHOICES)]
-        shortlist = [by_id[rid] for rid in shortlist_ids]
-        group = {"before": ordered, "after": ordered, "eligible": len(eligible),
-                 "shortlist": len(shortlist), "calls": int(len(shortlist) >= 2), "failures": 0,
-                 "input_skips": 0, "ms": 0.0}
-        started = time.perf_counter()
-        if len(shortlist) >= 2:
-            try:
-                if isinstance(self._system1_reranker, LayaCandidateReranker):
-                    evidence: dict[str, list[dict[str, Any]]] = {rid: [] for rid in shortlist_ids}
-                    for (_, method), hits in lists.items():
-                        for hit in hits:
-                            if hit.record_id in evidence:
-                                evidence[hit.record_id].append({
-                                    "method": method,
-                                    "rank": hit.rank,
-                                    "score": hit.score,
-                                })
-                    payloads = []
-                    for baseline_rank, candidate in enumerate(shortlist, start=1):
-                        candidate_evidence = evidence[candidate.record_id]
-                        if not candidate_evidence:
-                            candidate_evidence = [{
-                                "method": candidate.method,
-                                "rank": candidate.rank,
-                                "score": candidate.score,
-                            }]
-                        payload_state = {
-                            "query": request.query,
-                            "baseline_rank": baseline_rank,
-                            "candidate_type": candidate.record_type,
-                            "candidate_text": candidate.content,
-                            "retrieval_evidence": candidate_evidence,
-                        }
-                        payloads.append({
-                            "record_id": candidate.record_id,
-                            "baseline_rank": baseline_rank,
-                            "state": json.dumps(payload_state, ensure_ascii=False, separators=(",", ":")),
-                        })
-                    model_order = self._system1_reranker.rank_payloads(payloads)
-                else:
-                    model_order = self._system1_reranker.rerank(request.query, shortlist)
-                if len(model_order) != len(shortlist_ids) or set(model_order) != set(shortlist_ids):
-                    raise ValueError("reranker returned inconsistent candidate IDs")
-                strong = {rid for rid in shortlist_ids if any(
-                    c.method in {"fts", "sections_fts"} and c.tier != "relaxed_or"
-                    for c in _candidate_hits(lists, rid)
-                )}
-                baseline_rank = {rid: rank for rank, rid in enumerate(shortlist_ids, start=1)}
-                if isinstance(self._system1_reranker, LayaCandidateReranker):
-                    # Equal-weight RRF combines the original fused order with Laya's relevance order.
-                    # Raw engine scores remain untouched and are never compared across methods.
-                    model_rank = {rid: rank for rank, rid in enumerate(model_order, start=1)}
-                    rrf_scores = {
-                        rid: 1.0 / (LAYA_RRF_K + baseline_rank[rid])
-                        + 1.0 / (LAYA_RRF_K + model_rank[rid])
-                        for rid in shortlist_ids
-                    }
-                    fused_order = sorted(
-                        shortlist_ids,
-                        key=lambda rid: (-rrf_scores[rid], baseline_rank[rid]),
-                    )
-                else:
-                    # Preserve Julia-1's original direct reranking behavior; Laya's
-                    # experiment must not change the saved Julia comparison path.
-                    fused_order = model_order
-                # Keep every strong exact-keyword candidate ahead of reranked candidates,
-                # and retain their baseline relative order.
-                strong_in_order = [rid for rid in shortlist_ids if rid in strong]
-                fused_non_strong = [rid for rid in fused_order if rid not in strong]
-                tail = [rid for rid in ordered if rid not in set(shortlist_ids)]
-                group["after"] = strong_in_order + fused_non_strong + tail
-            except LayaInputTooLong:
-                group["input_skips"] = 1
-                self._system1_warnings.append(
-                    f"Laya reranking skipped for {record_type} (input_over_budget); baseline order retained"
-                )
-                logger.warning("Laya reranking skipped for %s (input_over_budget); baseline order retained",
-                               record_type)
-            except Exception as exc:
-                group["failures"] = 1
-                self._system1_warnings.append(
-                    f"System 1 reranking failed for {record_type} ({type(exc).__name__}); baseline order retained"
-                )
-                logger.warning("System 1 reranking failed for %s (%s); baseline order retained",
-                               record_type, type(exc).__name__)
-        group["ms"] = round((time.perf_counter() - started) * 1000, 2)
-        self._system1_trace[record_type] = group
-        if record_type == "document_section":
-            self._rerank_trace = {
-                "reranker": self._system1_reranker.name,
-                "shortlist": group["shortlist"],
-                "before": group["before"],
-                "after": group["after"],
-                "ms": group["ms"],
-                "failures": group["failures"],
-            }
-        if group["after"] == ordered:
-            return scores
-        # Reassign only the baseline score slots occupied by the reranked shortlist.
-        # This preserves the existing score scale between record types and leaves the
-        # unscored overflow/tail untouched; System 1 changes order, not cross-type policy.
-        updated = dict(scores)
-        shortlist_scores = sorted(scores[rid] for rid in shortlist_ids)
-        final_shortlist = group["after"][:len(shortlist_ids)]
-        for position, (record_id, score) in enumerate(zip(final_shortlist, shortlist_scores)):
-            # Separate equal scores by a negligible amount so the requested model order
-            # survives the shared context builder's deterministic tie-breaks.
-            updated[record_id] = score + position * 1e-12
-        return updated
 
 
 def _candidate_hits(lists, record_id):

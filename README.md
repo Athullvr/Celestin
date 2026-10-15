@@ -47,6 +47,16 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+### PostgreSQL migration foundation (explicit operator command)
+
+Local SQLite remains the default and is not affected by the PostgreSQL tooling.
+For a separately provisioned, empty hosted database, install the optional
+`postgres` extra and explicitly run `celestin-migrate` with
+`CELESTIN_POSTGRES_DSN` supplied through an approved secret mechanism. The MCP
+server never runs hosted migrations during startup. See
+[PostgreSQL migrations](docs/postgres-migrations.md) for safety checks and the
+required handling for an existing database without a migration ledger.
+
 ## Run with Codex CLI
 
 Register Celestin as a local stdio MCP server. Set the database path to a location
@@ -308,6 +318,42 @@ The tests use temporary SQLite databases, synthetic records and a deterministic
 fake embedding provider (tests only, not semantic search). They do not require
 network access after dependencies are installed. The real-model test is opt-in
 (see above).
+
+## Optional granular commit watcher
+
+The repository-local `commit_granular` agent and PowerShell watcher can create
+separate local commits for independent, completed changes. The watcher starts
+only from a clean working tree on a named branch, waits for 90 seconds of
+quiet (polling every 3 seconds by default), and then asks Codex CLI to review
+the changed snapshot. Keep the watcher terminal open while using it:
+
+```powershell
+pwsh -NoProfile -File scripts/commit-watcher.ps1
+```
+
+Configure the debounce and polling intervals as needed:
+
+```powershell
+pwsh -NoProfile -File scripts/commit-watcher.ps1 -QuietPeriodSeconds 120 -PollIntervalSeconds 5
+```
+
+Press Ctrl+C to stop. Scripted callers can use `-StopFilePath <path>` and
+create the specified file for graceful shutdown. The watcher pauses if the
+branch changes, a Git operation or index lock appears, Codex exits with an
+error, or changes remain uncommitted after a successful run. Inspect and
+resolve the state before restarting. It uses `codex exec` with the
+`workspace-write` sandbox and enables the repository custom agent for that
+invocation. It never runs remote Git commands or pushes.
+
+Run the disposable watcher checks with:
+
+```powershell
+pwsh -NoProfile -File scripts/test-commit-watcher.ps1
+```
+
+To exercise actual granular commits, run
+`pwsh -NoProfile -File scripts/test-commit-agent.ps1`; it requires a working
+local Codex CLI execution environment and uses a disposable repository.
 
 ## Event documentation
 

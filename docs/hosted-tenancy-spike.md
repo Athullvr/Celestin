@@ -34,7 +34,7 @@ Constraints validate relational integrity, not caller identity or access. Every 
 
 `archived_at` makes a workspace, project, message, or decision inactive while retaining its row and provenance. `purge_after` records the earliest proposed purge date; it does not automatically authorize or execute a purge. Normal access and retrieval must exclude an archived workspace/project and archived records. Archiving a workspace blocks access to its descendants; whether it should also archive each project row is still a product decision.
 
-Workspace creation must create an active owner in the same transaction. Ownership transfer first adds the replacement owner, then changes the former owner in one transaction. To prevent concurrent changes from removing the last owner, application logic must lock the workspace row, recheck the active-owner count, and commit the membership change atomically. The current schema has an index for active-owner checks but does not independently enforce this invariant if callers bypass the application transaction.
+Workspace creation must create an active owner in the same transaction. Every operation that could remove an active owner from the count (role demotion, suspension, membership removal, or account deactivation) must first lock that workspace row with `SELECT ... FOR UPDATE`, then re-read the membership and active-owner count, reject a result below one, and commit the membership change in that same transaction. Every application path that changes ownership must use this same lock order. A transfer adds or activates the replacement owner before demoting the former owner, under the workspace lock and one transaction. This serializes concurrent ownership changes to the same workspace; the second transaction must evaluate the state after it acquires the lock. The partial active-owner index speeds the count but is not an invariant: neither it nor a `CHECK` constraint can enforce a cross-row minimum. If direct SQL writers must also be protected, a database trigger/constraint mechanism needs a separate design review. The current draft does not enforce the invariant outside the application transaction.
 
 Foreign keys use restrictive deletion behavior rather than cascading through memory. A workspace/project cannot be hard-deleted while referenced rows remain. An archived source message remains present, so its decision link stays valid. A referenced message cannot be permanently deleted until its referencing decisions are purged or a separately authorized, audited operation detaches their provenance. The retention period, audit record, legal-hold behavior, and purge role/process must be decided before implementing deletion. The `purge_after` checks only require an archive timestamp and a non-earlier eligibility date; they do not verify the caller's purge authority or current time.
 
@@ -46,6 +46,7 @@ The draft adds referencing-side indexes that PostgreSQL does not create automati
 - `celestin_project_memberships(workspace_id, project_id)` and `(workspace_id, user_id)`.
 - `celestin_service_project_grants(workspace_id, project_id)` and `(workspace_id, service_identity_id)`.
 - Hosted message retrieval index `(workspace_id, project_id, conversation_id, id)` and project-memory lookup index `(workspace_id, project_id)`.
+- Project-memory provenance index `(project_id, source_message_id)`, non-partial. The source FK references `chat_messages(project_id, id)`. PostgreSQL does not automatically index the referencing columns, so this index supports provenance queries and avoids scanning all `project_memory` rows when checking a referenced message during restrictive updates/deletes. It is intentionally non-partial so all referencing rows are covered by FK enforcement.
 
 The project/workspace unique keys and the service-identity `(workspace_id, id)` key cover their workspace-leading lookups. The former standalone `idx_project_memory_project` was redundant with project-leading unique indexes and is removed. Recheck all choices against real authorization and retrieval query plans before production.
 
@@ -62,14 +63,16 @@ Use only a new, empty, disposable database with a restricted test role and synth
 | Duplicate workspace membership, human project grant, or service grant | Rejected | Primary keys. |
 | Grant has `can_write=true, can_read=false` | Rejected | `CHECK` constraint. |
 | Existing member becomes suspended but grant remains; service identity becomes revoked but grant remains | Data query/write denied; grant rows may remain | Application authorization; add RLS tests if RLS is adopted. The relational schema alone permits retained grants. |
-| Create workspace without owner; demote/suspend/remove last active owner; concurrent owner transfers | Application path rejects; concurrent changes leave at least one owner | Transactional application logic with workspace-row locking. Current DDL alone permits ownerless workspaces. |
+| Create workspace without owner; demote/suspend/remove last active owner | Application path rejects; DDL-only probe is accepted by current draft | Application transaction must lock the workspace row, re-read the membership/count, and reject any change leaving fewer than one active owner. Current DDL alone permits ownerless workspaces. |
+| Two sessions concurrently demote/suspend/remove different owners when only two active owners remain | At most one removal commits; one active owner remains | Application transaction locks the same workspace row before changing memberships. Test both operations in separate sessions with a barrier so both initially contend; verify the second rechecks after acquiring the lock. A normal index is not sufficient. |
+| Concurrent ownership transfers or owner activation/deactivation | Each commits atomically; every committed state retains at least one active owner | Same workspace-row lock and count/recheck protocol. Test competing transfers, transfer racing with suspension/removal, and rollback after a rejected operation. |
 | Archive workspace/project/record and query normally | Row retained; default data access excludes it | Database timestamp/check constraints plus application authorization/query filters. |
 | Set `purge_after` before `archived_at`, or set it while unarchived | Rejected | `CHECK` constraint. |
 | Purge before retention date or without purge authority | Denied; DDL alone cannot guarantee this | Restricted purge application/role. Referential deletes remain blocked where children or source links exist. |
 | Abort transaction after a multi-row write | No partial rows remain | PostgreSQL transaction semantics; application must use one transaction boundary. |
 | Two sessions insert the same membership/grant concurrently | One succeeds; the conflicting insert fails | Primary key/unique constraint. |
 | Read/write/search/context request from workspace A names project B | Denied; no records or indexes from B returned/changed | Application authorization and project-scoped repository/retrieval queries; RLS defense-in-depth tests if enabled. |
-| Inspect `pg_indexes` for every referencing FK column pair | Expected supporting indexes are present | Catalog inspection plus query-plan review. |
+| Inspect `pg_indexes` for every referencing FK column pair, including `project_memory(project_id, source_message_id)` | Expected supporting indexes are present | Catalog inspection plus query-plan review. |
 
 Suggested synthetic source-reference probe after loading a fixture with message ID `501` in project A and project B in the same disposable test database:
 
@@ -89,35 +92,17 @@ VALUES
      '20000000-0000-0000-0000-000000000002', 'decision-b', 'synthetic', 'draft', 501, now(), now());
 ```
 
-Use distinct keys/IDs and roll back the fixture transaction after assertions. Negative statements that abort a transaction must run in separate transactions or sessions. The current draft contains no owner trigger, RLS policies, auth service, or purge service, so those behaviors must be exercised through the application once implemented.
+Use distinct keys/IDs and roll back the fixture transaction after assertions. Each expected constraint failure must be isolated in a savepoint or exception subtransaction. The current draft contains no owner trigger, RLS policies, auth service, or purge service, so those behaviors must be exercised through the application once implemented.
+
+### Application authorization checks required before approval
+
+The hosted application is not implemented by this draft. Before Phase 2B approval, tests must show that every read and write authenticates a principal and resolves authorization server-side before storage/retrieval. Cover unauthenticated and unknown principals; active workspace membership plus explicit project grant; owner/admin without an implicit data grant; suspended membership with a retained grant; revoked service identity with a retained grant; denied reads and writes; altered project arguments and cross-workspace/project attempts; source-message references outside the authorized project; and project scoping across search, embeddings, caches, and context assembly. If RLS is adopted, add tests for transaction-local principal isolation under connection pooling as defense in depth. Local SQLite process-level authorization remains a separate mode and must not be represented as per-user hosted authentication.
 
 ## Validation setup and exact commands
 
-At the last environment check, the Windows PostgreSQL service and client binaries reported version 18.4, and `pg_isready -h 127.0.0.1 -p 5432` accepted connections. Authentication as the current user failed because no password was supplied; no `PGPASSWORD`, `PGUSER`, or `PGPASSFILE` was configured and no `%APPDATA%\postgresql\pgpass.conf` was present. No disposable database credentials were available and this schema has not been executed.
+The user reports that the draft schema was applied to `celestin_schema_test` and the behavioral validation script passed its assertions against that database. Reported checks include valid same-project provenance, rejection of cross-project/cross-workspace and missing-source references, duplicate membership/grant rejection, restrictive provenance deletion (SQLSTATE `23001`), archive/purge checks, and the DDL-only ownerless-workspace probe. The script ended with `ROLLBACK`, and all reported fixture counts were zero. This is user-reported execution evidence; it was not independently rerun or inspected during this update.
 
-Minimum administrator action: create a new restricted login role and a new empty database owned by that role. Set its password with `psql`'s interactive `\password` command; do not put the password in shell history, repository files, or logs. Confirm the database is disposable before applying this draft.
-
-From the repository root, after those credentials and database are authorized:
-
-```powershell
-$env:PGHOST = '127.0.0.1'
-$env:PGPORT = '5432'
-$env:PGUSER = 'celestin_schema_test'
-$env:PGDATABASE = 'celestin_schema_test'
-
-& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' `
-  -X -W -v ON_ERROR_STOP=1 `
-  -f 'docs\hosted-tenancy-schema.sql'
-
-& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' `
-  -X -W -v ON_ERROR_STOP=1 -d 'celestin_schema_test' -c '\dt'
-
-& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' `
-  -X -W -v ON_ERROR_STOP=1 -d 'celestin_schema_test' `
-  -c "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() ORDER BY tablename, indexname;"
-```
-
-`-W` prompts for the password instead of placing it in a command or environment variable. These commands are examples for a confirmed disposable database; they have not been run.
+The new non-partial provenance index in this draft was added after that reported schema application. It has not been created or checked in the database. Do not reapply this non-idempotent fresh-database schema to the existing test database. Validate the revised draft in a newly confirmed empty disposable database or review a separately approved additive index migration. Concurrency behavior and hosted application authorization remain untested and are required before Phase 2B approval.
 
 ## SQLite compatibility and migration outline
 
@@ -133,6 +118,6 @@ For a later hosted implementation, add a versioned PostgreSQL repository behind 
 4. Confirm service-identity issuer/subject scope and whether revoked identities can ever be reactivated.
 5. Select identity provider, remote transport, and whether/when to add RLS. Do not expose an unauthenticated remote endpoint.
 6. Choose the research/document source of truth and migration plan for its separate PageIndex sidecar.
-7. Exercise the draft on the authorized disposable PostgreSQL database before considering it a migration.
+7. Validate the revised draft, including the provenance index, on a newly confirmed empty disposable PostgreSQL database; then run the owner-concurrency and hosted authorization tests above before considering it for approval.
 
 The next implementation should be an isolated synthetic-data PostgreSQL validation harness after the team approves this schema and policy draft. It must verify relational constraints, owner-transfer concurrency, retention filters, and cross-workspace denial without touching local SQLite data.
