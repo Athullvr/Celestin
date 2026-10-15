@@ -137,7 +137,7 @@ class FtsStrategy:
             result.fts_tier = found.tier
             result.candidates += [
                 Candidate(r.record_id, MESSAGE, r.project, r.content, r.timestamp, r.record_id,
-                          "fts", rank, r.score)
+                          "fts", rank, r.score, tier=result.fts_tier)
                 for rank, r in enumerate(found.matches, start=1)
             ]
         if DECISION in kinds:
@@ -157,6 +157,7 @@ class FtsStrategy:
                     rank=rank,
                     score=match.score,
                     status=match.status,
+                    tier=result.decision_tier,
                 )
                 for rank, match in enumerate(found.matches, start=1)
             ]

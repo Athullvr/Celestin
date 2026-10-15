@@ -138,9 +138,16 @@ def _script(name):
 def test_stdio_server_still_serves_all_tools_with_pageindex_enabled_but_unconfigured(tmp_path):
     """Real stdio protocol: PageIndex enabled without a model must not break any tool."""
     async def run():
-        env = {**os.environ, "CELESTIN_DB_PATH": str(tmp_path / "m.db"), "CELESTIN_PAGEINDEX": "1"}
+        env = {
+            **os.environ,
+            "CELESTIN_DB_PATH": str(tmp_path / "m.db"),
+            "CELESTIN_PAGEINDEX": "1",
+            "CELESTIN_LOCAL_PROJECT_ACCESS": json.dumps({"p": ["read", "write"]}),
+        }
         env.pop("CELESTIN_PAGEINDEX_MODEL", None)
-        params = StdioServerParameters(command=_script("celestin"), env=env)
+        executable = _script("celestin")
+        command, args = (executable, []) if executable else (sys.executable, ["-m", "orbit.mcp_server.server"])
+        params = StdioServerParameters(command=command, args=args, cwd=Path(__file__).resolve().parents[2], env=env)
         async with stdio_client(params) as (r, w):
             async with ClientSession(r, w) as session:
                 await session.initialize()
