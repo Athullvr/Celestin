@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T19:37:01+05:30 — Keep reviewed capture candidates immutable
+
+- Changed: Terminal approved/rejected candidates now remain unchanged on exact retries; additional source/evidence or changed claim surface/certainty under the same normalized identity is reported as suppressed. Different claims or conflict keys remain new pending identities. New conflict candidates can link to terminal claims without backfilling the terminal record's conflict history. Added focused regression tests and clarified the capture contract.
+- Why: Recapture previously merged provenance into an approved or rejected candidate without review, and conflict discovery could update terminal conflict links.
+- Validation: Baseline capture suite: 29 passed. Focused post-change capture suite: 35 passed. Capture/evidence/project-state/sync/integration suite: 113 passed. `git diff --check` passed. No full suite or persistence integration was run.
+- Limitations: The review queue remains in-memory; suppressed new information is not retained as candidate knowledge. Conflict links from new candidates to terminal records are intentionally one-way to preserve the terminal record.
+
 ## 2026-10-15T11:08:45+05:30 — Return consistent same-batch capture results
 
 - Changed: Refresh accepted capture candidates from the review repository after processing the complete input batch, so returned source merges and conflict links match the saved queue state. Added a unit regression and updated the cross-capability assertion and capture contract documentation.

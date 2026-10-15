@@ -212,11 +212,25 @@ class KnowledgeCapturePipeline:
                 )
                 conflict_key = previous.conflict_key or candidate.conflict_key
                 changed = (
-                    source_references != previous.source_references
+                    candidate.claim != previous.claim
+                    or source_references != previous.source_references
                     or merged_evidence != previous.evidence
                     or merged_certainty is not previous.certainty
                     or conflict_key != previous.conflict_key
                 )
+                if previous.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                    duplicate_count += 1
+                    if changed:
+                        suppressed.append(
+                            SuppressedCapture(
+                                event.category,
+                                reference,
+                                "terminal_candidate_immutable",
+                            )
+                        )
+                    else:
+                        accepted.append(previous)
+                    continue
                 candidate = replace(
                     previous,
                     source_references=source_references,
@@ -451,6 +465,11 @@ class KnowledgeCapturePipeline:
         return tuple(extracted)
 
     def _link_conflicts(self, candidate: KnowledgeCandidate) -> KnowledgeCandidate:
+        # Review transitions may save a terminal candidate, but conflict
+        # discovery must not rewrite its reviewed relationship history.
+        if candidate.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+            self._put(candidate)
+            return candidate
         if not candidate.conflict_key:
             self._put(candidate)
             return candidate
@@ -471,6 +490,11 @@ class KnowledgeCapturePipeline:
                     and _normalize_claim(other.claim) != _normalize_claim(item.claim)
                 )
             )
+            if item.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                # The new candidate records the conflict. The terminal record
+                # remains byte-for-byte stable after its review decision.
+                updated_group[item.candidate_id] = item
+                continue
             updated = replace(
                 item,
                 conflicts_with=conflicts,
@@ -478,6 +502,8 @@ class KnowledgeCapturePipeline:
             )
             updated_group[updated.candidate_id] = updated
         for item in updated_group.values():
+            if item.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                continue
             self._put(item)
         return updated_group[candidate.candidate_id]
 

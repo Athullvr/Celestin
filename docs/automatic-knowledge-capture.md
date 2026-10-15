@@ -54,9 +54,21 @@ still avoid sending secrets.
 
 Candidate IDs are deterministic for the project, category, normalized claim,
 and optional conflict key. Whitespace/case-normalized repeats merge source and
-evidence references. Replaying the same input is idempotent within the in-memory
-repository; a new source with the same claim adds provenance to the same
-candidate. Distinct claims remain separate, including conflicting claims.
+evidence references while a candidate is pending or needs evidence. Replaying
+the same input is idempotent within the in-memory repository. Once approved or
+rejected, a candidate is immutable: an exact retry returns the existing record,
+while changed claim text under the same normalized identity, certainty, source
+references, or evidence is reported in `CaptureResult.suppressed` with reason
+`terminal_candidate_immutable`. The terminal record and its review history are
+left unchanged. A materially different claim or conflict key has a different
+candidate ID and starts pending review; approval or rejection is never
+inherited.
+
+Distinct claims remain separate, including conflicting claims. Conflict links
+are symmetric while both candidates remain reviewable. If a new claim conflicts
+with an already approved or rejected candidate, the new candidate links to the
+terminal candidate, but the terminal candidate's prior conflict relationships
+are not backfilled or changed after review.
 For structured input that updates a candidate more than once or links later
 conflicts in the same batch, `CaptureResult` returns the final saved version
 for each returned candidate ID, so its source and conflict references agree
@@ -68,8 +80,10 @@ only means the source text contained no recognized uncertainty phrase; it is
 not a confidence or verification result. Reviewers can edit pending candidates,
 request evidence, approve, or reject them. Candidate edits retain the original
 claim and source links. Rejected and approved entries are terminal in this
-prototype. Reviewer IDs and timestamps are supplied metadata, not authenticated
-identities.
+prototype, including their source/evidence associations and conflict links.
+New information for a terminal candidate is explicitly suppressed rather than
+silently attached. Reviewer IDs and timestamps are supplied metadata, not
+authenticated identities.
 
 Approval changes only review status and metadata. It does not verify the claim,
 write shared memory, or make the candidate available to project reconstruction.

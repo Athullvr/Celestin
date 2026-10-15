@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -249,6 +250,126 @@ def test_repeated_and_normalized_duplicate_input_is_idempotent():
     assert merged.candidates[0].candidate_id == first_candidate.candidate_id
     assert len(merged.candidates[0].source_references) == 2
     assert len(queue.list_candidates("celestin")) == 1
+
+
+def test_approved_candidate_identical_retry_preserves_review_and_is_idempotent():
+    queue = pipeline()
+    source = request("Decision: Use SQLite for local storage.")
+    candidate = queue.capture(source).candidates[0]
+    approved = queue.approve(
+        "celestin", candidate.candidate_id, reviewer_id="reviewer-1", note="Checked"
+    )
+
+    retry = queue.capture(source)
+
+    assert retry.candidates == (approved,)
+    assert retry.suppressed == ()
+    assert retry.duplicate_count == 1
+    assert queue.get_candidate("celestin", approved.candidate_id) == approved
+    assert retry.candidates[0].reviewed_by == "reviewer-1"
+    assert retry.candidates[0].review_note == "Checked"
+
+
+def test_approved_candidate_does_not_gain_evidence_after_review():
+    queue = pipeline()
+    source = request("Decision: Use SQLite for local storage.")
+    candidate = queue.capture(source).candidates[0]
+    approved = queue.approve(
+        "celestin", candidate.candidate_id, reviewer_id="reviewer-1", note="Checked"
+    )
+    added_evidence = EvidenceSource(EvidenceType.GIT_COMMIT, "commit-new", revision="abc123")
+
+    result = queue.capture(
+        request(source.content, evidence=(added_evidence,))
+    )
+
+    assert result.candidates == ()
+    assert result.duplicate_count == 1
+    assert len(result.suppressed) == 1
+    assert result.suppressed[0].reason == "terminal_candidate_immutable"
+    assert queue.get_candidate("celestin", approved.candidate_id) == approved
+    assert added_evidence not in queue.get_candidate("celestin", approved.candidate_id).evidence
+    assert approved.reviewed_by == "reviewer-1"
+    assert approved.review_note == "Checked"
+
+
+def test_approved_candidate_does_not_inherit_changed_certainty():
+    queue = pipeline()
+    # NFKC normalization gives these claims the same candidate identity, while
+    # the deterministic uncertainty classifier recognizes only the ASCII form.
+    initial = request("Decision: ｍｉｇｈｔ use SQLite")
+    candidate = queue.capture(initial).candidates[0]
+    assert candidate.certainty is CandidateCertainty.UNQUALIFIED
+    approved = queue.approve("celestin", candidate.candidate_id, reviewer_id="reviewer-1")
+
+    changed = queue.capture(request("Decision: might use SQLite"))
+
+    assert changed.candidates == ()
+    assert changed.suppressed[0].reason == "terminal_candidate_immutable"
+    assert queue.get_candidate("celestin", approved.candidate_id) == approved
+    assert queue.get_candidate("celestin", approved.candidate_id).certainty is CandidateCertainty.UNQUALIFIED
+
+
+def test_materially_different_claim_does_not_inherit_terminal_review():
+    queue = pipeline()
+    candidate = queue.capture(request("Decision: Use SQLite")).candidates[0]
+    approved = queue.approve("celestin", candidate.candidate_id, reviewer_id="reviewer-1")
+
+    different = queue.capture(request("Decision: Use PostgreSQL"))
+
+    assert different.candidates[0].candidate_id != approved.candidate_id
+    assert different.candidates[0].status is ReviewStatus.PENDING
+    assert different.candidates[0].reviewed_by is None
+    assert queue.get_candidate("celestin", approved.candidate_id) == approved
+
+
+def test_rejected_candidate_does_not_gain_new_source_references():
+    queue = pipeline()
+    candidate = queue.capture(request("Discovery: FTS5 supports strict search")).candidates[0]
+    rejected = queue.reject(
+        "celestin", candidate.candidate_id, reviewer_id="reviewer-2", note="Not relevant"
+    )
+
+    result = queue.capture(
+        request("Discovery: FTS5 supports strict search", source_id="summary-2")
+    )
+
+    assert result.candidates == ()
+    assert result.suppressed[0].reason == "terminal_candidate_immutable"
+    assert result.suppressed[0].source_reference.source_id == "summary-2"
+    assert queue.get_candidate("celestin", rejected.candidate_id) == rejected
+    assert rejected.reviewed_by == "reviewer-2"
+    assert rejected.review_note == "Not relevant"
+
+
+def test_new_conflict_links_do_not_mutate_terminal_candidate_history():
+    class TrackingRepository(InMemoryCaptureRepository):
+        def __init__(self):
+            super().__init__()
+            self.put_candidate_ids = []
+
+        def put(self, candidate):
+            self.put_candidate_ids.append(candidate.candidate_id)
+            super().put(candidate)
+
+    repository = TrackingRepository()
+    queue = pipeline(repository=repository)
+    sqlite = queue.capture(request("Decision [storage]: Use SQLite.")).candidates[0]
+    approved = queue.approve(
+        "celestin", sqlite.candidate_id, reviewer_id="reviewer-1", note="Selected"
+    )
+    repository.put_candidate_ids.clear()
+
+    postgres = queue.capture(
+        request("Decision [storage]: Use PostgreSQL.", source_id="summary-2")
+    ).candidates[0]
+
+    stored_terminal = queue.get_candidate("celestin", approved.candidate_id)
+    assert stored_terminal == approved
+    assert stored_terminal.conflicts_with == ()
+    assert approved.candidate_id not in repository.put_candidate_ids
+    assert postgres.conflicts_with == (approved.candidate_id,)
+    assert postgres.status is ReviewStatus.PENDING
 
 
 def test_explicit_conflicts_are_linked_without_selecting_a_winner():
