@@ -319,6 +319,12 @@ fake embedding provider (tests only, not semantic search). They do not require
 network access after dependencies are installed. The real-model test is opt-in
 (see above).
 
+The PostgreSQL migration runner and authorization session also have fake-based
+tests that need no server. Live PostgreSQL tests are separately marked and
+skipped by default. See [PostgreSQL integration tests](docs/postgres-integration-tests.md)
+for the disposable database requirements and explicit opt-in command. Those
+tests never create or drop a database and do not enable hosted MCP mode.
+
 ## Optional granular commit watcher
 
 The repository-local `commit_granular` agent and PowerShell watcher can create
