@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-16T09:05:44+05:30 — Add Celestin product and build documents
+
+- Changed: Added `PRD.md`, `TRD.md`, `App_flow.md`, `Design.md`, and `database_schema.md`; added a documentation index to `README.md` and recorded this contribution in `AI_USAGE.md`.
+- Why: Give the team a consistent, implementation-grounded product, technical, interaction-flow, design, and schema handoff.
+- Validation: Reviewed the docs against the checked-out README, MCP server, SQLite engine/repositories, and hosted schema draft; local Markdown links and `git diff --check` passed. No application tests were run for this documentation-only change.
+- Limitations: The Orbit memory lookup for project `celestin` returned `ACCESS_DENIED`; no alternate project was queried. The docs describe the local MCP implementation and label the hosted PostgreSQL schema as draft/planning only. No runtime code or database was changed.
+
 ## 2026-10-14T20:26:50+05:30 — Add optional granular commit watcher
 
 - Changed: Added the `commit_granular` custom agent, a PowerShell watcher with quiet-period dispatch and safety pauses, disposable watcher and agent test harnesses, and setup instructions in `AGENTS.md` and `README.md`.

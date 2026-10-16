@@ -7,6 +7,14 @@ Search is SQLite FTS5 keyword search, optionally combined with local semantic
 (embedding) search; see [Semantic search](#semantic-search-optional).
 The server communicates with MCP clients over stdio.
 
+## Product and build documents
+
+- [PRD](PRD.md): product goals, users, current MVP requirements, and out-of-scope work.
+- [TRD](TRD.md): current runtime architecture, tools, configuration, and security boundaries.
+- [Application flow](App_flow.md): local setup and MCP capture/search/retrieval journeys.
+- [Interaction design](Design.md): tool-response principles and current interface limits.
+- [Database schema](database_schema.md): runtime SQLite schema and separate hosted-schema draft status.
+
 ## Requirements
 
 - Python 3.10 or newer
