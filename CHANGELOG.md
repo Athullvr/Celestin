@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-16T13:58:26+05:30 — Add project-scoped Neon agent tooling
+
+- Changed: Added the Neon, Neon Postgres, and Neon Object Storage agent skills under `.agents/skills/`; configured the project Codex Neon MCP server using OAuth in `.codex/config.toml`; added the skill source lock file and README setup notes.
+- Why: Make official Neon guidance and project-scoped Neon management tools available to contributors without storing an API key in the repository.
+- Validation: Confirmed the skills CLI lists all three Neon skills at project scope and verified the generated Codex MCP entry contains only the Neon MCP URL. `git diff --check` was run after documentation updates.
+- Limitations: The Neon CLI `skills` wrapper could not run with installed Node.js 22.18.0 (it requires 22.20+) and then reported that its external `skills` executable was unavailable. Used Neon's documented `npx skills add` fallback. Neon MCP OAuth sign-in must be completed by each Codex user on first use. No Neon project was linked or deployed; Celestin remains SQLite-backed.
+
 ## 2026-10-16T09:05:44+05:30 — Add Celestin product and build documents
 
 - Changed: Added `PRD.md`, `TRD.md`, `App_flow.md`, `Design.md`, and `database_schema.md`; added a documentation index to `README.md` and recorded this contribution in `AI_USAGE.md`.

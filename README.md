@@ -55,6 +55,26 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+## Optional Neon tooling for Codex
+
+This project includes project-level Neon agent skills for Postgres and Object
+Storage, plus a Neon MCP server entry configured with OAuth in
+`.codex/config.toml`. After pulling the repository, restart Codex and complete
+Neon sign-in the first time the Neon MCP server is used. The project MCP entry
+does not store a Neon API key in the repository.
+
+To install these project skills or reproduce the MCP setup, use the
+officially documented commands:
+
+```powershell
+npx skills add neondatabase/agent-skills --skill neon --skill neon-postgres --skill neon-object-storage --agent codex -y
+neon mcp --oauth --project --agent codex -y
+```
+
+Neon tooling is optional and separate from Celestin's runtime. The MCP server
+in this project still uses local SQLite; these agent skills and the Neon
+management MCP entry do not connect Celestin to Neon or change its storage.
+
 ## Run with Codex CLI
 
 Register Celestin as a local stdio MCP server. Set the database path to a location
