@@ -4,6 +4,12 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-16T21:39:29+05:30 — Add optional Capability 1 knowledge state to Retrieval
+
+- Changed: Added a version 1 optional `knowledge_state` envelope, an explicit fakeable Retrieval reader seam, lossless mapping of existing knowledge/evidence/capture provenance, project checks, and context JSONL/budget integration. Added focused tests and documented the missing production read interface. Ranking, filtering, storage contracts, and MCP handlers were not changed.
+- Why: Make Capability 1 verification, evidence, and provenance available alongside existing Retrieval context without treating decision approval as verification or fabricating links.
+- Validation: Focused state/context/service suite: 38 passed in 0.41s. Existing suites: Retrieval 163 passed, 6 skipped (1.91s); Evidence 32 passed (0.07s); Capture 35 passed (0.13s); project-state 20 passed (0.85s); Capability-flow integration 7 passed (0.32s). `git diff --check` passed. MCP tool tests did not collect because `mcp` is not installed. An initial combined `--import-mode=importlib` run failed collection because `tests/retrieval/test_fts.py` could not import its `fixtures` helper; rerunning suites with default pytest import mode passed.- Limitations: No production Capability 1 reader or adapter exists; production persistence remains blocked by the missing project-scoped candidate-to-knowledge read interface. The MCP adapter does not configure the optional seam.
+
 ## 2026-10-15T23:34:46+05:30 — Preserve linked conflicts and stale status in reconstruction
 
 - Changed: Project-state reconstruction now classifies saved knowledge marked stale as stale and uses capture-provenance conflict links to mark both available candidate endpoints as unresolved conflicts without mutating stored records. Added regression tests and clarified the behavior and retrieval integration gap in `docs/project-state-reconstruction.md`.

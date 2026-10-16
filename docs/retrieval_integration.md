@@ -57,6 +57,35 @@ array; its individual item objects omit `project_id`. Each line in
 `rendered_context` retains the per-record `project_id`. A consumer that detaches
 an MCP item from its response must retain the top-level project association.
 
+## Optional Capability 1 knowledge state
+
+Retrieval candidates and context items support an optional `knowledge_state`
+envelope with `schema_version: 1`. When a caller supplies a
+`KnowledgeStateReader`, Retrieval maps the returned Capability 1
+`KnowledgeBundle` fields directly: the claim and knowledge type, verification
+and lifecycle state, check metadata, predecessor/successor IDs, evidence
+references and their verification metadata, and capture provenance. Missing
+optional values remain absent as `null`; conflict links remain exactly as
+stored, including one-way links. Capability 1 verification is kept separate
+from the canonical-decision `status` used by existing ranking policy.
+
+The narrow `KnowledgeStateReader.get_for_candidate(project_id, record_kind,
+record_id)` seam returns a `KnowledgeBundle` or `None`. It must explicitly map
+an existing Retrieval candidate to Capability 1 knowledge; it does not create
+or derive candidate IDs. Retrieval only asks for state within the requested
+project and rejects a returned bundle whose knowledge, evidence, or capture
+provenance belongs to another project. The optional envelope is included in
+context JSONL and therefore in the existing whole-record token-budget
+accounting. Without a reader or matching bundle, legacy item serialization is
+unchanged.
+
+No production Capability 1 reader is wired: the current storage port has no
+project listing or lookup from a Retrieval candidate, and no production
+adapter implements the Capability 1 read contract. This remains a persistence
+integration blocker. The seam has fake-backed tests only. The MCP adapter does
+not configure the seam or expose the envelope; no storage schema, adapter, MCP
+handler, or public MCP response shape was changed.
+
 ## Trust boundary
 
 All returned `content`, including approved-decision values and document
