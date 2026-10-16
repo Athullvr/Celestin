@@ -4,6 +4,69 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-15T23:34:46+05:30 — Preserve linked conflicts and stale status in reconstruction
+
+- Changed: Project-state reconstruction now classifies saved knowledge marked stale as stale and uses capture-provenance conflict links to mark both available candidate endpoints as unresolved conflicts without mutating stored records. Added regression tests and clarified the behavior and retrieval integration gap in `docs/project-state-reconstruction.md`.
+- Why: Reconstruction previously ignored Capability 3 conflict links and could downgrade a saved stale knowledge status to unverified when its source path existed.
+- Validation: Baseline affected suite: 353 passed, 5 errors, 1 warning. The five errors are the known `DecisionRepository` `NameError` in `tests/retrieval/test_strategies.py`. Post-change project-state tests: 20 passed. Affected capture/evidence/project-state/sync/integration/retrieval (excluding that known failing module)/MCP-handler suite: 355 passed, 1 warning. `git diff --check` passed.
+- Limitations: Legacy retrieval does not consume Capability 1 knowledge and its DTO has no verification, freshness, or conflict metadata. The MCP stdio timeout was not part of this focused baseline.
+
+## 2026-10-15T21:27:22+05:30 — Document retrieval content trust boundary
+
+- Changed: Added adversarial-content and status-semantics tests for context JSON serialization and the MCP retrieval handler. Documented that retrieved content is untrusted project data, decision approval is not verification, Capability 1 stale/conflict metadata is not present in the current retrieval contract, and the MCP item array inherits project scope from its response envelope. No retrieval ranking, MCP handler, model, or reranking implementation changed.
+- Why: Retrieved messages and excerpts are returned to clients as source content, but the repository has no downstream coding-agent prompt assembler to enforce trust semantics.
+- Validation: Baseline focused retrieval/MCP/PageIndex suite: 92 passed, 1 warning. Final focused suite: 98 passed, 1 warning. Broader capture/evidence/project-state/sync/integration/retrieval/MCP-handler/PageIndex suite: 215 passed, 1 warning. The isolated stdio protocol test exceeded a 20-second timeout; cause not established. `git diff --check` passed.
+- Limitations: Tests verify serialization and status separation, not model compliance. A consuming-client injection test remains necessary. PageIndex sends document outline snippets in its navigation prompt; replies are restricted to known section references, but prompt injection can still affect which valid same-project section is selected.
+
+## 2026-10-15T20:34:33+05:30 — Reauthorize Resurrection Layer service operations
+
+- Changed: Evidence and synchronization services now treat `AuthorizedProject` as a project/action selector and re-check every operation through an injected `ProjectAuthorizer` using a principal fixed at trusted service construction. Added regressions for caller-constructed scopes, cross-project access, and stable service-principal use. Strengthened the MCP tool registration test to assert that Capabilities 1–4 remain internal-only. Documented the remaining repository-root binding limitation.
+- Why: `AuthorizedProject` is a publicly constructible dataclass and its presence alone cannot establish trusted authorization. Project-state reconstruction also accepts an explicit root with no project-to-repository resolver.
+- Validation: Pre-change selected baseline passed with `--import-mode=importlib` (the repository's default pytest mode failed collection because `tests/evidence/test_service.py` and `tests/sync/test_service.py` share the same module basename). Final targeted suite: 106 passed, 6 subtests passed. Broader capture/evidence/project-state/sync/integration/auth/storage suite: 195 passed, 15 subtests passed. `git diff --check` passed.
+- Limitations: This adds domain reauthorization only when a trusted caller configures the authorizer and pins the principal. It does not authenticate transports. Resurrection capabilities remain unexposed through MCP. Reconstruction needs an application-owned authorized project-to-repository resolver before external exposure; current path and symlink checks are not project authorization.
+
+## 2026-10-15T19:37:01+05:30 — Keep reviewed capture candidates immutable
+
+- Changed: Terminal approved/rejected candidates now remain unchanged on exact retries; additional source/evidence or changed claim surface/certainty under the same normalized identity is reported as suppressed. Different claims or conflict keys remain new pending identities. New conflict candidates can link to terminal claims without backfilling the terminal record's conflict history. Added focused regression tests and clarified the capture contract.
+- Why: Recapture previously merged provenance into an approved or rejected candidate without review, and conflict discovery could update terminal conflict links.
+- Validation: Baseline capture suite: 29 passed. Focused post-change capture suite: 35 passed. Capture/evidence/project-state/sync/integration suite: 113 passed. `git diff --check` passed. No full suite or persistence integration was run.
+- Limitations: The review queue remains in-memory; suppressed new information is not retained as candidate knowledge. Conflict links from new candidates to terminal records are intentionally one-way to preserve the terminal record.
+
+## 2026-10-15T11:08:45+05:30 — Return consistent same-batch capture results
+
+- Changed: Refresh accepted capture candidates from the review repository after processing the complete input batch, so returned source merges and conflict links match the saved queue state. Added a unit regression and updated the cross-capability assertion and capture contract documentation.
+- Why: A later candidate in one structured input could add reciprocal conflict links to an earlier candidate, while the earlier object in `CaptureResult` remained stale.
+- Validation: Before implementation, the Resurrection Layer baseline passed 106 tests. The new regression failed against the old behavior. After the fix, the capability suite passed 107 tests; the capability plus authorization/storage regression suite passed 160 tests and 12 subtests. Broad suite excluding known broken retrieval setup and stdio tests: 544 passed, 2 skipped, 1 deselected, 15 subtests passed. `git diff --check` passed.
+- Limitations: Five tests in `tests/retrieval/test_strategies.py` still fail during setup with `NameError: DecisionRepository`; the PageIndex-enabled stdio test timed out after 35 seconds without output. The broad run excluded that retrieval module and stdio tests. No shared-memory or production persistence behavior was validated.
+
+## 2026-10-15T09:03:58+05:30 — Preserve capture provenance through knowledge reconstruction
+
+- Changed: Added optional `CaptureKnowledgeProvenance` to `KnowledgeRecord`, a capture conversion helper and explicit category mapping; validated project, approved/unverified state, and source-to-evidence association. Capability 2 now returns capture provenance, knowledge/evidence record IDs, evidence resolution/verification/checker fields, and lifecycle/supersession fields. Updated contract documentation and integration tests.
+- Why: Approved capture metadata was discarded at the Capability 3→1 boundary and reconstructed findings lost generated IDs, checker assertions, evidence statuses, and explicit supersession links.
+- Validation: Baseline affected suite before edits — 123 passed, 12 subtests passed. Focused capture/evidence/reconstruction/integration suite after edits — 83 passed. Affected suite with authorization and storage regressions — 136 passed, 12 subtests passed. `git diff --check` passed. No full suite or production database/MCP/hosted validation was run.
+- Limitations: The optional provenance value changes the storage-neutral record contract only. Shared-memory adapters/migrations must agree on a round-trip representation, candidate-ID idempotency, and lookup of conflict links. Checker/reviewer labels remain caller-supplied metadata, not authenticated identity.
+
+## 2026-10-15T08:50:27+05:30 — Enforce evidence project scope on read
+
+- Changed: Capability 1 now rejects evidence rows from storage when their project differs from the authorized read scope. Capability 2 omits out-of-project evidence from supplied knowledge bundles, leaves the claim unknown if no in-scope evidence remains, and reports the omission. Added regression tests and clarified both contracts.
+- Why: A faulty storage adapter or read-only knowledge source could return evidence belonging to another project alongside an in-scope record; before this change, the foreign source identifier could be returned to the caller.
+- Validation: Baseline focused provenance suite — 121 passed, 12 subtests passed. Focused changed-service tests — 44 passed. Post-change capture/evidence/project-state/integration/auth/storage suite — 123 passed, 12 subtests passed. `git diff --check` passed. Full suite and live persistence/hosted authorization were not run.
+- Limitations: This blocks foreign evidence leakage at these read boundaries; it does not authenticate the caller or prove that evidence supports a claim. Cross-capability storage fields for capture certainty, review metadata, conflict links, and source-occurrence timestamps remain unagreed.
+
+## 2026-10-15T02:00:40+05:30 — Require project match for capture evidence conversion
+
+- Changed: `evidence_sources_for` now requires an explicit target project and rejects mismatched candidate scope before mapping provenance. Updated Capability 3 contract documentation, unit tests, and the Capability 1↔3 test bridge to exercise the domain guard.
+- Why: The prior conversion accepted any approved candidate without knowing which project would receive the resulting evidence, leaving cross-project association prevention only in an ad hoc test bridge.
+- Validation: Baseline affected suite — 115 passed, 12 subtests passed. Post-change focused capture and integration tests — 26 passed. Post-change affected capability, integration, and authorization suite — 116 passed, 12 subtests passed. No full suite or production persistence/authorization integration was run.
+- Limitations: The project match is not authentication. Callers still must obtain trusted project scope from the authorization boundary; persistence integration remains unimplemented.
+
+## 2026-10-15T01:43:35+05:30 — Add cross-capability integration test harness
+
+- Changed: Added test-only `tests/integration/test_capability_flow.py` composing Capabilities 1–4 through local bridges and fake storage/read adapters; updated `AI_USAGE.md`. No production interface, persistence, authorization, retrieval, System 1, PostgreSQL, or MCP implementation changed.
+- Why: Validate reviewed capture → evidence-linked knowledge → reconstructed state and event delivery, while making missing shared adapters and metadata loss visible without claiming production integration.
+- Validation: `PYTHONPATH=src .venv/bin/python -m pytest -o addopts='' --import-mode=importlib -q tests/integration/test_capability_flow.py tests/capture/test_pipeline.py tests/evidence/test_service.py tests/project_state/test_reconstructor.py tests/sync/test_service.py tests/test_mcp_authorization.py tests/test_hosted_scope.py tests/database/test_decisions.py tests/database/test_messages.py tests/storage/test_postgres_memory_store.py` — 143 passed, 12 subtests passed. `tests/retrieval/test_strategies.py` produced 5 setup errors from the existing `NameError: DecisionRepository` at line 36. The isolated PageIndex-enabled stdio test exceeded a 30-second timeout (exit 124). No full suite or live database/hosted test was run. `git diff --check` and whitespace checks passed.
+- Limitations: Test adapters are not production adapters. Typed capture uncertainty and conflict links do not cross all current interfaces; source occurrence timestamps are dropped by the Cap3→Cap1 evidence conversion. Same-batch `CaptureResult` can contain a stale conflict-link object even though the review queue has the final links.
+
 ## 2026-10-15T17:24:52+05:30 — Prepare safe PostgreSQL live-test preflight
 
 - Changed: Added read-only SQL checks for database identity, prohibited role attributes and memberships, migration-ledger absence, and unexpected objects to `docs/postgres-integration-tests.md`; clarified the exact acceptance conditions before an opted-in live run.

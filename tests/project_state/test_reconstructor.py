@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from orbit.evidence.model import (
+    CaptureKnowledgeProvenance,
     EvidenceRecord,
     EvidenceType,
     KnowledgeBundle,
@@ -88,6 +90,23 @@ def knowledge(
         lifecycle_status=lifecycle,
     )
     return KnowledgeBundle(record, evidence)
+
+
+def capture_provenance(candidate_id: str, *, conflicts_with: tuple[str, ...] = ()):
+    return CaptureKnowledgeProvenance(
+        candidate_id=candidate_id,
+        project_id="sample-project",
+        category="decision",
+        certainty="unqualified",
+        review_status="approved",
+        candidate_verification_status=VerificationStatus.UNVERIFIED.value,
+        source_references=(),
+        candidate_created_at=NOW,
+        candidate_updated_at=NOW,
+        reviewed_by="reviewer-label",
+        reviewed_at=NOW,
+        conflicts_with=conflicts_with,
+    )
 
 
 class KnowledgeSource:
@@ -201,10 +220,76 @@ def test_saved_decisions_keep_conflicts_and_missing_evidence_explicit(tmp_path):
     assert unsupported.classification is EvidenceClass.UNKNOWN
     assert unsupported.evidence[0].source_type == "knowledge_record"
     missing_claim = next(item for item in decisions if item.claim == "Claim with missing source.")
-    assert missing_claim.classification is EvidenceClass.UNKNOWN
+    assert missing_claim.classification is EvidenceClass.STALE
     assert missing_claim.recorded_verification == VerificationStatus.STALE.value
     current_item = next(item for item in decisions if item.claim == "Use SQLite.")
     assert "content hash was not verified" in current_item.evidence[0].detail
+
+
+def test_capture_conflict_links_mark_both_approved_claims_unresolved(tmp_path):
+    root = repository(tmp_path, {"src/db.py": "DATABASE = 'sqlite'\n"})
+    commit(root)
+    sqlite = knowledge("decision-sqlite", "Use SQLite.")
+    postgres = knowledge("decision-postgres", "Use PostgreSQL.")
+    sqlite_record = replace(
+        sqlite.record,
+        capture_provenance=capture_provenance("candidate-sqlite"),
+    )
+    # Terminal candidate immutability can leave only the newer record with a
+    # conflict link. Reconstruction must flag the older endpoint too.
+    postgres_record = replace(
+        postgres.record,
+        capture_provenance=capture_provenance(
+            "candidate-postgres", conflicts_with=("candidate-sqlite",)
+        ),
+    )
+    source = KnowledgeSource(
+        (
+            KnowledgeBundle(sqlite_record, sqlite.evidence),
+            KnowledgeBundle(postgres_record, postgres.evidence),
+        )
+    )
+
+    decisions = reconstructor(root, source).reconstruct().decisions
+    by_claim = {item.claim: item for item in decisions}
+
+    assert by_claim["Use SQLite."].classification is EvidenceClass.CONFLICTING
+    assert by_claim["Use PostgreSQL."].classification is EvidenceClass.CONFLICTING
+    assert by_claim["Use SQLite."].recorded_verification == VerificationStatus.UNVERIFIED.value
+    assert by_claim["Use PostgreSQL."].recorded_verification == VerificationStatus.UNVERIFIED.value
+    assert by_claim["Use PostgreSQL."].capture_provenance.conflicts_with == ("candidate-sqlite",)
+    assert by_claim["Use SQLite."].applicability is EvidenceClass.UNKNOWN
+    assert "no resolution is recorded" in by_claim["Use SQLite."].rationale
+
+
+def test_stale_record_status_is_not_downgraded_when_source_exists(tmp_path):
+    root = repository(tmp_path, {"src/db.py": "DATABASE = 'sqlite'\n"})
+    head = commit(root)
+    evidence = EvidenceRecord(
+        "e-stale",
+        "sample-project",
+        EvidenceType.REPOSITORY_FILE,
+        "src/db.py",
+        None,
+        head,
+        None,
+        NOW,
+        ReferenceStatus.AVAILABLE,
+    )
+    stale = knowledge(
+        "stale-decision",
+        "Use SQLite.",
+        status=VerificationStatus.STALE,
+        evidence=(evidence,),
+    )
+
+    decision = reconstructor(root, KnowledgeSource((stale,))).reconstruct().decisions[0]
+
+    assert decision.classification is EvidenceClass.STALE
+    assert decision.recorded_verification == VerificationStatus.STALE.value
+    assert decision.evidence[0].classification is EvidenceClass.VERIFIED
+    assert decision.applicability is EvidenceClass.UNKNOWN
+    assert "marked stale" in decision.rationale
 
 
 def test_superseded_memory_is_historical_not_current(tmp_path):
@@ -248,16 +333,54 @@ def test_supplied_bundle_keeps_unverified_claim_separate_from_verified_reference
         status=VerificationStatus.VERIFIED,
         evidence=(reference,),
     )
+    claim = KnowledgeBundle(
+        replace(
+            claim.record,
+            checked_at=NOW,
+            checked_by="caller-supplied-checker-label",
+            check_note="checked against supplied evidence",
+        ),
+        claim.evidence,
+    )
 
     decision = reconstructor(root, KnowledgeSource((claim,))).reconstruct().decisions[0]
 
     assert decision.classification is EvidenceClass.UNVERIFIED
     assert decision.recorded_verification == VerificationStatus.VERIFIED.value
+    assert decision.verification_checked_at == NOW
+    assert decision.verification_checked_by == "caller-supplied-checker-label"
+    assert decision.verification_check_note == "checked against supplied evidence"
+    assert decision.lifecycle_status == LifecycleStatus.CURRENT.value
     assert decision.applicability is EvidenceClass.UNKNOWN
     assert decision.evidence[0].classification is EvidenceClass.VERIFIED
     assert decision.evidence[0].path == "src/db.py"
+    assert decision.evidence[0].evidence_record_id == "e-db"
+    assert decision.evidence[0].locator == "L1"
+    assert decision.evidence[0].content_hash == "hash-not-checked"
+    assert decision.evidence[0].recorded_reference_status == ReferenceStatus.AVAILABLE.value
+    assert decision.evidence[0].recorded_verification_status == VerificationStatus.VERIFIED.value
+    assert decision.evidence[0].checked_by == "reviewer"
     assert "L1" in decision.evidence[0].detail
     assert "content hash was not verified" in decision.evidence[0].detail
+
+
+def test_foreign_project_evidence_is_omitted_and_reported(tmp_path):
+    root = repository(tmp_path, {"src/app.py": "READY = True\n"})
+    commit(root)
+    foreign = EvidenceRecord(
+        "foreign-evidence", "another-project", EvidenceType.MESSAGE,
+        "private-conversation-9", None, None, None, NOW,
+        ReferenceStatus.AVAILABLE,
+    )
+    source = KnowledgeSource((knowledge("scoped-record", "Use SQLite.", evidence=(foreign,)),))
+
+    snapshot = reconstructor(root, source).reconstruct()
+
+    decision = snapshot.decisions[0]
+    assert decision.classification is EvidenceClass.UNKNOWN
+    assert all(item.source_id != "private-conversation-9" for item in decision.evidence)
+    assert decision.evidence[0].source_type == "knowledge_record"
+    assert any("evidence outside the requested project" in item for item in snapshot.limitations)
 
 
 def test_supplied_bundle_preserves_historical_and_unverified_source_state(tmp_path):

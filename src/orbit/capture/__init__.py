@@ -22,7 +22,9 @@ from .service import (
     InvalidReviewTransition,
     KnowledgeCapturePipeline,
     SensitiveContentRejected,
+    capture_provenance_for,
     evidence_sources_for,
+    knowledge_type_for_candidate,
 )
 
 __all__ = [
@@ -45,5 +47,7 @@ __all__ = [
     "ReviewStatus",
     "SensitiveContentRejected",
     "SuppressedCapture",
+    "capture_provenance_for",
     "evidence_sources_for",
+    "knowledge_type_for_candidate",
 ]
