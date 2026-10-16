@@ -59,32 +59,114 @@ an MCP item from its response must retain the top-level project association.
 
 ## Optional Capability 1 knowledge state
 
-Retrieval candidates and context items support an optional `knowledge_state`
-envelope with `schema_version: 1`. When a caller supplies a
-`KnowledgeStateReader`, Retrieval maps the returned Capability 1
-`KnowledgeBundle` fields directly: the claim and knowledge type, verification
-and lifecycle state, check metadata, predecessor/successor IDs, evidence
-references and their verification metadata, and capture provenance. Missing
-optional values remain absent as `null`; conflict links remain exactly as
-stored, including one-way links. Capability 1 verification is kept separate
-from the canonical-decision `status` used by existing ranking policy.
+### Direct `RetrievalService` with an injected reader
 
-The narrow `KnowledgeStateReader.get_for_candidate(project_id, record_kind,
-record_id)` seam returns a `KnowledgeBundle` or `None`. It must explicitly map
-an existing Retrieval candidate to Capability 1 knowledge; it does not create
-or derive candidate IDs. Retrieval only asks for state within the requested
-project and rejects a returned bundle whose knowledge, evidence, or capture
-provenance belongs to another project. The optional envelope is included in
-context JSONL and therefore in the existing whole-record token-budget
-accounting. Without a reader or matching bundle, legacy item serialization is
-unchanged.
+A caller may construct `RetrievalService(connection,
+knowledge_state_reader=reader)`. When the reader returns a Capability 1
+`KnowledgeBundle`, Retrieval adds an optional `knowledge_state` envelope with
+`schema_version: 1`. The mapper copies the claim, knowledge type, verification
+and lifecycle values, checker metadata, supersession IDs, evidence references
+and verification metadata, and capture/review provenance. Missing optional
+values remain `null`; approval does not imply verification, and no freshness
+assessment or reverse conflict link is inferred.
 
-No production Capability 1 reader is wired: the current storage port has no
-project listing or lookup from a Retrieval candidate, and no production
-adapter implements the Capability 1 read contract. This remains a persistence
-integration blocker. The seam has fake-backed tests only. The MCP adapter does
-not configure the seam or expose the envelope; no storage schema, adapter, MCP
-handler, or public MCP response shape was changed.
+The `KnowledgeStateReader.get_for_candidate(project_id, record_kind,
+record_id)` seam returns a `KnowledgeBundle` or `None`. The requested project is
+passed to the reader, and Retrieval rejects a returned bundle whose knowledge,
+evidence, or capture provenance project differs. The reader implementation
+must still scope its own lookup correctly. It must explicitly map an existing
+Retrieval candidate to Capability 1 knowledge; it does not create or derive
+candidate IDs. This seam accepts a project string and carries no principal or
+authorization decision: the project is a lookup scope, not proof that the
+caller may read it. A production caller must enforce authorization separately.
+The envelope is included in context JSON Lines and counted by the existing
+whole-context budget calculation.
+
+### Default `RetrievalService` and current MCP adapter
+
+When `knowledge_state_reader` is omitted, the envelope is absent and legacy
+context serialization is unchanged. The current MCP adapter constructs
+`RetrievalService` without a reader, and its public item serializer does not
+include `knowledge_state`; MCP does not expose the envelope or change its
+response shape. The adapter also returns `rendered_context`, which contains the
+serialized context lines. Configuring a reader at that boundary would therefore
+add the envelope to that string and change its contents and token count even if
+the public `items` serializer stayed the same. `knowledge_state.schema_version`
+versions only the internal envelope; it does not version the MCP response.
+MCP exposure requires a separately approved response contract, with explicit
+versioning or client capability negotiation.
+
+### Capability 1 model sources
+
+The envelope maps these Capability 1 domain values:
+
+| Envelope data | Capability 1 source |
+|---|---|
+| Knowledge ID, project, type, claim, verification and lifecycle status, created/updated/checked timestamps, supersession IDs, and checker metadata | `KnowledgeRecord` |
+| Evidence IDs, types, source references, locators, revisions, hashes, capture/check timestamps, reference status, verification status, and checker metadata | `KnowledgeBundle.evidence` entries (`EvidenceRecord`) |
+| Capture candidate ID, category, certainty, review state, capture verification value, source references and occurrence times, candidate timestamps, original claim, reviewer labels/timestamp/note, and declared conflict candidate IDs | `KnowledgeRecord.capture_provenance` (`CaptureKnowledgeProvenance`) and its `CaptureSourceProvenance` entries |
+| Reconstruction assessment | `EvidenceClass` belongs to Project State, not the Capability 1 record. The current `from_bundle` mapper leaves it `null`. |
+
+`KnowledgeRecord` and `EvidenceRecord` carry recorded verification values;
+approval does not set them. `VerificationStatus.STALE` is a recorded status,
+not a computed freshness assessment, and the models have no separate freshness
+field. `VerificationStatus` has no `UNKNOWN` member and `KnowledgeRecord`
+defaults an omitted value to `UNVERIFIED`; the current typed mapper cannot tell
+whether that value was explicitly stored or supplied by a model/adapter
+default. Optional checker fields and absent capture provenance remain absent.
+The direct mapper preserves the `KnowledgeBundle` it receives. When the bundle
+is read through `EvidenceLinkedMemoryService.get_knowledge`, that service
+re-resolves each evidence `reference_status` through its resolver at read time;
+availability still does not establish truth or freshness.
+
+`CaptureKnowledgeProvenance.conflicts_with` contains capture candidate IDs,
+not resolved knowledge IDs or a conflict assessment. The mapper retains those
+declared references as supplied. A reference may be one-way or have no endpoint
+in the returned bundle; Retrieval does not resolve endpoints, add reverse
+links, or turn them into a verified conflict fact.
+
+### Existing read interfaces and production gap
+
+`EvidenceLinkedMemoryStore` defines `get_knowledge(project, knowledge_id)` and
+`list_evidence(project, knowledge_id)`. `EvidenceLinkedMemoryService.get_knowledge`
+wraps those reads in a `READ` check using its configured `ProjectAuthorizer` and
+principal, then returns a `KnowledgeBundle`. This is a domain read contract,
+not a production persistence implementation: no implementation of
+`EvidenceLinkedMemoryStore` is present in `src/`. The application `MemoryStore`
+and its SQLite/PostgreSQL implementations cover chat messages and decisions;
+they do not read Capability 1 knowledge or evidence records.
+
+Project State also defines `ReadOnlyKnowledgeSource.list_records()`, but it is
+a caller-bound prototype seam without a production adapter. It lists bundles
+for reconstruction and does not map a Retrieval candidate to a knowledge
+record. The Capture `candidate_id` is retained in capture provenance, but
+Retrieval candidates use their own `record_kind` and `record_id` (for example,
+a message or decision ID). Neither `record_id` nor `source_id` is guaranteed to
+equal the capture candidate ID or `knowledge_id`; source references are
+provenance, not a universal one-to-one join key. No supported candidate-to-
+knowledge lookup currently exists.
+
+### Smallest future production integration
+
+Keep the existing injected `KnowledgeStateReader.get_for_candidate(project_id,
+record_kind, record_id) -> KnowledgeBundle | None` boundary. A production
+implementation needs an owner-approved, authoritative mapping from that
+Retrieval identity to exactly one Capability 1 `knowledge_id`, followed by a
+project-scoped read of the knowledge record and its associated evidence. The
+Storage owner must provide or approve that mapping/read contract, its behavior
+for missing or ambiguous mappings, and how the record, evidence, and optional
+capture provenance are returned without rewriting or dropping them. No
+existing Storage API supplies the candidate-to-knowledge mapping, and no new
+schema, adapter, or join key is assumed here.
+
+The lookup must constrain the mapping and record/evidence reads to the same
+authorized project, and reject out-of-scope data before returning it. Retrieval's
+post-read checks are integrity checks, not authorization. A project ID alone
+does not authorize access: production wiring must preserve the caller's trusted
+authorization path (for example, the configured `ProjectAuthorizer` used by
+`EvidenceLinkedMemoryService`) and must not treat the string passed through the
+Retrieval seam as a credential. Production persistence remains unconnected;
+the current seam has fake-backed tests only.
 
 ## Trust boundary
 
@@ -93,12 +175,13 @@ excerpts, is untrusted project data. A project ID and source reference identify
 where a record came from; they do not authenticate the source, prove the claim,
 or grant the content instruction authority. JSON Lines preserve field
 boundaries but are not a prompt-injection defense. The decision `status` is
-approval/lifecycle state only. This retrieval path does not carry Capability 1
-verification, conflict, or stale-memory status, so consumers must not infer
-those properties from `approved`.
+approval/lifecycle state only. The default `RetrievalService` and current
+retrieval MCP adapter carry no Capability 1 state; a direct service caller gets
+it only when a reader returns a bundle. Consumers must not infer verification,
+freshness, or conflict state from `approved`.
 
-Celestin currently returns this data from MCP as tool output. The repository
-contains no coding-agent prompt assembler or model call that inserts
+Celestin currently returns retrieval context from MCP as tool output. The
+repository contains no coding-agent prompt assembler or model call that inserts
 `retrieve_context` results into a consuming agent's conversation. Therefore
 the consuming client must keep its own system/developer instructions separate,
 mark retrieved content as untrusted evidence, and must not execute or obey

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -23,7 +23,7 @@ class RetrievalCandidate:
     relevance_score: float
     record_kind: str
     status: str | None = None
-    knowledge_state: KnowledgeStateEnvelope | None = None
+    knowledge_state: KnowledgeStateEnvelope | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         for field_name in ("record_id", "project_id", "content"):

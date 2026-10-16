@@ -102,6 +102,31 @@ def test_verification_state_is_preserved_and_remains_separate_from_retrieval_sta
     assert state.as_dict()["schema_version"] == KNOWLEDGE_STATE_SCHEMA_VERSION == 1
 
 
+def test_knowledge_state_preserves_retrieval_candidate_equality_hash_and_repr():
+    legacy = RetrievalCandidate(
+        record_id="message-1",
+        project_id="alpha",
+        source_id="message-1",
+        content="Legacy retrieved content.",
+        timestamp=None,
+        relevance_score=-1.0,
+        record_kind="chat_message",
+    )
+    enriched = replace(
+        legacy,
+        knowledge_state=KnowledgeStateEnvelope.from_bundle(knowledge_bundle()),
+    )
+
+    assert enriched == legacy
+    assert hash(enriched) == hash(legacy)
+    assert repr(enriched) == repr(legacy)
+    assert repr(enriched) == (
+        "RetrievalCandidate(record_id='message-1', project_id='alpha', "
+        "source_id='message-1', content='Legacy retrieved content.', "
+        "timestamp=None, relevance_score=-1.0, record_kind='chat_message', status=None)"
+    )
+
+
 def test_approved_capture_does_not_imply_verified_knowledge():
     state = KnowledgeStateEnvelope.from_bundle(
         knowledge_bundle(status=VerificationStatus.UNVERIFIED)
@@ -124,8 +149,10 @@ def test_legacy_knowledge_record_keeps_missing_metadata_unrecorded():
 
     assert state.capture_provenance is None
     assert state.evidence == ()
+    assert state.verification_status is VerificationStatus.UNVERIFIED
     assert state.checked_at is state.checked_by is state.check_note is None
     assert state.reconstruction_assessment is None
+    assert state.as_dict()["reconstruction_assessment"] is None
     assert state.as_dict()["capture_provenance"] is None
 
 
@@ -180,6 +207,85 @@ def test_capability_one_evidence_and_capture_provenance_are_preserved_exactly():
     assert provenance["conflicts_with"] == ["candidate-elsewhere"]
 
 
+def test_multiple_evidence_references_and_timestamps_remain_distinct():
+    bundle = knowledge_bundle()
+    provenance = bundle.record.capture_provenance
+    provenance = replace(
+        provenance,
+        source_references=(
+            replace(provenance.source_references[0], occurred_at="2026-10-10T05:00:00Z"),
+            CaptureSourceProvenance(
+                source_type="execution_report",
+                source_id="execution-9",
+                occurred_at="2026-10-10T06:00:00Z",
+                revision="rev-9",
+                locator="step:2",
+            ),
+        ),
+        candidate_created_at="2026-10-10T03:00:00Z",
+        candidate_updated_at="2026-10-10T04:00:00Z",
+        reviewed_at="2026-10-10T07:00:00Z",
+    )
+    record = replace(
+        bundle.record,
+        created_at="2026-10-10T00:00:00Z",
+        updated_at="2026-10-10T01:00:00Z",
+        checked_at="2026-10-10T02:00:00Z",
+        capture_provenance=provenance,
+    )
+    evidence_one = replace(
+        bundle.evidence[0],
+        captured_at="2026-10-10T08:00:00Z",
+        checked_at="2026-10-10T09:00:00Z",
+    )
+    evidence_two = replace(
+        bundle.evidence[0],
+        evidence_id="evidence-2",
+        evidence_type=EvidenceType.DOCUMENT,
+        source_id="docs/decision.md",
+        locator="docs/decision.md#local-storage",
+        revision="commit-def",
+        content_hash="sha256:def456",
+        captured_at="2026-10-10T10:00:00Z",
+        reference_status=ReferenceStatus.UNRESOLVED,
+        verification_status=VerificationStatus.UNVERIFIED,
+        checked_at=None,
+        checked_by=None,
+        check_note=None,
+    )
+    state = KnowledgeStateEnvelope.from_bundle(
+        KnowledgeBundle(record=record, evidence=(evidence_one, evidence_two))
+    )
+
+    assert (state.created_at, state.updated_at, state.checked_at) == (
+        "2026-10-10T00:00:00Z",
+        "2026-10-10T01:00:00Z",
+        "2026-10-10T02:00:00Z",
+    )
+    assert [item.evidence_id for item in state.evidence] == ["evidence-1", "evidence-2"]
+    assert [item.source_id for item in state.evidence] == [
+        "tests/test_storage.py::test_local_mode",
+        "docs/decision.md",
+    ]
+    assert [(item.captured_at, item.checked_at) for item in state.evidence] == [
+        ("2026-10-10T08:00:00Z", "2026-10-10T09:00:00Z"),
+        ("2026-10-10T10:00:00Z", None),
+    ]
+    assert [item.occurred_at for item in state.capture_provenance.source_references] == [
+        "2026-10-10T05:00:00Z",
+        "2026-10-10T06:00:00Z",
+    ]
+    assert (
+        state.capture_provenance.candidate_created_at,
+        state.capture_provenance.candidate_updated_at,
+        state.capture_provenance.reviewed_at,
+    ) == (
+        "2026-10-10T03:00:00Z",
+        "2026-10-10T04:00:00Z",
+        "2026-10-10T07:00:00Z",
+    )
+
+
 def test_missing_conflict_links_stay_empty_and_schema_versions_are_checked():
     state = KnowledgeStateEnvelope.from_bundle(knowledge_bundle(conflicts_with=()))
 
@@ -205,9 +311,25 @@ def test_legacy_context_omits_optional_knowledge_state():
     bundle = build_context_bundle([candidate], project_id="alpha")
     serialized = json.loads(bundle.rendered_context)
 
+    expected_item = {
+        "record_id": "message-1",
+        "project_id": "alpha",
+        "source_id": "message-1",
+        "timestamp": None,
+        "record_kind": "chat_message",
+        "status": None,
+        "relevance_score": -1.0,
+        "content": "Legacy retrieved content.",
+    }
     assert bundle.items[0].knowledge_state is None
-    assert "knowledge_state" not in bundle.items[0].as_dict()
+    assert bundle.items[0].as_dict() == expected_item
     assert "knowledge_state" not in serialized
+    assert bundle.rendered_context == (
+        '{"content":"Legacy retrieved content.","project_id":"alpha",'
+        '"record_id":"message-1","record_kind":"chat_message",'
+        '"relevance_score":-1.0,"source_id":"message-1",'
+        '"status":null,"timestamp":null}'
+    )
 
 
 def test_knowledge_state_is_serialized_and_counted_in_the_context_budget():
@@ -225,8 +347,14 @@ def test_knowledge_state_is_serialized_and_counted_in_the_context_budget():
         [replace(candidate, knowledge_state=None)], project_id="alpha", token_budget=10_000
     )
     stateful = build_context_bundle([candidate], project_id="alpha", token_budget=10_000)
+    repeated = build_context_bundle([candidate], project_id="alpha", token_budget=10_000)
     rendered = json.loads(stateful.rendered_context)
 
+    assert repeated.rendered_context == stateful.rendered_context
+    assert [item.as_dict() for item in repeated.items] == [
+        item.as_dict() for item in stateful.items
+    ]
+    assert len(state_less.items) == len(stateful.items) == 1
     assert rendered["knowledge_state"]["schema_version"] == 1
     assert rendered["knowledge_state"]["evidence"][0]["source_id"] == (
         "tests/test_storage.py::test_local_mode"
