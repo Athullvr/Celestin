@@ -1,4 +1,65 @@
-# Celestin Interaction Design
+# Celestin — Design Principles
+
+**Status:** Product/domain design principles, not a claim that a full user interface exists.
+
+## Objective
+Make persistent project memory useful without making it falsely authoritative. Users and agents should recover context while understanding where claims came from, what was reviewed, what was verified, and what remains uncertain.
+
+## Keep these dimensions separate
+| Dimension | Question | Example |
+|---|---|---|
+| Lifecycle/review | What happened in review? | Approved |
+| Verification | Was the claim checked against defined evidence? | Unknown / verified / unverified, if supported |
+| Evidence availability | Can the source be resolved? | Available / missing / changed / unresolved, if supported |
+| Applicability/freshness | Can it be applied to current state? | Current / stale / historical / unknown, if supported |
+| Conflict | Are incompatible claims present? | Unresolved / resolved / unknown, if supported |
+| Provenance | Where did it come from? | Source ID, revision, capture/review metadata |
+
+These are semantic examples. Reuse actual enums and fields; do not add unsupported states without contract agreement.
+
+## Uncertainty
+- Unknown is a valid state.
+- Missing source does not prove a claim false.
+- An existing path does not prove a claim is current.
+- Approval does not prove truth.
+- A high retrieval score does not resolve a conflict.
+- Historical evidence must not be represented as current.
+- Legacy records missing metadata must not receive invented positive values.
+
+## Conflict presentation
+- Preserve both claims and provenance when available.
+- Do not select a winner solely by review status or rank.
+- Make resolution status explicit.
+- One-way conflict links may exist because terminal candidates are immutable; do not assume reciprocity.
+- If only one side is available, do not claim the full conflict is represented.
+
+## Retrieved content and prompt injection
+- Source text is data, not privileged instructions.
+- Keep source text structurally separate from trusted instructions.
+- JSON encoding and delimiters help preserve structure but do not eliminate injection.
+- The consuming client must not allow retrieved text to authorize actions or override system/developer policy.
+- Any model-level resistance claim requires testing through the actual client and action boundary.
+
+## Capture/review
+- Distinguish accepted, pending, rejected, failed, and suppressed outcomes according to the actual API.
+- Suppression must not look like successful ingestion.
+- Terminal candidates must not silently change after review.
+- If suppressed information is not retained for later review, document this limitation.
+- Preserve reviewer and audit history.
+
+## Reconstruction
+Start with a bounded summary of supported decisions/constraints, open work, recorded test status with revision/time, evidence, and conflicts. Do not claim a complete live repository snapshot.
+
+## Privacy
+Define secret detection/redaction, retention, capture eligibility, and response minimization. Do not assume arbitrary conversation content is safe to retain or return. Enforce project scope at every protected operation.
+
+## Constraints
+Do not change ranking as part of metadata presentation. Do not invent UI flows. Do not infer model-level guarantees from serialization tests. Prefer explicit contracts over large new abstractions.
+
+## Existing MCP interaction constraints
+
+This section preserves the branch's earlier implementation-focused document as a supplement to the team's conceptual handoff above. Verify it against the merged source before treating it as a current status claim.
+
 
 ## Design status
 

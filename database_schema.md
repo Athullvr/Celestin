@@ -1,4 +1,134 @@
-# Celestin Database Schema
+# Celestin — Conceptual Database Schema
+
+**Status:** Conceptual model for discussion only. This is NOT an approved PostgreSQL schema or migration.
+
+## Purpose
+Describe relationships needed across capture, review, evidence, conflict handling, reconstruction, and retrieval. The shared-memory owner must reconcile this with the real schema, adapters, tenancy, and migration plan.
+
+## Conceptual entities
+
+### Project
+- Stable `project_id`.
+- Membership and authorization are enforced by a trusted boundary, not caller-supplied fields.
+
+### SourceMessage / SourceArtifact
+- Stable source ID and project association.
+- Source type and locator.
+- Capture/occurrence timestamps where available.
+- Optional revision or content hash.
+- Access and retention policy as defined by the product.
+
+### KnowledgeCandidate
+- Stable knowledge/candidate ID and project ID.
+- Producer/candidate identity as agreed.
+- Claim/decision content.
+- Lifecycle/review status.
+- Certainty only if its meaning is defined by the actual model.
+- Created/updated timestamps.
+- Terminal review metadata that must not be silently overwritten.
+
+### EvidenceAssociation
+- Stable association ID.
+- Knowledge/candidate ID.
+- Source ID or locator.
+- Evidence role/type.
+- Optional revision, timestamp, excerpt reference, or content hash.
+- Resolution state where supported.
+
+This may need to be a first-class relationship if multiple typed sources are required. Do not assume it exists in the legacy schema.
+
+### ReviewEvent
+- Candidate/knowledge ID.
+- Review decision and reviewer identity from a trusted source.
+- Review timestamp and optional rationale/evidence references.
+- Immutable history where required.
+
+Reviewer labels supplied by arbitrary content are not authentication.
+
+### ConflictRelationship
+- Stable relationship ID, project ID, endpoint IDs.
+- Relationship type/status.
+- Discovery provenance and timestamp.
+- Explicit resolution event/history if resolved.
+
+The team must decide whether conflicts are directional, reciprocal, or represented as a canonical pair. Terminal-candidate immutability means code cannot assume it can update both endpoint records.
+
+### VerificationRecord (if adopted)
+- Knowledge/candidate ID.
+- Verification status and method.
+- Evidence used.
+- Result timestamp.
+- Source revision/content hash where applicable.
+- Verifier/process identity and limitations.
+
+Do not infer verification from approval or source existence.
+
+### Applicability/Freshness assessment (if adopted)
+- Knowledge/candidate ID.
+- Applicability/freshness status.
+- Assessed revision/time.
+- Supporting evidence and assessment source/time.
+
+Unknown must remain possible.
+
+### SyncEvent / ChangeLog (according to agreed design)
+- Stable operation/event ID and project ID.
+- Producer/client identity from trusted context.
+- Candidate identity and payload fingerprint if agreed.
+- Outcome/time and retry/conflict reference where needed.
+
+Identity, hashing, atomicity, and retry semantics need an agreed contract.
+
+## Relationship sketch
+```text
+Project
+ ├── SourceMessage / SourceArtifact
+ ├── KnowledgeCandidate
+ │    ├── EvidenceAssociation ──> SourceMessage / SourceArtifact
+ │    ├── ReviewEvent
+ │    ├── VerificationRecord
+ │    ├── Applicability/Freshness assessment
+ │    └── ConflictRelationship <──> KnowledgeCandidate
+ └── SyncEvent / ChangeLog
+```
+Conceptual only; does not prescribe normalized tables or foreign keys.
+
+## Required invariants
+- Knowledge, evidence, conflicts, and sync records are correctly project-scoped.
+- Project ID is not authorization.
+- Evidence points to stable source identity or explicitly unresolved locators.
+- Approval, verification, evidence availability, freshness, and conflict remain distinct.
+- Terminal candidates are not silently mutated by recapture/conflict discovery.
+- Retries follow agreed idempotency rules.
+- Conflicts/resolutions preserve history.
+- Missing metadata does not become a positive claim.
+- Multi-record writes have defined atomicity and transaction ownership.
+- Access and revocation behavior belongs to the trusted authorization boundary.
+
+## Decisions required before schema changes
+1. Candidate identity and producer scope.
+2. Exact retry versus changed payload behavior.
+3. Review history representation.
+4. Evidence cardinality and typed reference format.
+5. Conflict directionality and resolution history.
+6. Verification/freshness metadata ownership.
+7. Atomicity and transaction ownership.
+8. Retention, deletion, and secret policy.
+9. Legacy-record compatibility.
+10. Migration sequencing and adapter interface.
+
+## Legacy compatibility
+Legacy records may only have key/value, lifecycle status, one optional source-message ID, and timestamps. Do not assume typed multi-source evidence, verification, freshness, or conflict history exists.
+
+When absent, preserve lifecycle semantics and represent other dimensions as unknown/unavailable where the contract permits. Never fabricate evidence. Any schema changes must follow the storage owner's additive migration process.
+
+## Non-goals
+This document does not authorize a migration, replace the existing storage contract, assert all entities already exist, or authorize changes to a teammate-owned adapter.
+
+## Existing local SQLite and hosted storage details
+
+This section preserves the branch's earlier implementation-focused document as a supplement to the team's conceptual handoff above. Verify it against the merged source before treating it as a current status claim.
+
 
 ## Runtime schema: local SQLite
 

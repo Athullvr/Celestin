@@ -7,14 +7,16 @@ Search is SQLite FTS5 keyword search, optionally combined with local semantic
 (embedding) search; see [Semantic search](#semantic-search-optional).
 The server communicates with MCP clients over stdio.
 
-## Product and build documents
+## Product and build context
 
-- [PRD](PRD.md): product goals, users, current MVP requirements, and out-of-scope work.
-- [TRD](TRD.md): current runtime architecture, tools, configuration, and security boundaries.
-- [Application flow](App_flow.md): local setup and MCP capture/search/retrieval journeys.
-- [Interaction design](Design.md): tool-response principles and current interface limits.
-- [Database schema](database_schema.md): runtime SQLite schema and separate hosted-schema draft status.
+Celestin's product direction includes automatic knowledge capture, evidence-linked memory, bounded project-state reconstruction, and bidirectional knowledge synchronization. Existing source modules do not by themselves prove the complete flow is wired into persistence and retrieval; verify source and tests before making integration claims.
 
+- [PRD](PRD.md): product scope, capabilities, and decisions.
+- [TRD](TRD.md): technical boundaries, runtime, and security.
+- [Application flow](App_flow.md): intended capability flow and current local MCP workflow.
+- [Design principles](Design.md): provenance, uncertainty, conflicts, and untrusted content.
+- [Database model](database_schema.md): conceptual entities and implementation references.
+- [Build kickoff](BUILD_KICKOFF.md): team handoff prompt; audit notes are historical and need verification.
 ## Requirements
 
 - Python 3.10 or newer
@@ -55,13 +57,24 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+### PostgreSQL migration foundation (explicit operator command)
+
+Local SQLite remains the default and is not affected by the PostgreSQL tooling.
+For a separately provisioned, empty hosted database, install the optional
+`postgres` extra and explicitly run `celestin-migrate` with
+`CELESTIN_POSTGRES_DSN` supplied through an approved secret mechanism. The MCP
+server never runs hosted migrations during startup. See
+[PostgreSQL migrations](docs/postgres-migrations.md) for safety checks and the
+required handling for an existing database without a migration ledger.
+
 ## Optional Neon tooling for Codex
 
 This project includes project-level Neon agent skills for Postgres and Object
-Storage, plus a Neon MCP server entry configured with OAuth in
-`.codex/config.toml`. After pulling the repository, restart Codex and complete
-Neon sign-in the first time the Neon MCP server is used. The project MCP entry
-does not store a Neon API key in the repository.
+Storage, plus a Neon MCP server entry configured with OAuth and pinned to
+project `restless-scene-26170162` in `.codex/config.toml`. After pulling the
+repository, restart Codex and complete Neon sign-in the first time the Neon MCP
+server is used. The project MCP entry does not store a Neon API key in the
+repository.
 
 To install these project skills or reproduce the MCP setup, use the
 officially documented commands:
@@ -74,6 +87,7 @@ neon mcp --oauth --project --agent codex -y
 Neon tooling is optional and separate from Celestin's runtime. The MCP server
 in this project still uses local SQLite; these agent skills and the Neon
 management MCP entry do not connect Celestin to Neon or change its storage.
+
 
 ## Run with Codex CLI
 
@@ -267,6 +281,37 @@ export CELESTIN_PAGEINDEX=1 CELESTIN_PAGEINDEX_MODEL=<litellm model>   # plus th
 
 `retrieve_context` then also returns `document_section` items with a `source` (document, section, line, content hash) and `retrieval.navigation` (latency, estimated and observed tokens, cache hit); a failure of this backend only adds a warning. Maintenance: `celestin-docs status|rebuild|prune|remove`. Routing, cost, caching, security notes, evaluation (`python eval/run_eval.py`) and limits: [docs/pageindex.md](docs/pageindex.md).
 
+## Local System 1 retrieval experiment (opt-in)
+
+The existing `retrieve_context` pipeline remains the default. Install the local
+Laya adapter and set `CELESTIN_RETRIEVAL_PATH=system1` to rerank the already
+authorized candidates with stock `convaiinnovations/laya-multilingual`:
+
+```sh
+python -m pip install -e ".[system1-laya]"
+export CELESTIN_RETRIEVAL_PATH=system1
+celestin
+```
+
+Laya loads lazily on first use and downloads its pinned checkpoint through the
+Hugging Face cache if it is not already present. Allow time and disk space for
+that first download; warm the model before a demo. Each candidate is evaluated
+with the query, complete text, record type, and baseline retrieval evidence,
+with a 2,048-token state limit. Oversized inputs and inference errors keep the
+baseline order and produce content-free diagnostics. Laya only reranks; it
+does not search or persist records. MCP arguments/responses, SQLite,
+authorization, decision filters, provenance, and context assembly stay
+unchanged. Set `CELESTIN_RETRIEVAL_PATH=baseline` or leave it unset for the
+original path. `CELESTIN_RETRIEVAL_PATH=julia1` retains the earlier Julia-1
+experiment as a separate local option.
+
+The earlier Julia-1 evaluation is historical and does not measure Laya. Its
+results and raw per-query data remain in
+[eval/system1_results](eval/system1_results/README.md). Laya has now been
+evaluated against H on matched dev, held-out, and challenge questions and
+budgets; it showed mixed quality and substantially higher CPU latency, so no
+overall improvement is claimed. See the [Laya results and per-query artifacts](eval/laya_results/README.md).
+
 ## Behavior and limitations
 
 - Every read and write is scoped to the supplied project name. There is no
@@ -305,6 +350,12 @@ The tests use temporary SQLite databases, synthetic records and a deterministic
 fake embedding provider (tests only, not semantic search). They do not require
 network access after dependencies are installed. The real-model test is opt-in
 (see above).
+
+The PostgreSQL migration runner and authorization session also have fake-based
+tests that need no server. Live PostgreSQL tests are separately marked and
+skipped by default. See [PostgreSQL integration tests](docs/postgres-integration-tests.md)
+for the disposable database requirements and explicit opt-in command. Those
+tests never create or drop a database and do not enable hosted MCP mode.
 
 ## Optional granular commit watcher
 
@@ -362,3 +413,15 @@ The canonical Celestin project identifier for this repository is `celestin` (leg
 Use the same `celestin` project identifier for this repository. Configure each developer's Celestin MCP entry using the setup above and an absolute database path for that machine. To share data between Codex and the tunnel on this PC, configure both processes to use the same local database path. Repeating a path on another computer does not share the SQLite file. Pulling this repository gives teammates the skill; they must configure their own MCP connection and restart Codex if the skill or tools are not discovered. Check `codex mcp list` and `codex mcp get celestin` when tools are unavailable. Report tool errors as returned, and do not retry using a different project.
 
 `$orbit` and topic-specific retrieval are read-only. `$orbit save` uses the existing ingestion and decision tools; a saved decision starts as a draft and is not automatically approved.
+# Local System 1 experiment
+
+The local Julia-1 path is implemented as an opt-in experiment and remains
+disabled by default. The paired evaluation found lower answer-bearing context
+and MRR, plus substantially higher latency, than the existing path on all six
+dataset/budget comparisons. The existing path remains the recommended default.
+See the [product brief](PRD.md), [technical design](TRD.md), [flow](App_flow.md),
+[architecture](Design.md), [schema impact](database_schema.md), and [measured
+results](eval/system1_results/README.md). Hosted inference and training remain
+out of scope.
+
+Research: [Julia-1 model card](https://huggingface.co/SupersonicLabs/Julia-1) · [CLM project](https://github.com/Contrastive-LM/CLM) · [TypeSafe AI](https://typesafe.ai/)

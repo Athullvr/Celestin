@@ -11,10 +11,8 @@ from orbit.pageindex.errors import PageIndexUnavailable
 from orbit.pageindex.indexer import index_markdown_text
 from orbit.pageindex.navigator import LLMTreeNavigator
 from orbit.pageindex.store import PageIndexStore
-from orbit.repositories.decisions import DecisionRepository
 from orbit.repositories.messages import ChatMessageRepository
-from orbit.retrieval.fts import FtsMessageSearch
-from orbit.retrieval.service import DECISION_FTS_SCHEMA, MESSAGE_FTS_SCHEMA
+from orbit.retrieval.sqlite_data import SQLiteRetrievalData
 from orbit.retrieval.strategies import (
     Candidate, FtsStrategy, PageIndexStrategy, RetrievalRequest, SectionStrategy, SemanticStrategy,
 )
@@ -61,19 +59,16 @@ def check_normalized(c: Candidate):
 
 
 def test_fts_strategy_returns_messages_and_decisions_with_status(env):
-    repo = DecisionRepository(env.conn)
-    result = FtsStrategy(FtsMessageSearch(env.conn, MESSAGE_FTS_SCHEMA), FtsMessageSearch(env.conn, DECISION_FTS_SCHEMA),
-                         repo).retrieve(env.request)
+    result = FtsStrategy(SQLiteRetrievalData(env.conn)).retrieve(env.request)
     assert {c.record_type for c in result.candidates} == {"chat_message", "canonical_decision"}
     assert all(c.method == "fts" and c.score is not None for c in result.candidates)
     [check_normalized(c) for c in result.candidates]
-    only = FtsStrategy(FtsMessageSearch(env.conn, MESSAGE_FTS_SCHEMA), FtsMessageSearch(env.conn, DECISION_FTS_SCHEMA),
-                       repo).retrieve(env.request, kinds=("canonical_decision",))
+    only = FtsStrategy(SQLiteRetrievalData(env.conn)).retrieve(env.request, kinds=("canonical_decision",))
     assert {c.record_type for c in only.candidates} == {"canonical_decision"}
 
 
 def test_semantic_strategy_reloads_authoritative_rows_and_isolates_projects(env):
-    strat = SemanticStrategy(env.semantic, env.conn, DecisionRepository(env.conn))
+    strat = SemanticStrategy(env.semantic, SQLiteRetrievalData(env.conn))
     result = strat.retrieve(RetrievalRequest("p", "hosted cloud storage", 20, 4000))
     assert result.status == "ok" and result.candidates
     [check_normalized(c) for c in result.candidates]
@@ -82,7 +77,7 @@ def test_semantic_strategy_reloads_authoritative_rows_and_isolates_projects(env)
 
 def test_semantic_strategy_reports_unavailable_without_candidates(env):
     env.provider.fail = True
-    result = SemanticStrategy(env.semantic, env.conn, DecisionRepository(env.conn)).retrieve(env.request)
+    result = SemanticStrategy(env.semantic, SQLiteRetrievalData(env.conn)).retrieve(env.request)
     assert result.status == "unavailable" and result.candidates == [] and "outage" in result.detail
 
 

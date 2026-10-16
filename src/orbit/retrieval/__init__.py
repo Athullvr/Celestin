@@ -16,6 +16,8 @@ from .fts import (
     SearchResult,
 )
 from .hybrid import RRF_K, RetrievalInfo, reciprocal_rank_fusion
+from .data import DecisionRecord, MessageRecord, RetrievalData, SearchMatch, SearchPage
+from .sqlite_data import SQLiteRetrievalData
 from .ranking import (
     RankingPolicy,
     RetrievalCandidate,
@@ -33,6 +35,12 @@ __all__ = [
     "RRF_K",
     "RetrievalInfo",
     "reciprocal_rank_fusion",
+    "DecisionRecord",
+    "MessageRecord",
+    "RetrievalData",
+    "SearchMatch",
+    "SearchPage",
+    "SQLiteRetrievalData",
     "FtsMessageSearch",
     "FtsSchema",
     "SearchIndexUnavailable",

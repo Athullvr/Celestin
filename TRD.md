@@ -1,4 +1,77 @@
-# Celestin Technical Requirements Document
+# Celestin — Technical Requirements Document
+
+**Status:** Working draft. Confirm every detail against source code before coding.
+
+## Architecture
+Conceptual flow:
+
+`Capture/staging/direct-agent → Resurrection Layer → shared-memory interface → retrieval strategies → project/lifecycle filtering → ranking/fusion and budget selection → JSON/MCP result → consuming client`
+
+This is an intended architecture, not proof every connection is integrated in production.
+
+## Component responsibilities
+- **Capture/staging:** validate inputs, extract candidate knowledge, preserve source identity and provenance, apply identity/retry/lifecycle rules.
+- **Resurrection Layer:** capture, evidence, review/conflict handling, bounded reconstruction, synchronization contracts, explicit uncertainty.
+- **Shared memory:** persistence, PostgreSQL/migrations, tenancy, storage interfaces, trusted authorization boundary; owned separately.
+- **Retrieval:** generate candidates, filter by project/lifecycle, rank/fuse/deduplicate, enforce context budget, preserve available metadata. Do not change ranking without its owner.
+- **MCP/client:** MCP returns tool output; the client must treat retrieved text as untrusted and keep it separate from privileged instructions.
+
+## Retrieval strategies
+The system has used keyword/FTS, semantic/vector, section-oriented retrieval, and optional PageIndex. A model-based selector/System 1 approach is optional/experimental and evaluated separately. Keep ranking/reranking stable while agreeing on metadata contracts. PageIndex outline snippets can still contain hostile text; restricting returned references to the outline does not eliminate injection risk.
+
+## Required semantic separation
+- Lifecycle/review status.
+- Verification status.
+- Evidence availability/resolution.
+- Freshness/applicability.
+- Conflict status/relationships.
+- Provenance/source identity.
+
+Do not infer verification from approval, evidence existence, or rank. Do not claim currentness merely because a source path still exists.
+
+## Security
+- Protected evidence/sync operations reauthorize through a trusted authorizer.
+- Caller-constructed scopes do not grant permission.
+- Trusted application/transport supplies the principal.
+- Project/action authorization is checked on each protected operation.
+- Reconstruction repository roots must be bound to authorized projects through a trusted resolver before external exposure.
+- Test path traversal/symlink escape where filesystem access is permitted.
+- Project IDs, reviewer labels, and source metadata are not credentials.
+- Retrieved content is untrusted regardless of approval/rank.
+- Define secret handling, retention, limits, and response minimization.
+
+## Known retrieval path
+`SQLite/document index → candidates → project/lifecycle filtering, ranking and budget selection → JSON context → MCP result → consuming client`
+
+Source text is returned verbatim in content fields and JSON-Lines `rendered_context`. Items may inherit project scope from a top-level envelope while rendered records include their own `project_id`; consumers must preserve the envelope/provenance association.
+
+Retrieval DTOs do not yet carry all Resurrection verification, freshness, and conflict metadata.
+
+## Reliability
+- Idempotent retries create no duplicates.
+- Changed identity-bound payloads do not silently overwrite reviewed candidates.
+- Terminal approved/rejected candidates remain immutable unless a revision model is explicitly introduced.
+- Conflict discovery does not mutate terminal records.
+- Define atomicity for multi-record capture and relationship writes; validate with real persistence.
+- Context budget, failure recovery, and project isolation need tests.
+
+## Test layers
+**Domain:** identity, retries, immutability, provenance, lifecycle, conflicts, stale/historical reconstruction, serialization, authorization through injected policy.
+
+**Integration:** real adapter transactions; per-request principal and project/action authorization; canonical repository resolver; capture-to-retrieval metadata preservation; actual client trust boundary; multi-client sync.
+
+## Known test issues
+- `tests/retrieval/test_strategies.py`: five setup errors due to undefined `DecisionRepository`.
+- Previous MCP stdio test timed out; cause unknown.
+- Selected suites passed, but full suite and production persistence integration are not established.
+
+## Ownership
+Confirm with team: Resurrection/domain contributor owns capture lifecycle, evidence semantics, reconstruction, domain tests/contracts; shared-memory contributor owns PostgreSQL, migrations, adapters, tenancy/auth boundary; retrieval/System 1 contributor owns strategy evaluation and ranking; MCP/client contributor owns transport exposure and actual model integration.
+
+## Local MCP and storage implementation reference
+
+This section preserves the branch's earlier implementation-focused document as a supplement to the team's conceptual handoff above. Verify it against the merged source before treating it as a current status claim.
+
 
 ## Verified implementation baseline
 
@@ -7,7 +80,7 @@
 - Transport: local stdio.
 - Runtime persistence: Python `sqlite3`; SQLite is authoritative.
 - Search: SQLite FTS5/BM25. Optional local vector search and optional PageIndex document retrieval are separate derived/auxiliary capabilities.
-- The source tree in this checkout has no hosted PostgreSQL application adapter. `docs/hosted-tenancy-schema.sql` is a draft and is not wired into MCP startup.
+- The source tree now includes hosted PostgreSQL storage and authorization components, but the local MCP startup still defaults to SQLite. `docs/hosted-tenancy-schema.sql` remains a separate draft and is not wired into MCP startup.
 
 ## Runtime components
 
