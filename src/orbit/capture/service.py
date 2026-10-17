@@ -13,7 +13,14 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Callable, Protocol, Sequence
 
-from orbit.evidence.model import EvidenceSource, EvidenceType, VerificationStatus
+from orbit.evidence.model import (
+    CaptureKnowledgeProvenance,
+    CaptureSourceProvenance,
+    EvidenceSource,
+    EvidenceType,
+    KnowledgeType,
+    VerificationStatus,
+)
 
 from .model import (
     CandidateCategory,
@@ -205,11 +212,25 @@ class KnowledgeCapturePipeline:
                 )
                 conflict_key = previous.conflict_key or candidate.conflict_key
                 changed = (
-                    source_references != previous.source_references
+                    candidate.claim != previous.claim
+                    or source_references != previous.source_references
                     or merged_evidence != previous.evidence
                     or merged_certainty is not previous.certainty
                     or conflict_key != previous.conflict_key
                 )
+                if previous.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                    duplicate_count += 1
+                    if changed:
+                        suppressed.append(
+                            SuppressedCapture(
+                                event.category,
+                                reference,
+                                "terminal_candidate_immutable",
+                            )
+                        )
+                    else:
+                        accepted.append(previous)
+                    continue
                 candidate = replace(
                     previous,
                     source_references=source_references,
@@ -222,6 +243,17 @@ class KnowledgeCapturePipeline:
             candidate = self._link_conflicts(candidate)
             accepted.append(candidate)
 
+        # Later events in this batch can merge source references or add conflict
+        # links to candidates already returned above. Return the final queue
+        # state for each accepted identity so the result is internally consistent.
+        if accepted:
+            saved_candidates = {item.candidate_id: item for item in self._list()}
+            try:
+                accepted = [saved_candidates[item.candidate_id] for item in accepted]
+            except KeyError as exc:
+                raise CaptureRepositoryError(
+                    "review repository omitted a candidate accepted in this batch"
+                ) from exc
         return CaptureResult(tuple(accepted), tuple(suppressed), duplicate_count)
 
     def list_candidates(
@@ -433,6 +465,11 @@ class KnowledgeCapturePipeline:
         return tuple(extracted)
 
     def _link_conflicts(self, candidate: KnowledgeCandidate) -> KnowledgeCandidate:
+        # Review transitions may save a terminal candidate, but conflict
+        # discovery must not rewrite its reviewed relationship history.
+        if candidate.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+            self._put(candidate)
+            return candidate
         if not candidate.conflict_key:
             self._put(candidate)
             return candidate
@@ -453,6 +490,11 @@ class KnowledgeCapturePipeline:
                     and _normalize_claim(other.claim) != _normalize_claim(item.claim)
                 )
             )
+            if item.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                # The new candidate records the conflict. The terminal record
+                # remains byte-for-byte stable after its review decision.
+                updated_group[item.candidate_id] = item
+                continue
             updated = replace(
                 item,
                 conflicts_with=conflicts,
@@ -460,6 +502,8 @@ class KnowledgeCapturePipeline:
             )
             updated_group[updated.candidate_id] = updated
         for item in updated_group.values():
+            if item.status in {ReviewStatus.APPROVED, ReviewStatus.REJECTED}:
+                continue
             self._put(item)
         return updated_group[candidate.candidate_id]
 
@@ -515,10 +559,16 @@ class KnowledgeCapturePipeline:
         )
 
 
-def evidence_sources_for(candidate: KnowledgeCandidate) -> tuple[EvidenceSource, ...]:
-    """Map an approved candidate's origins to Capability 1 references, without saving."""
-    if candidate.status is not ReviewStatus.APPROVED:
-        raise InvalidReviewTransition("only approved candidates can be mapped to knowledge evidence")
+def evidence_sources_for(
+    candidate: KnowledgeCandidate, *, target_project: str
+) -> tuple[EvidenceSource, ...]:
+    """Map an approved candidate's origins for the matching project, without saving.
+
+    The project match is a domain association guard, not authentication. Callers
+    must still obtain trusted project scope from the application's authorization
+    boundary before writing the returned sources.
+    """
+    _require_approved_candidate(candidate, target_project)
     origins = tuple(
         EvidenceSource(
             EvidenceType.OTHER,
@@ -531,6 +581,82 @@ def evidence_sources_for(candidate: KnowledgeCandidate) -> tuple[EvidenceSource,
         for reference in candidate.source_references
     )
     return _unique_evidence((*origins, *candidate.evidence))
+
+
+def capture_provenance_for(
+    candidate: KnowledgeCandidate, *, target_project: str
+) -> CaptureKnowledgeProvenance:
+    """Create the storage-neutral provenance envelope for an approved candidate.
+
+    The envelope retains review and source metadata alongside the claim. Its
+    actor labels remain caller-supplied provenance, not authenticated identity.
+    """
+    _require_approved_candidate(candidate, target_project)
+    return CaptureKnowledgeProvenance(
+        candidate_id=candidate.candidate_id,
+        project_id=candidate.project_id,
+        category=candidate.category.value,
+        certainty=candidate.certainty.value,
+        review_status=candidate.status.value,
+        candidate_verification_status=candidate.verification_status.value,
+        source_references=tuple(
+            CaptureSourceProvenance(
+                source_type=reference.source_type.value,
+                source_id=reference.source_id,
+                occurred_at=reference.source_timestamp,
+                revision=reference.source_revision,
+                locator=reference.locator,
+            )
+            for reference in candidate.source_references
+        ),
+        candidate_created_at=candidate.created_at,
+        candidate_updated_at=candidate.updated_at,
+        original_claim=candidate.original_claim,
+        reviewed_by=candidate.reviewed_by,
+        reviewed_at=candidate.reviewed_at,
+        review_note=candidate.review_note,
+        conflicts_with=candidate.conflicts_with,
+    )
+
+
+def knowledge_type_for_candidate(candidate: KnowledgeCandidate) -> KnowledgeType:
+    """Map only candidate categories with an equivalent Capability 1 type."""
+    mapping = {
+        CandidateCategory.DECISION: KnowledgeType.DECISION,
+        CandidateCategory.DISCOVERY: KnowledgeType.DISCOVERY,
+        CandidateCategory.BUG_FIX: KnowledgeType.BUG_FIX,
+        CandidateCategory.COMPLETED_WORK: KnowledgeType.COMPLETED_WORK,
+        CandidateCategory.CONSTRAINT: KnowledgeType.REQUIREMENT,
+        CandidateCategory.IMPLEMENTATION_DETAIL: KnowledgeType.IMPLEMENTATION_FINDING,
+    }
+    if not isinstance(candidate, KnowledgeCandidate):
+        raise CaptureValidationError("candidate must be a KnowledgeCandidate")
+    if not isinstance(candidate.category, CandidateCategory):
+        raise CaptureValidationError("candidate category must be a CandidateCategory")
+    try:
+        return mapping[candidate.category]
+    except KeyError as exc:
+        raise CaptureValidationError(
+            f"candidate category {candidate.category.value!r} has no agreed Capability 1 knowledge type"
+        ) from exc
+
+
+def _require_approved_candidate(
+    candidate: KnowledgeCandidate, target_project: str
+) -> None:
+    target_project = _required_text(
+        target_project, "target_project", MAX_REFERENCE_CHARS
+    )
+    if not isinstance(candidate, KnowledgeCandidate):
+        raise CaptureValidationError("candidate must be a KnowledgeCandidate")
+    if candidate.project_id != target_project:
+        raise CaptureValidationError("candidate project does not match target project")
+    if candidate.status is not ReviewStatus.APPROVED:
+        raise InvalidReviewTransition("only approved candidates can be mapped to knowledge")
+    if candidate.verification_status is not VerificationStatus.UNVERIFIED:
+        raise CaptureValidationError(
+            "candidate verification metadata is unsupported; conversion requires unverified status"
+        )
 
 
 def _candidate_identity(

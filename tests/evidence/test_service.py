@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from orbit.evidence.model import (
+    CaptureKnowledgeProvenance,
+    CaptureSourceProvenance,
     EvidenceRecord,
     EvidenceSource,
     EvidenceType,
@@ -18,6 +20,7 @@ from orbit.evidence.model import (
     VerificationStatus,
 )
 from orbit.evidence.service import (
+    EvidenceMemoryError,
     EvidenceLinkedMemoryService,
     EvidenceReferenceMissing,
     EvidenceReferenceResolutionError,
@@ -31,8 +34,8 @@ NOW = datetime(2026, 10, 14, 12, 30, tzinfo=timezone.utc)
 
 
 def authorized(project: str, action: str = WRITE) -> AuthorizedProject:
-    policy = ProjectAccessPolicy(local_access={project: [READ, WRITE]})
-    return policy.authorize(None, project, action)
+    # Deliberately constructible: the service must authorize the selector again.
+    return AuthorizedProject(project=project, action=action, principal=None)
 
 
 class Resolver:
@@ -129,6 +132,12 @@ def make_service(store=None, resolver=None):
     return EvidenceLinkedMemoryService(
         store or FakeEvidenceStore(),
         resolver or Resolver(),
+        authorizer=ProjectAccessPolicy(
+            local_access={
+                project: [READ, WRITE]
+                for project in ("p", "project-a", "project-b")
+            }
+        ),
         id_factory=lambda: next(ids),
         clock=lambda: NOW,
     )
@@ -193,6 +202,90 @@ def test_unresolved_reference_is_preserved_and_reported_on_read():
     assert loaded.record.verification_status is VerificationStatus.UNVERIFIED
 
 
+def test_read_rejects_evidence_returned_outside_the_authorized_project():
+    store = FakeEvidenceStore()
+    service = make_service(store=store)
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "Use SQLite.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+    key = ("p", created.record.knowledge_id)
+    evidence_id = created.evidence[0].evidence_id
+    store.evidence[key][evidence_id] = replace(
+        created.evidence[0], project="another-project"
+    )
+
+    with pytest.raises(EvidenceMemoryError, match="outside the requested project"):
+        service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+
+@pytest.mark.parametrize(
+    "project_id,review_status,candidate_verification_status",
+    [
+        ("other", "approved", "unverified"),
+        ("p", "pending_review", "unverified"),
+        ("p", "approved", "verified"),
+    ],
+)
+def test_capture_provenance_requires_matching_project_approval_and_unverified_candidate(
+    project_id, review_status, candidate_verification_status
+):
+    provenance = CaptureKnowledgeProvenance(
+        candidate_id="candidate-1",
+        project_id=project_id,
+        category="decision",
+        certainty="uncertain",
+        review_status=review_status,
+        candidate_verification_status=candidate_verification_status,
+        source_references=(),
+        candidate_created_at="2026-10-14T12:00:00Z",
+        candidate_updated_at="2026-10-14T12:00:00Z",
+        reviewed_by="reviewer-label",
+        reviewed_at="2026-10-14T12:00:00Z",
+    )
+    service = make_service()
+
+    with pytest.raises(EvidenceValidationError):
+        service.create_knowledge(
+            authorized("p"),
+            KnowledgeType.DECISION,
+            "Use SQLite.",
+            (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+            capture_provenance=provenance,
+        )
+
+
+def test_capture_source_provenance_must_match_an_associated_evidence_source():
+    provenance = CaptureKnowledgeProvenance(
+        candidate_id="candidate-1",
+        project_id="p",
+        category="decision",
+        certainty="unqualified",
+        review_status="approved",
+        candidate_verification_status=VerificationStatus.UNVERIFIED.value,
+        source_references=(
+            CaptureSourceProvenance(
+                "conversation_summary", "summary-1", "2026-10-14T12:00:00Z", None, "event:1"
+            ),
+        ),
+        candidate_created_at="2026-10-14T12:00:00Z",
+        candidate_updated_at="2026-10-14T12:00:00Z",
+        reviewed_by="reviewer-label",
+        reviewed_at="2026-10-14T12:00:00Z",
+    )
+
+    with pytest.raises(EvidenceValidationError, match="no matching evidence source"):
+        make_service().create_knowledge(
+            authorized("p"),
+            KnowledgeType.DECISION,
+            "A claim.",
+            (EvidenceSource(EvidenceType.OTHER, "different-summary"),),
+            capture_provenance=provenance,
+        )
+
+
 def test_missing_source_fails_before_persistence():
     store = FakeEvidenceStore()
     resolver = Resolver(
@@ -209,6 +302,46 @@ def test_missing_source_fails_before_persistence():
         )
 
     assert store.records == {}
+
+
+def test_read_time_missing_source_status_is_separate_from_verification():
+    store = FakeEvidenceStore()
+    source_key = ("p", EvidenceType.MESSAGE, "message-1")
+    resolver = Resolver({source_key: ReferenceStatus.AVAILABLE})
+    service = make_service(store, resolver)
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "A recorded claim.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+    evidence_id = created.evidence[0].evidence_id
+    storage_key = ("p", created.record.knowledge_id)
+
+    assert created.evidence[0].reference_status is ReferenceStatus.AVAILABLE
+    assert created.record.verification_status is VerificationStatus.UNVERIFIED
+
+    resolver.statuses[source_key] = ReferenceStatus.MISSING
+    refreshed = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert refreshed.evidence[0].reference_status is ReferenceStatus.MISSING
+    assert refreshed.evidence[0].verification_status is VerificationStatus.UNVERIFIED
+    assert refreshed.record.verification_status is VerificationStatus.UNVERIFIED
+    assert store.evidence[storage_key][evidence_id].reference_status is ReferenceStatus.AVAILABLE
+
+    stale = service.set_knowledge_verification(
+        authorized("p"),
+        created.record.knowledge_id,
+        VerificationStatus.STALE,
+        checked_by="reviewer-1",
+        note="Current applicability needs another check.",
+    )
+    stale_read = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert stale.verification_status is VerificationStatus.STALE
+    assert stale_read.record.verification_status is VerificationStatus.STALE
+    assert stale_read.evidence[0].reference_status is ReferenceStatus.MISSING
+    assert stale_read.evidence[0].verification_status is VerificationStatus.UNVERIFIED
 
 
 def test_resolver_failure_is_explicit_and_does_not_create_a_record():
@@ -385,16 +518,57 @@ def test_project_scope_isolation_and_missing_record_errors():
         )
 
 
+def test_caller_constructed_scope_does_not_grant_evidence_access():
+    store = FakeEvidenceStore()
+    service = EvidenceLinkedMemoryService(
+        store,
+        Resolver(),
+        authorizer=ProjectAccessPolicy(local_access={"project-a": [READ]}),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.create_knowledge(
+            AuthorizedProject("project-a", WRITE, None),
+            KnowledgeType.DISCOVERY,
+            "caller supplied scope",
+            (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+        )
+    assert store.records == {}
+
+
+def test_forged_scope_cannot_switch_the_service_principal_to_another_project():
+    from orbit.mcp_server.authorization import AuthenticatedPrincipal
+
+    member = AuthenticatedPrincipal("test-issuer", "member-a")
+    attacker = AuthenticatedPrincipal("test-issuer", "attacker")
+    service = EvidenceLinkedMemoryService(
+        FakeEvidenceStore(),
+        Resolver(),
+        authorizer=ProjectAccessPolicy(
+            principal_access={member: {"project-a": [READ, WRITE]}}
+        ),
+        principal=member,
+        clock=lambda: NOW,
+    )
+
+    # The scope's principal is ignored; the service uses its pinned principal.
+    with pytest.raises(KnowledgeNotFound):
+        service.get_knowledge(AuthorizedProject("project-a", READ, attacker), "missing")
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.get_knowledge(AuthorizedProject("project-b", READ, member), "missing")
+
+
 def test_authorized_action_is_required_for_each_operation():
     service = make_service()
-    with pytest.raises(PermissionError, match="write scope"):
+    with pytest.raises(PermissionError, match="write selector"):
         service.create_knowledge(
             authorized("p", READ),
             KnowledgeType.DISCOVERY,
             "Claim",
             (EvidenceSource(EvidenceType.MESSAGE, "m-1"),),
         )
-    with pytest.raises(PermissionError, match="read scope"):
+    with pytest.raises(PermissionError, match="read selector"):
         service.get_knowledge(authorized("p", WRITE), "missing")
 
 
