@@ -4,6 +4,21 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-17T09:25:29+05:30 — Add isolated PostgreSQL retrieval adapter
+
+- Changed: Added a `RetrievalData` implementation with explicit workspace/project
+  scope, authoritative decision reloads, archive filters, deterministic
+  PostgreSQL full-text search, and normalized IDs/timestamps. Added migration
+  `0003_retrieval_search_indexes.sql` with partial GIN expression indexes.
+- Why: Prepare PostgreSQL retrieval behind the existing data port without
+  enabling hosted requests or changing SQLite runtime behavior.
+- Validation: Focused adapter, SQLite retrieval/data-port, and migration-runner
+  tests: 72 passed; retrieval suite: 164 passed, 6 skipped; non-live PostgreSQL
+  suite: 82 passed, 18 skipped; MCP regression tests: 44 passed; full suite:
+  491 passed, 38 skipped. Compilation and both diff checks passed.
+- Limitations: No database or Neon operation was performed. Live PostgreSQL
+  query, index use, and retrieval parity remain unverified.
+
 ## 2026-10-16T23:11:03+05:30 — Add explicit MCP runtime composition
 
 - Changed: Added `build_runtime`, `ServerRuntime`, bound `MCPToolHandlers`, and `create_mcp_server`; documented the SQLite-only composition boundary. Updated runtime, authorization, persistence, and command-alias tests for instance-scoped dependencies.
