@@ -9,6 +9,7 @@ import pytest
 
 from orbit.evidence.model import (
     CaptureKnowledgeProvenance,
+    CaptureSourceProvenance,
     EvidenceRecord,
     EvidenceType,
     KnowledgeBundle,
@@ -260,6 +261,80 @@ def test_capture_conflict_links_mark_both_approved_claims_unresolved(tmp_path):
     assert by_claim["Use PostgreSQL."].capture_provenance.conflicts_with == ("candidate-sqlite",)
     assert by_claim["Use SQLite."].applicability is EvidenceClass.UNKNOWN
     assert "no resolution is recorded" in by_claim["Use SQLite."].rationale
+
+
+def test_dangling_capture_conflict_stays_unresolved_without_fabricating_counterpart(tmp_path):
+    root = repository(tmp_path, {"src/db.py": "DATABASE = 'sqlite'\n"})
+    revision = commit(root)
+    absent_candidate_id = "candidate-not-loaded"
+    source_provenance = CaptureSourceProvenance(
+        source_type="conversation",
+        source_id="conversation-17",
+        occurred_at=NOW,
+        revision="conversation-revision-3",
+        locator="message:9",
+    )
+    provenance = replace(
+        capture_provenance(
+            "candidate-present", conflicts_with=(absent_candidate_id,)
+        ),
+        source_references=(source_provenance,),
+    )
+    evidence = EvidenceRecord(
+        "evidence-present",
+        "sample-project",
+        EvidenceType.MESSAGE,
+        source_provenance.source_id,
+        source_provenance.locator,
+        source_provenance.revision,
+        "sha256:sample",
+        NOW,
+        ReferenceStatus.UNRESOLVED,
+        VerificationStatus.UNVERIFIED,
+    )
+    bundle = knowledge(
+        "knowledge-present", "Use SQLite.", evidence=(evidence,)
+    )
+    record = replace(bundle.record, capture_provenance=provenance)
+    source = KnowledgeSource((KnowledgeBundle(record, bundle.evidence),))
+
+    snapshot = reconstructor(root, source).reconstruct(revision)
+
+    assert snapshot.inspected_revision == revision
+    assert len(snapshot.decisions) == 1
+    finding = snapshot.decisions[0]
+    assert finding.knowledge_record_id == "knowledge-present"
+    assert finding.knowledge_record_id != provenance.candidate_id
+    assert finding.capture_provenance == provenance
+    assert finding.capture_provenance.conflicts_with == (absent_candidate_id,)
+    assert finding.capture_provenance.source_references == (source_provenance,)
+    assert finding.classification is EvidenceClass.CONFLICTING
+    assert finding.recorded_verification == VerificationStatus.UNVERIFIED.value
+    assert finding.applicability is EvidenceClass.UNKNOWN
+    assert "no resolution is recorded" in finding.rationale
+
+    # list_records() has no completeness signal, so the dangling candidate ID
+    # remains provenance; reconstruction cannot call it confirmed missing.
+    knowledge_findings = (
+        *snapshot.decisions,
+        *snapshot.recorded_knowledge,
+        *snapshot.unresolved,
+    )
+    assert [item.knowledge_record_id for item in knowledge_findings] == [
+        "knowledge-present"
+    ]
+    assert all(absent_candidate_id not in item.claim for item in knowledge_findings)
+    assert len(finding.evidence) == 1
+    evidence_reference = finding.evidence[0]
+    assert evidence_reference.evidence_record_id == "evidence-present"
+    assert evidence_reference.source_type == EvidenceType.MESSAGE.value
+    assert evidence_reference.source_id == source_provenance.source_id
+    assert evidence_reference.locator == source_provenance.locator
+    assert evidence_reference.revision == source_provenance.revision
+    assert evidence_reference.content_hash == "sha256:sample"
+    assert evidence_reference.recorded_reference_status == ReferenceStatus.UNRESOLVED.value
+    assert evidence_reference.recorded_verification_status == VerificationStatus.UNVERIFIED.value
+    assert evidence_reference.classification is EvidenceClass.UNKNOWN
 
 
 def test_stale_record_status_is_not_downgraded_when_source_exists(tmp_path):
