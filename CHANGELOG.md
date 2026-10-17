@@ -4,6 +4,19 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-17T14:18:41+05:30 — Add hosted PostgreSQL runtime audit
+
+- Changed: Added the dated read-only architecture audit at
+  `docs/hosted-postgres-runtime-audit.md`.
+- Why: Preserve the reviewed runtime, storage, authorization, migration, and
+  integration gaps as a handoff reference; the report describes its 2026-10-16
+  repository snapshot and does not claim hosted runtime readiness.
+- Validation: Reviewed the report and confirmed it is the only pre-existing
+  untracked path. No tests were run; no database or Neon resources were
+  accessed.
+- Limitations: The audit is historical and should be read with current source
+  before making implementation decisions.
+
 ## 2026-10-17T13:07:42+05:30 — Narrow hosted PostgreSQL request entry points
 
 - Changed: Made PostgreSQL transaction and request-executor methods internal,
