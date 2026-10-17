@@ -176,6 +176,65 @@ def test_create_record_with_multiple_evidence_sources_and_retrieve_provenance():
     assert loaded.evidence[0].captured_at == "2026-10-14T12:30:00.000000Z"
 
 
+def test_one_source_can_be_linked_to_multiple_capture_candidates():
+    store = FakeEvidenceStore()
+    service = make_service(store=store)
+    source_reference = CaptureSourceProvenance(
+        source_type="conversation_summary",
+        source_id="conversation-7",
+        occurred_at="2026-10-14T23:10:00Z",
+        revision="rev-3",
+        locator="summary:decision-1",
+    )
+    source = EvidenceSource(
+        EvidenceType.OTHER,
+        source_reference.source_id,
+        "conversation_summary: summary:decision-1",
+        revision="rev-3",
+        content_hash="sha256:source",
+    )
+
+    def provenance(candidate_id):
+        return CaptureKnowledgeProvenance(
+            candidate_id=candidate_id,
+            project_id="p",
+            category="decision",
+            certainty="high",
+            review_status="approved",
+            candidate_verification_status=VerificationStatus.UNVERIFIED.value,
+            source_references=(source_reference,),
+            candidate_created_at="2026-10-14T23:00:00Z",
+            candidate_updated_at="2026-10-14T23:20:00Z",
+            reviewed_by="reviewer-label",
+            reviewed_at="2026-10-14T23:20:00Z",
+        )
+
+    first = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "First claim from the shared source.",
+        (source,),
+        capture_provenance=provenance("candidate-1"),
+    )
+    second = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "Second claim from the shared source.",
+        (source,),
+        capture_provenance=provenance("candidate-2"),
+    )
+
+    first_loaded = service.get_knowledge(authorized("p", READ), first.record.knowledge_id)
+    second_loaded = service.get_knowledge(authorized("p", READ), second.record.knowledge_id)
+
+    assert first_loaded.record.capture_provenance.candidate_id == "candidate-1"
+    assert second_loaded.record.capture_provenance.candidate_id == "candidate-2"
+    assert first_loaded.evidence[0].source_id == second_loaded.evidence[0].source_id
+    assert first_loaded.evidence[0].evidence_id != second_loaded.evidence[0].evidence_id
+    assert first_loaded.evidence[0].content_hash == second_loaded.evidence[0].content_hash
+    assert len(store.records) == 2
+
+
 def test_identical_sources_in_one_create_are_deduplicated():
     service = make_service()
     source = EvidenceSource(EvidenceType.DOCUMENT, "design.md", "Architecture/Storage")
