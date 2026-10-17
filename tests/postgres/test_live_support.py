@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.postgres.live_support import (
+    TrackedConnection,
     UnsafePostgresTestTarget,
     initialize_fresh_database,
     postgres_target_from_environment,
@@ -54,6 +57,50 @@ def test_rejects_the_previously_failed_target_even_with_matching_coordinates():
 
     with pytest.raises(UnsafePostgresTestTarget, match="test database"):
         postgres_target_from_environment(values)
+
+
+@pytest.mark.parametrize(
+    "database",
+    [
+        "celestin_it_20261015_b364bbae",
+        "celestin_it_20261015_10ac5ae9",
+        "celestin_it_20261015_0b8e767c",
+    ],
+)
+def test_rejects_retired_targets_even_with_matching_coordinates(database):
+    nonce = database.rsplit("_", 1)[-1]
+    user = f"celestin_it_user_{nonce}"
+    values = target_environment(
+        CELESTIN_TEST_POSTGRES_DSN=(
+            f"host=127.0.0.1 port=5432 dbname={database} user={user}"
+        ),
+        CELESTIN_TEST_POSTGRES_DATABASE=database,
+        CELESTIN_TEST_POSTGRES_USER=user,
+    )
+
+    with pytest.raises(UnsafePostgresTestTarget, match="test database"):
+        postgres_target_from_environment(values)
+
+
+def test_schema_validation_script_requires_a_named_non_retired_target():
+    script = (
+        Path(__file__).with_name("validate_hosted_schema.sql")
+        .read_text(encoding="utf-8")
+    )
+
+    assert r"\if :{?approved_test_database}" in script
+    assert "current_database() = :'approved_test_database'" in script
+    assert "^celestin_it_[0-9]{8}_[0-9a-f]{8}$" in script
+    for retired_database in (
+        "celestin_schema_test_v2",
+        "celestin_it_20261014_a7f3c9",
+        "celestin_it_20261015_b364bbae",
+        "celestin_it_20261015_10ac5ae9",
+        "celestin_it_20261015_0b8e767c",
+    ):
+        assert f"'{retired_database}'" in script
+    assert "-d celestin_schema_test_v2" not in script
+    assert "expected celestin_schema_test_v2" not in script
 
 
 @pytest.mark.parametrize(
@@ -315,3 +362,67 @@ def test_fresh_target_never_migrates_after_failed_identity_or_empty_check():
         with pytest.raises(UnsafePostgresTestTarget):
             initialize_fresh_database(_LedgerConnection([]), object(), migrations, **kwargs)
     assert migration_calls == []
+
+
+class _TrackedCursor:
+    def __init__(self, *, closed=False, fail_close=False):
+        self.closed = closed
+        self.fail_close = fail_close
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+        if self.fail_close:
+            raise RuntimeError("cursor close failed")
+        self.closed = True
+
+
+class _TrackedRawConnection:
+    def __init__(self, *cursors):
+        self.closed = False
+        self.close_calls = 0
+        self._cursors = iter(cursors)
+
+    def execute(self, *_args, **_kwargs):
+        return next(self._cursors)
+
+    def close(self):
+        self.close_calls += 1
+        self.closed = True
+
+
+def test_tracked_connection_closes_open_cursors_and_is_idempotent():
+    open_cursor = _TrackedCursor()
+    closed_cursor = _TrackedCursor(closed=True)
+    raw = _TrackedRawConnection(open_cursor, closed_cursor)
+    connection = TrackedConnection(raw)
+    connection.execute("SELECT 1")
+    connection.execute("SELECT 2")
+
+    connection.close()
+    connection.close()
+
+    assert open_cursor.closed
+    assert open_cursor.close_calls == 1
+    assert closed_cursor.closed
+    assert closed_cursor.close_calls == 0
+    assert raw.closed
+    assert raw.close_calls == 1
+
+
+def test_tracked_connection_closes_raw_connection_even_when_cursor_close_fails():
+    failing_cursor = _TrackedCursor(fail_close=True)
+    following_cursor = _TrackedCursor()
+    raw = _TrackedRawConnection(failing_cursor, following_cursor)
+    connection = TrackedConnection(raw)
+    connection.execute("SELECT 1")
+    connection.execute("SELECT 2")
+
+    with pytest.raises(RuntimeError, match="cursor close failed"):
+        connection.close()
+
+    assert failing_cursor.close_calls == 1
+    assert following_cursor.closed
+    assert following_cursor.close_calls == 1
+    assert raw.closed
+    assert raw.close_calls == 1

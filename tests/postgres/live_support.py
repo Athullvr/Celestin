@@ -74,6 +74,9 @@ def postgres_target_from_environment(
     if database in {
         "celestin_schema_test_v2",
         "celestin_it_20261014_a7f3c9",
+        "celestin_it_20261015_b364bbae",
+        "celestin_it_20261015_10ac5ae9",
+        "celestin_it_20261015_0b8e767c",
     } or not _DATABASE_NAME.fullmatch(database):
         raise UnsafePostgresTestTarget(
             "the test database must use celestin_it_YYYYMMDD_<8-hex-nonce> "
@@ -224,7 +227,20 @@ class TrackedConnection:
         return self.raw.transaction()
 
     def close(self) -> None:
-        self.raw.close()
+        cursor_error: Exception | None = None
+        try:
+            for cursor in self.cursors:
+                try:
+                    if not cursor.closed:
+                        cursor.close()
+                except Exception as exc:
+                    if cursor_error is None:
+                        cursor_error = exc
+        finally:
+            if not self.closed:
+                self.raw.close()
+        if cursor_error is not None:
+            raise cursor_error
 
     @property
     def closed(self) -> bool:

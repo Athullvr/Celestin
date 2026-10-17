@@ -557,8 +557,20 @@ def test_repository_root_boundary_and_symlink_blob_are_safe(tmp_path):
     outside.write_text("TODO: secret outside repo\n", encoding="utf-8")
     root = repository(tmp_path)
     (root / "docs").mkdir()
-    (root / "docs/external.md").symlink_to(outside)
+    link_path = root / "docs/external.md"
+    link_path.write_text(str(outside), encoding="utf-8")
     commit(root)
+    link_blob = git(root, "hash-object", str(link_path))
+    git(
+        root,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"120000,{link_blob},docs/external.md",
+    )
+    git(root, "commit", "--allow-empty", "-q", "-m", "symlink blob fixture")
+
+    assert git(root, "ls-tree", "HEAD", "docs/external.md").startswith("120000 blob ")
 
     with pytest.raises(RepositoryInspectionError, match="worktree root"):
         reconstructor(root / "docs").reconstruct()

@@ -6,8 +6,40 @@ The types and resolver in `orbit.mcp_server.hosted_scope` remain an application
 foundation and are not connected to the MCP server. The injectable
 `orbit.postgres.authorization.PostgresHostedAuthorizationSessionFactory` now
 provides a request-scoped database implementation for hosted authorization.
-It does not authenticate tokens, select a backend, or change local stdio/SQLite
+`execute_authorized_request` now creates a `PostgresRequestUnitOfWork` after the
+resolver grants access. Its memory store, retrieval data adapter, and shared
+retrieval service borrow the authorization session's connection and leave
+transaction finalization to the session factory. This does not authenticate
+tokens, select a backend, connect the flow to MCP, or change local stdio/SQLite
 behavior. Its SQL is covered by scripted unit tests, not a live PostgreSQL run.
+
+`orbit.mcp_server.hosted_identity` defines the supported hosted application
+entry point: `HostedRequestBoundary.execute_authorized_request`. It orchestrates
+an injected `PrincipalAuthenticator` and delegates to the factory's internal
+request executor only after authentication returns a `VerifiedPrincipal`. The
+boundary requires an explicitly injected workspace binding, principal-status
+provider, and request executor. No concrete authenticator or workspace-binding
+provider exists, and the boundary is not used by MCP handlers. The protocol and
+the freely constructible `VerifiedPrincipal` value do not prove credential
+authenticity; a future transport adapter/provider must validate credentials
+before returning a principal. Missing dependencies and authentication failures
+do not open a database connection or execute the protected callback.
+
+The request executor and its transaction/session entry points are underscored
+internal APIs. The request UoW has no public constructor, does not expose its
+authorization session or resolved scope as public fields, and creates its
+persistence/retrieval adapters only through internal request-bound factories.
+The resolver and low-level authorization-session methods are also trusted
+application primitives, not handler entry points.
+Standalone PostgreSQL adapter constructors remain available for trusted
+single-workspace tooling and adapter tests; they do not authorize a human or
+service principal and must never be injected into hosted MCP handlers. These
+API boundaries prevent accidental composition errors, not hostile Python code
+running in the same process. Same-process code is trusted and can deliberately
+call underscored methods, construct values, or open its own database connection.
+The future hosted application composition must therefore expose only the
+boundary to transport handlers and keep the executor, DSN, and standalone
+adapters out of handler dependencies.
 
 ## Trust and selection
 
@@ -39,15 +71,23 @@ another. No workspace selector is added to the public MCP contract.
   access. Infrastructure errors return a generic unavailable failure. Neither
   failure message includes another workspace's project existence or database
   details.
-- Storage/retrieval must use the resolved UUID scope for every query, including
-  source-message lookups, search candidates, caches, and context assembly.
+- Request-bound storage/retrieval use the resolved UUID scope for every query,
+  including source-message lookups, search candidates, authoritative reloads,
+  and context assembly. The request-bound memory store requires write
+  permission; retrieval requires read permission. A mismatched public project
+  key is denied before adapter SQL.
 
 The resolver exposes `execute(session, principal, project_key, action, operation)`
 to make the order explicit: it resolves permission first, then invokes the
 operation with the same request session and immutable scope. The PostgreSQL
-factory's `execute_authorized` wraps that call in one connection transaction,
-commits before returning its result, rolls back on failure, and closes the
-connection. Factory construction and module import do not connect or migrate.
+factory's `execute_authorized` wraps that call in one connection transaction.
+Its `execute_authorized_request` additionally binds the `PostgresMemoryStore`
+and `PostgresRetrievalData` to that session's connection and resolver-issued
+scope, then exposes a `RetrievalService` over that data adapter. The factory
+commits before returning a successful result, rolls back on failure, and closes
+the connection; bound adapters do none of those operations and cannot acquire
+a replacement connection. Factory construction and module import do not
+connect or migrate.
 
 The PostgreSQL session locks rows in this order: workspace, identity, project,
 membership, grant, then source message. Existing authorization/lifecycle rows
@@ -59,28 +99,30 @@ leading lock order to reduce deadlocks. These are transaction-ordering
 semantics, not instantaneous revocation or a test of PostgreSQL's live lock
 implementation.
 
-For source provenance, a write that references a message must call
-`execute(..., source_message_id=...)`. After authorization, the session's
-`load_source_message_reference(scope, message_id)` must look up the ID with both
-`scope.workspace_id` and `scope.project_id` in its predicate. The resolver
+For source provenance, a hosted operation that references a message should pass
+`source_message_id` to `execute_authorized_request`. After authorization, the
+session's `load_source_message_reference(scope, message_id)` must look up the ID
+with both `scope.workspace_id` and `scope.project_id` in its predicate. The resolver
 rechecks the returned workspace/project metadata and reports missing and
 out-of-scope references as the same not-found condition before invoking the
 write operation. The PostgreSQL authorization session performs this lookup in
 the same request transaction and retains the database composite foreign key as
-the final relational-integrity guard. Hosted MCP/data adapters are still not
-wired to this session.
+the final relational-integrity guard. Request-bound adapters are composed in
+that transaction, but hosted MCP/data adapters are still not wired to tools.
 
 ## Storage integration seam
 
-`MemoryStore` and `RetrievalData` currently accept public project strings for
-the local SQLite path. A future hosted implementation must accept
-`ResolvedProjectScope` (or a narrower typed projection derived from it), use
-its workspace/project UUIDs for every query, and never infer permission from
-the string key. Persistence writes must validate source-message references
-within that scope; retrieval candidate search, authoritative reloads, and
-context assembly must use the same scope. This task does not change either port
-or select a hosted adapter, so the resolver is not yet an enforcement point for
-actual MCP requests.
+`MemoryStore` and `RetrievalData` retain their existing public project-string
+contracts for local SQLite. Internal PostgreSQL `_for_request(connection,
+scope)` factories accept only a `ResolvedProjectScope`; project strings are
+checked against that scope and do not select the tenant. Persistence source
+checks and retrieval candidate and authoritative reads use the scope's
+workspace/project UUIDs. The request UoW creates these adapters itself and
+cannot be supplied standalone adapter instances through its supported
+constructor. Standalone `from_dsn` adapters retain their explicit fixed-scope
+behavior and are not hosted authorization paths. No hosted adapter is selected
+in MCP, so the resolver is still not an enforcement point for actual MCP
+requests.
 
 ## Schema gap and follow-up
 
@@ -104,14 +146,24 @@ remains a separate transactional workspace-administration task.
 ## Tests and limits
 
 `tests/test_hosted_scope.py` uses synthetic principals and a fake authorization
-session. `tests/postgres/test_hosted_authorization.py` uses a scripted connection
-to check identity mapping, SQL scoping/locks, denials, source references,
-transaction lifecycle, and redacted errors. These are unit/contract tests, not
-PostgreSQL execution, authentication-provider, transport, pooling, or
-concurrent-revocation tests. Those tests are required before hosted mode can be
-enabled.
+session. Offline authentication-boundary tests in
+`tests/postgres/test_hosted_identity_boundary.py` verify unavailable and
+rejected authentication paths, exception redaction, and that raw caller claims
+are not passed as principals. Request-UoW tests enter through the boundary and
+use scripted connections to check that missing authentication cannot connect,
+standalone adapters are not selected, and the handler-facing UoW does not
+expose public session/scope fields. Scripted tests in
+`tests/postgres/test_hosted_authorization.py`,
+`tests/postgres/test_request_unit_of_work.py`,
+`tests/storage/test_postgres_memory_store.py`, and
+`tests/retrieval/test_postgres_data.py` cover SQL scoping, adapter sharing, and
+ownership of the request transaction. They do not prove PostgreSQL execution,
+authentication-provider, transport, pooling, or live concurrent-revocation
+behavior. Those tests are required before hosted mode can be enabled.
 
-The next integration seam is a reviewed trusted transport authenticator and
-hosted persistence/retrieval adapters that accept `ResolvedProjectScope`. This
-resolver/session is not connected to server tools. Existing stdio MCP tools and
-SQLite adapters remain unchanged until a separate reviewed integration task.
+The remaining integration seam is a concrete, reviewed transport authenticator
+and trusted workspace-binding source, followed by a hosted MCP composition that
+invokes the boundary with transport evidence rather than tool arguments. This
+resolver/session/UoW is not connected to server tools. Existing stdio MCP tools
+and SQLite adapters remain unchanged until a separate reviewed integration
+task.

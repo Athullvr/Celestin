@@ -206,9 +206,9 @@ FTS5 must be enabled. The service uses these mappings:
 | timestamp | `created_at` | `updated_at` |
 | indexed content | `content` | `value` |
 
-The service queries the production tables after `connect()` applies migrations;
-callers do not create or manage FTS tables. Migration triggers maintain both
-indexes for inserts, updates, and deletes.
+The local SQLite service queries production tables after `connect()` applies
+migrations; callers do not create or manage FTS tables. Migration triggers
+maintain both indexes for inserts, updates, and deletes.
 
 ## Candidate assembly and ranking
 
@@ -244,6 +244,43 @@ The MCP branch's mock search handler currently returns a
 returns the requested `list[dict]`. Member 3 can wrap the list at the MCP
 boundary if that envelope remains the agreed tool contract. No MCP server
 handler was changed as part of this integration.
+
+## Isolated PostgreSQL retrieval adapter
+
+`PostgresRetrievalData` in `src/orbit/retrieval/postgres_data.py` implements
+the same `RetrievalData` port without changing the MCP runtime. Its constructor
+requires an explicit `PostgresRetrievalScope` containing trusted workspace and
+project UUIDs plus the legacy project key. The project string passed to the
+port is checked against that fixed scope; it cannot choose a workspace or
+authenticate a caller. A future hosted request boundary must authenticate the
+principal, authorize the project, and construct the scope before calling this
+adapter. Every candidate query and authoritative reload filters by both UUIDs
+and excludes archived records, projects, and workspaces. Decision candidates
+are reloaded from `project_memory` on the same connection before results are
+returned. The injected connection factory owns connection creation; each port
+operation uses and closes a connection context, and the adapter closes each
+cursor explicitly.
+
+PostgreSQL uses `to_tsvector('simple'::regconfig, ...)`, parameterized
+`to_tsquery`, and `ts_rank_cd`. Migration
+`0003_retrieval_search_indexes.sql` supplies matching partial GIN expression
+indexes for unarchived `chat_messages.content` and `project_memory.value`;
+there is no new extension dependency or generated search column. The adapter
+returns the negated `ts_rank_cd` value so the shared lower-is-better ranking
+contract is preserved. These values are not numerically equivalent to SQLite
+BM25 values. Query relaxation follows the existing strict, stopword-removed,
+then bounded-OR tiers, but PostgreSQL tokenization and ranking can differ from
+FTS5, especially for punctuation, identifiers, language configuration, and
+phrase normalization. Live query plans, index use, and behavioral parity have
+not been verified against PostgreSQL.
+
+The adapter is directly injectable into `RetrievalService` for isolated use,
+but it is not exported through or selected by the MCP runtime. MCP continues to
+compose SQLite persistence and retrieval only. This work does not implement
+hosted identity, request-level authorization, or a secure remote MCP path.
+It does not provide a hosted semantic-vector index or PageIndex store; those
+optional local components must not be enabled for hosted requests until their
+storage and tenant-isolation behavior are designed and tested.
 
 ## Tests
 

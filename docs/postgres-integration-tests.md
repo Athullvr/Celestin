@@ -67,17 +67,37 @@ This project does not install or configure PostgreSQL as part of pytest.
 The normal option is a **new** local database and matching non-superuser
 database-owner role for a single test run. The database and role must share one
 random eight-character hexadecimal nonce. The test runner does not create
-either one. Example names (choose a new nonce each time):
+either one. Example names (illustrative only; choose a new nonce each time):
 
 ```text
 celestin_it_20261014_a1b2c3d4
 celestin_it_user_a1b2c3d4
 ```
 
-The previously attempted database `celestin_it_20261014_a7f3c9` is explicitly
-rejected by the harness and must not be reused: its failed initialization may
-have left a migration ledger. Provision a new nonce-named database and matching
-role for every initialization run.
+The following databases are retired and explicitly rejected by the harness.
+Do not reuse or reset them for another initialization run:
+
+- `celestin_schema_test_v2` (previous schema-validation target).
+- `celestin_it_20261014_a7f3c9` (failed initialization may have left a ledger).
+- `celestin_it_20261015_b364bbae` and `celestin_it_20261015_10ac5ae9`
+  (previous live-test targets).
+- `celestin_it_20261015_0b8e767c` (one-run live integration target).
+
+Provision a new nonce-named database and matching role for every initialization
+run.
+
+`tests/postgres/validate_hosted_schema.sql` is a separate constraint-check
+script for a schema that has already been installed. Its historical fixed
+target, `celestin_schema_test_v2`, is retired. No approved replacement target
+is currently recorded in this repository, so do not run the script until a
+database owner approves and provisions a fresh disposable target. The script
+requires the same owner-approved database name both as the `psql -d` target
+and as `-v approved_test_database=<same-name>`; it rejects the retired names,
+requires the documented `celestin_it_YYYYMMDD_<8-hex-nonce>` naming pattern,
+and checks the loopback endpoint before running fixture checks. This is a
+runtime safety check, not proof that the operator has approval or that the
+database is fresh. Verify both independently before use. The script must not
+be used to initialize a database or to replace the guarded live-test fixture.
 
 The role needs permission to create the Celestin tables and indexes in the
 database's `public` schema. It must not have `SUPERUSER`, `CREATEROLE`,
@@ -131,7 +151,7 @@ them.
 
 Only after the database owner has provisioned and approved the new disposable
 database and matching role, connect with the interactive `psql -W` command
-above. Do not use the previously failed `celestin_it_20261014_a7f3c9` target.
+above. Do not use any of the retired targets listed above.
 Run these read-only queries in that `psql` session before opting into pytest:
 
 ```sql

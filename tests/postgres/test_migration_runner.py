@@ -118,7 +118,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2]
+    assert [item.version for item in migrations] == [1, 2, 3]
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -127,6 +127,11 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     assert migrations[1].name == "0002_user_status.sql"
     assert "ADD COLUMN status TEXT NOT NULL DEFAULT 'suspended'" in migrations[1].sql
     assert "CHECK (status IN ('active', 'suspended'))" in migrations[1].sql
+    assert migrations[2].name == "0003_retrieval_search_indexes.sql"
+    assert "idx_chat_messages_search_vector" in migrations[2].sql
+    assert "to_tsvector('simple'::regconfig, content)" in migrations[2].sql
+    assert "WHERE archived_at IS NULL" in migrations[2].sql
+    assert "idx_project_memory_search_vector" in migrations[2].sql
 
 
 def test_migration_order_is_normalized_and_gaps_or_duplicates_are_rejected():

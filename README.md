@@ -7,6 +7,16 @@ Search is SQLite FTS5 keyword search, optionally combined with local semantic
 (embedding) search; see [Semantic search](#semantic-search-optional).
 The server communicates with MCP clients over stdio.
 
+## Product and build context
+
+Celestin's product direction includes automatic knowledge capture, evidence-linked memory, bounded project-state reconstruction, and bidirectional knowledge synchronization. Existing source modules do not by themselves prove the complete flow is wired into persistence and retrieval; verify source and tests before making integration claims.
+
+- [PRD](PRD.md): product scope, capabilities, and decisions.
+- [TRD](TRD.md): technical boundaries, runtime, and security.
+- [Application flow](App_flow.md): intended capability flow and current local MCP workflow.
+- [Design principles](Design.md): provenance, uncertainty, conflicts, and untrusted content.
+- [Database model](database_schema.md): conceptual entities and implementation references.
+- [Build kickoff](BUILD_KICKOFF.md): team handoff prompt; audit notes are historical and need verification.
 ## Requirements
 
 - Python 3.10 or newer
@@ -47,6 +57,12 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+The MCP server builds a runtime when it starts and binds its tool handlers to
+that runtime's authorization, persistence, and retrieval services. The supported
+runtime remains SQLite-only; setting `CELESTIN_POSTGRES_DSN` does not enable a
+hosted MCP backend. Runtime construction does not open the SQLite database;
+connections and schema initialization remain lazy until a data operation.
+
 ### PostgreSQL migration foundation (explicit operator command)
 
 Local SQLite remains the default and is not affected by the PostgreSQL tooling.
@@ -56,6 +72,28 @@ For a separately provisioned, empty hosted database, install the optional
 server never runs hosted migrations during startup. See
 [PostgreSQL migrations](docs/postgres-migrations.md) for safety checks and the
 required handling for an existing database without a migration ledger.
+
+## Optional Neon tooling for Codex
+
+This project includes project-level Neon agent skills for Postgres and Object
+Storage, plus a Neon MCP server entry configured with OAuth and pinned to
+project `restless-scene-26170162` in `.codex/config.toml`. After pulling the
+repository, restart Codex and complete Neon sign-in the first time the Neon MCP
+server is used. The project MCP entry does not store a Neon API key in the
+repository.
+
+To install these project skills or reproduce the MCP setup, use the
+officially documented commands:
+
+```powershell
+npx skills add neondatabase/agent-skills --skill neon --skill neon-postgres --skill neon-object-storage --agent codex -y
+neon mcp --oauth --project --agent codex -y
+```
+
+Neon tooling is optional and separate from Celestin's runtime. The MCP server
+in this project still uses local SQLite; these agent skills and the Neon
+management MCP entry do not connect Celestin to Neon or change its storage.
+
 
 ## Run with Codex CLI
 
