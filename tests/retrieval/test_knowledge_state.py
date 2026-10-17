@@ -136,7 +136,6 @@ def test_approved_capture_does_not_imply_verified_knowledge():
     assert state.verification_status is VerificationStatus.UNVERIFIED
 
 
-
 @pytest.mark.parametrize("reference_status", list(ReferenceStatus))
 def test_reference_availability_is_preserved_separately_from_verification(reference_status):
     bundle = knowledge_bundle(status=VerificationStatus.STALE)
