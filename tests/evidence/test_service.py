@@ -304,6 +304,46 @@ def test_missing_source_fails_before_persistence():
     assert store.records == {}
 
 
+def test_read_time_missing_source_status_is_separate_from_verification():
+    store = FakeEvidenceStore()
+    source_key = ("p", EvidenceType.MESSAGE, "message-1")
+    resolver = Resolver({source_key: ReferenceStatus.AVAILABLE})
+    service = make_service(store, resolver)
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "A recorded claim.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+    evidence_id = created.evidence[0].evidence_id
+    storage_key = ("p", created.record.knowledge_id)
+
+    assert created.evidence[0].reference_status is ReferenceStatus.AVAILABLE
+    assert created.record.verification_status is VerificationStatus.UNVERIFIED
+
+    resolver.statuses[source_key] = ReferenceStatus.MISSING
+    refreshed = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert refreshed.evidence[0].reference_status is ReferenceStatus.MISSING
+    assert refreshed.evidence[0].verification_status is VerificationStatus.UNVERIFIED
+    assert refreshed.record.verification_status is VerificationStatus.UNVERIFIED
+    assert store.evidence[storage_key][evidence_id].reference_status is ReferenceStatus.AVAILABLE
+
+    stale = service.set_knowledge_verification(
+        authorized("p"),
+        created.record.knowledge_id,
+        VerificationStatus.STALE,
+        checked_by="reviewer-1",
+        note="Current applicability needs another check.",
+    )
+    stale_read = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert stale.verification_status is VerificationStatus.STALE
+    assert stale_read.record.verification_status is VerificationStatus.STALE
+    assert stale_read.evidence[0].reference_status is ReferenceStatus.MISSING
+    assert stale_read.evidence[0].verification_status is VerificationStatus.UNVERIFIED
+
+
 def test_resolver_failure_is_explicit_and_does_not_create_a_record():
     store = FakeEvidenceStore()
     service = make_service(store, Resolver(error=OSError("resolver unavailable")))

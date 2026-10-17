@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-17T14:04:30+05:30 — Test evidence availability and verification separation
+
+- Changed: Added a fake-backed Evidence service regression for a source changing from `available` to `missing` at read time. It checks that read-time resolution does not mutate the stored reference and remains separate from knowledge/evidence verification, including an explicit `stale` knowledge status. No production code or shared interface changed.
+- Why: Make source availability, read-time refresh behavior, and claim verification distinctions executable without implying that an available source proves a claim.
+- Validation: `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m pytest -p no:cacheprovider -o addopts='' tests/evidence/test_service.py::test_read_time_missing_source_status_is_separate_from_verification` — 1 passed; the same command targeting `tests/evidence/test_service.py` — 33 passed. System `python` was unavailable; system `python3` required `PYTHONPATH=src` because the checkout has no editable install or `.venv`. `git diff --check` passed.
+- Limitations: These tests use an in-memory fake store and resolver. They do not verify durable persistence, adapter behavior, trusted capture approval, or end-to-end runtime integration.
+
 ## 2026-10-16T21:39:29+05:30 — Add optional Capability 1 knowledge state to Retrieval
 
 - Changed: Added a version 1 optional `knowledge_state` envelope, an explicit fakeable Retrieval reader seam, lossless mapping of existing knowledge/evidence/capture provenance, project checks, and context JSONL/budget integration. Added focused tests and documented the missing production read interface. Ranking, filtering, storage contracts, and MCP handlers were not changed.
