@@ -136,7 +136,7 @@ def test_identity_mapping_is_kind_specific_workspace_scoped_and_locked(kind, exp
     connection = FakeConnection(kind=kind)
     factory, calls = factory_for(connection)
     assert calls == []  # construction must be inert
-    with factory.transaction() as session:
+    with factory._transaction() as session:
         principal = VerifiedPrincipal("issuer", "subject", kind)
         assert session.is_principal_active(principal, WORKSPACE)
         sql, params = connection.queries[-1]
@@ -163,7 +163,7 @@ def test_inactive_or_unknown_identity_denies_before_project_or_grant_lookup(kind
     resolver = build_resolver()
     principal = VerifiedPrincipal("issuer", "subject", kind)
     with pytest.raises(HostedAccessDenied):
-        with factory.transaction() as session:
+        with factory._transaction() as session:
             resolver.resolve(session, principal, "demo", "read")
     assert not any("celestin_projects" in query for query, _ in connection.queries)
     assert connection.rolled_back and connection.closed
@@ -174,7 +174,7 @@ def test_missing_workspace_binding_target_denies_before_identity_lookup():
     factory, _ = factory_for(connection)
     principal = VerifiedPrincipal("issuer", "subject", "human")
     with pytest.raises(HostedAccessDenied):
-        with factory.transaction() as session:
+        with factory._transaction() as session:
             build_resolver().resolve(session, principal, "demo", "read")
     assert not any("celestin_users" in query for query, _ in connection.queries)
 
@@ -185,7 +185,7 @@ def test_explicit_grant_resolves_scope_and_grant_query_is_project_scoped(kind):
     factory, _ = factory_for(connection)
     principal = VerifiedPrincipal("issuer", "subject", kind)
     resolver = build_resolver()
-    with factory.transaction() as session:
+    with factory._transaction() as session:
         scope = resolver.resolve(session, principal, "demo", "write")
         assert scope.project_id == PROJECT
         assert scope.workspace_id == WORKSPACE
@@ -207,12 +207,12 @@ def test_read_only_grant_allows_read_but_denies_write():
     principal = VerifiedPrincipal("issuer", "subject", "human")
     resolver = build_resolver()
     read_factory, _ = factory_for(FakeConnection(grant=(True, False, None)))
-    with read_factory.transaction() as session:
+    with read_factory._transaction() as session:
         assert resolver.resolve(session, principal, "demo", "read").permissions == frozenset({"read"})
 
     write_factory, _ = factory_for(FakeConnection(grant=(True, False, None)))
     with pytest.raises(HostedAccessDenied):
-        with write_factory.transaction() as session:
+        with write_factory._transaction() as session:
             resolver.resolve(session, principal, "demo", "write")
 
 
@@ -231,7 +231,7 @@ def test_missing_membership_grant_archived_resource_and_write_without_read_deny(
     ):
         factory, _ = factory_for(connection)
         with pytest.raises(HostedAccessDenied):
-            with factory.transaction() as session:
+            with factory._transaction() as session:
                 build_resolver().resolve(session, principal, "demo", "read")
 
 
@@ -240,7 +240,7 @@ def test_source_message_lookup_constrains_workspace_project_and_locks_reference(
     factory, _ = factory_for(connection)
     principal = VerifiedPrincipal("issuer", "subject", "human")
     resolver = build_resolver()
-    with factory.transaction() as session:
+    with factory._transaction() as session:
         scope = resolver.resolve(session, principal, "demo", "write")
         reference = resolver.require_source_message(session, scope, str(MESSAGE))
         assert reference.message_id == str(MESSAGE)
@@ -255,7 +255,7 @@ def test_unknown_or_cross_scope_source_reference_is_not_found():
     factory, _ = factory_for(connection)
     principal = VerifiedPrincipal("issuer", "subject", "human")
     with pytest.raises(HostedSourceMessageNotFound, match="source message not found"):
-        with factory.transaction() as session:
+        with factory._transaction() as session:
             scope = build_resolver().resolve(session, principal, "demo", "write")
             build_resolver().require_source_message(session, scope, str(MESSAGE))
     assert connection.rolled_back and connection.closed
@@ -265,7 +265,7 @@ def test_query_errors_are_redacted_and_transaction_rolls_back():
     connection = FakeConnection(fail_query="celestin_users")
     factory, _ = factory_for(connection)
     with pytest.raises(HostedAuthorizationUnavailable) as error:
-        with factory.transaction() as session:
+        with factory._transaction() as session:
             session.is_principal_active(VerifiedPrincipal("issuer", "subject", "human"), WORKSPACE)
     assert "secret database detail" not in str(error.value)
     assert connection.rolled_back and connection.closed
@@ -278,11 +278,11 @@ def test_authorized_operation_result_is_returned_only_after_commit():
 
     def operation(session, scope):
         events.append("operation")
-        assert session.connection is connection
+        assert session._connection_for_adapters is connection
         assert not connection.committed
         return "done"
 
-    result = factory.execute_authorized(
+    result = factory._execute_authorized(
         build_resolver(),
         VerifiedPrincipal("issuer", "subject", "human"),
         "demo",
@@ -299,7 +299,7 @@ def test_operation_failure_rolls_back_and_commit_failure_never_returns_success()
     connection = FakeConnection()
     factory, _ = factory_for(connection)
     with pytest.raises(HostedAuthorizationUnavailable):
-        factory.execute_authorized(
+        factory._execute_authorized(
             build_resolver(), VerifiedPrincipal("issuer", "subject", "human"), "demo", "read",
             lambda session, scope: (_ for _ in ()).throw(RuntimeError("internal")),
         )
@@ -308,7 +308,7 @@ def test_operation_failure_rolls_back_and_commit_failure_never_returns_success()
     commit_connection = FakeConnection(fail_commit=True)
     commit_factory, _ = factory_for(commit_connection)
     with pytest.raises(HostedAuthorizationUnavailable):
-        commit_factory.execute_authorized(
+        commit_factory._execute_authorized(
             build_resolver(), VerifiedPrincipal("issuer", "subject", "human"), "demo", "read",
             lambda session, scope: "must not escape before commit",
         )
@@ -319,7 +319,7 @@ def test_close_failure_is_redacted_and_does_not_report_success():
     connection = FakeConnection(fail_close=True)
     factory, _ = factory_for(connection)
     with pytest.raises(HostedAuthorizationUnavailable) as error:
-        factory.execute_authorized(
+        factory._execute_authorized(
             build_resolver(), VerifiedPrincipal("issuer", "subject", "human"), "demo", "read",
             lambda session, scope: "not returned",
         )

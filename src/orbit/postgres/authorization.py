@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from orbit.mcp_server.hosted_scope import (
@@ -23,6 +23,9 @@ from orbit.mcp_server.hosted_scope import (
     ResolvedProjectScope,
     VerifiedPrincipal,
 )
+
+if TYPE_CHECKING:
+    from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
 
 
 class _Connection(Protocol):
@@ -51,8 +54,8 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
         self._identities: dict[tuple[VerifiedPrincipal, UUID], tuple[UUID, str]] = {}
 
     @property
-    def connection(self) -> _Connection:
-        """Connection for trusted storage adapters inside this same transaction."""
+    def _connection_for_adapters(self) -> _Connection:
+        """Connection for trusted request-composition code only."""
         return self._connection
 
     def is_principal_active(
@@ -237,8 +240,8 @@ class PostgresHostedAuthorizationSessionFactory:
         return cls(connect)
 
     @contextmanager
-    def transaction(self) -> Iterator[PostgresHostedAuthorizationSession]:
-        """Yield one session; commit on normal exit, rollback on error, always close."""
+    def _transaction(self) -> Iterator[PostgresHostedAuthorizationSession]:
+        """Internal transaction owner; commit, rollback, and always close."""
         try:
             connection = self._connection_factory()
         except Exception:
@@ -264,7 +267,7 @@ class PostgresHostedAuthorizationSessionFactory:
                     "authorization service could not release its database session"
                 ) from None
 
-    def execute_authorized(
+    def _execute_authorized(
         self,
         resolver: HostedScopeResolver,
         principal: VerifiedPrincipal,
@@ -274,8 +277,14 @@ class PostgresHostedAuthorizationSessionFactory:
         *,
         source_message_id: str | None = None,
     ) -> Any:
-        """Return only after the authorized operation's transaction commits."""
-        with self.transaction() as session:
+        """Return only after the authorized operation's transaction commits.
+
+        This lower-level callback receives the authorization session and scope.
+        Hosted persistence or retrieval callbacks should use
+        ``HostedRequestBoundary`` so adapters cannot acquire another
+        connection by accident.
+        """
+        with self._transaction() as session:
             result = resolver.execute(
                 session,
                 principal,
@@ -285,3 +294,36 @@ class PostgresHostedAuthorizationSessionFactory:
                 source_message_id=source_message_id,
             )
         return result
+
+    def _execute_authorized_request(
+        self,
+        resolver: HostedScopeResolver,
+        principal: VerifiedPrincipal,
+        project_key: str,
+        action: ProjectAction,
+        operation: Callable[[PostgresRequestUnitOfWork], Any],
+        *,
+        source_message_id: str | None = None,
+    ) -> Any:
+        """Run an operation with adapters bound to its authorized transaction.
+
+        The resolver validates permissions and any supplied source message
+        before the callback runs. The unit of work borrows the exact connection
+        owned by this factory; adapters cannot acquire or finalize it.
+        """
+        if not callable(operation):
+            raise TypeError("operation must be callable")
+        from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
+
+        def invoke(session, scope):
+            request = PostgresRequestUnitOfWork._bind(session, resolver, scope)
+            return operation(request)
+
+        return self._execute_authorized(
+            resolver,
+            principal,
+            project_key,
+            action,
+            invoke,
+            source_message_id=source_message_id,
+        )

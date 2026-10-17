@@ -4,6 +4,56 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-17T13:07:42+05:30 — Narrow hosted PostgreSQL request entry points
+
+- Changed: Made PostgreSQL transaction and request-executor methods internal,
+  restricted request UoW creation to its internal binder, hid its session and
+  scope fields from the handler-facing API, and separated request-bound adapter
+  factories from retained standalone adapter constructors. Added offline tests
+  that exercise the request boundary and verify missing authentication cannot
+  open a connection.
+- Why: Keep normal hosted application composition on the authenticated request
+  boundary and prevent accidental substitution of standalone adapters while
+  preserving the standalone adapter API for trusted tooling and tests.
+- Validation: Hosted identity/UoW/authorization/storage/retrieval tests — 59
+  passed; hosted-scope, MCP, and SQLite persistence regressions — 85 passed.
+  Python compilation and diff checks passed.
+- Limitations: Python code in the same process remains trusted and can call
+  underscored internals or open its own connection. No credential verifier,
+  workspace-binding provider, hosted MCP wiring, or live PostgreSQL test exists.
+
+## 2026-10-17T12:57:13+05:30 — Define a fail-closed hosted identity boundary
+
+- Changed: Added the `PrincipalAuthenticator` contract and
+  `HostedRequestBoundary`, which accepts transport context, requires explicit
+  identity/workspace/request dependencies, and delegates to the existing
+  authorized request unit of work. Added offline fail-closed tests and clarified
+  the current implementation limits in hosted identity documentation.
+- Why: Establish a narrow composition seam without selecting an identity
+  provider, trusting caller-supplied identity/workspace fields, or enabling
+  hosted MCP requests.
+- Validation: Offline identity boundary, hosted scope, request UoW,
+  authorization, MCP, and SQLite persistence regression command: 110 passed.
+  Changed Python modules passed `py_compile`; `git diff --check` passed.
+- Limitations: No credential verification implementation, concrete workspace
+  binding, hosted MCP wiring, database access, or live authentication testing.
+
+## 2026-10-17T12:00:40+05:30 — Bind PostgreSQL adapters to an authorized request unit of work
+
+- Changed: Added request-bound constructors for PostgreSQL persistence and
+  retrieval adapters, plus `PostgresRequestUnitOfWork` and
+  `execute_authorized_request` to compose them over the authorization session's
+  connection. Updated the hosted identity/scope documentation.
+- Why: Ensure hosted authorization checks, source validation, memory operations,
+  and retrieval can share one request transaction without adapters acquiring or
+  finalizing separate connections.
+- Validation: Request UoW plus hosted authorization, PostgreSQL storage, and
+  PostgreSQL retrieval tests: 48 passed. SQLite/MCP/hosted-scope and retrieval
+  regression command: 241 passed, 6 skipped. Changed Python modules compiled;
+  `git diff --check` and `git diff --cached --check` passed.
+- Limitations: No authentication provider or MCP hosted runtime integration was
+  added. No PostgreSQL/Neon connection or live SQL validation was performed.
+
 ## 2026-10-17T09:25:29+05:30 — Add isolated PostgreSQL retrieval adapter
 
 - Changed: Added a `RetrievalData` implementation with explicit workspace/project

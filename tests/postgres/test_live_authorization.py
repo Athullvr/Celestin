@@ -318,7 +318,7 @@ def test_new_human_defaults_suspended_then_authorized_only_after_activation(
         )
     principal = VerifiedPrincipal(fixture.issuer, f"default-{fixture.suffix}", "human")
     with pytest.raises(HostedAccessDenied):
-        _factory(pg).execute_authorized(
+        _factory(pg)._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read",
             lambda *_: pytest.fail("active user without membership must not read"),
         )
@@ -338,7 +338,7 @@ def test_new_human_defaults_suspended_then_authorized_only_after_activation(
         )
 
     assert (
-        _factory(pg).execute_authorized(
+        _factory(pg)._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read",
             lambda session, scope: scope.project_id,
         )
@@ -351,7 +351,7 @@ def test_new_human_defaults_suspended_then_authorized_only_after_activation(
             (fixture.default_user_id,),
         )
     with pytest.raises(HostedAccessDenied):
-        _factory(pg).execute_authorized(
+        _factory(pg)._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read",
             lambda session, scope: pytest.fail("suspended user operation must not run"),
         )
@@ -362,10 +362,10 @@ def test_human_explicit_read_write_grants_and_revocation(postgres_connections, t
     resolver = fixture.resolver()
     factory = _factory(pg)
     principal = fixture.human()
-    assert factory.execute_authorized(
+    assert factory._execute_authorized(
         resolver, principal, fixture.project_key, "read", lambda _session, scope: scope.project_id
     ) == fixture.project_a
-    assert factory.execute_authorized(
+    assert factory._execute_authorized(
         resolver, principal, fixture.project_key, "write", lambda _session, scope: scope.project_id
     ) == fixture.project_a
 
@@ -376,7 +376,7 @@ def test_human_explicit_read_write_grants_and_revocation(postgres_connections, t
             (fixture.project_a, fixture.human_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "write",
             lambda _session, _scope: pytest.fail("read-only grant must not write"),
         )
@@ -387,7 +387,7 @@ def test_human_explicit_read_write_grants_and_revocation(postgres_connections, t
             (fixture.project_a, fixture.human_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "read",
             lambda _session, _scope: pytest.fail("revoked grant must not read"),
         )
@@ -400,7 +400,7 @@ def test_unknown_identity_missing_or_suspended_membership_and_missing_grant_deny
     factory = _factory(pg)
     resolver = fixture.resolver()
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, VerifiedPrincipal(fixture.issuer, "unknown", "human"),
             fixture.project_key, "read", lambda *_: pytest.fail("unknown identity must not read"),
         )
@@ -412,7 +412,7 @@ def test_unknown_identity_missing_or_suspended_membership_and_missing_grant_deny
             (fixture.workspace_a, fixture.human_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, fixture.human(), fixture.project_key, "read",
             lambda *_: pytest.fail("suspended membership must not read"),
         )
@@ -428,7 +428,7 @@ def test_unknown_identity_missing_or_suspended_membership_and_missing_grant_deny
             (fixture.project_a, fixture.human_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, fixture.human(), fixture.project_key, "read",
             lambda *_: pytest.fail("missing explicit grant must not read"),
         )
@@ -437,7 +437,7 @@ def test_unknown_identity_missing_or_suspended_membership_and_missing_grant_deny
 def test_service_identity_grant_and_revocation(postgres_connections, tenant_fixture):
     pg, fixture = postgres_connections, tenant_fixture
     factory, resolver, principal = _factory(pg), fixture.resolver(), fixture.service()
-    assert factory.execute_authorized(
+    assert factory._execute_authorized(
         resolver, principal, fixture.project_key, "write", lambda _session, scope: scope.project_id
     ) == fixture.project_a
 
@@ -448,7 +448,7 @@ def test_service_identity_grant_and_revocation(postgres_connections, tenant_fixt
             (fixture.project_a, fixture.service_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "read",
             lambda *_: pytest.fail("revoked service grant must not read"),
         )
@@ -465,7 +465,7 @@ def test_service_identity_grant_and_revocation(postgres_connections, tenant_fixt
             (fixture.project_a, fixture.service_id),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "read",
             lambda *_: pytest.fail("revoked service grant must not read"),
         )
@@ -482,7 +482,7 @@ def test_service_identity_grant_and_revocation(postgres_connections, tenant_fixt
             (fixture.service_id,),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "read",
             lambda *_: pytest.fail("revoked service identity must not read"),
         )
@@ -491,11 +491,11 @@ def test_service_identity_grant_and_revocation(postgres_connections, tenant_fixt
 def test_archived_resources_and_same_public_key_are_workspace_scoped(postgres_connections, tenant_fixture):
     pg, fixture = postgres_connections, tenant_fixture
     factory, principal = _factory(pg), fixture.human()
-    first = factory.execute_authorized(
+    first = factory._execute_authorized(
         fixture.resolver(fixture.workspace_a), principal, fixture.project_key, "read",
         lambda _session, scope: scope.project_id,
     )
-    second = factory.execute_authorized(
+    second = factory._execute_authorized(
         fixture.resolver(fixture.workspace_b), principal, fixture.project_key, "read",
         lambda _session, scope: scope.project_id,
     )
@@ -509,7 +509,7 @@ def test_archived_resources_and_same_public_key_are_workspace_scoped(postgres_co
             (fixture.project_a,),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             fixture.resolver(fixture.workspace_a), principal, fixture.project_key, "read",
             lambda *_: pytest.fail("archived project must not read"),
         )
@@ -523,7 +523,7 @@ def test_archived_resources_and_same_public_key_are_workspace_scoped(postgres_co
             (fixture.workspace_a,),
         )
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             fixture.resolver(fixture.workspace_a), principal, fixture.project_key, "read",
             lambda *_: pytest.fail("archived workspace must not read"),
         )
@@ -534,14 +534,14 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
 ):
     pg, fixture = postgres_connections, tenant_fixture
     factory, resolver, principal = _factory(pg), fixture.resolver(), fixture.human()
-    result = factory.execute_authorized(
+    result = factory._execute_authorized(
         resolver,
         principal,
         fixture.project_key,
         "write",
         lambda session, scope: (
             scope.project_id,
-            session.connection.execute(
+            session._connection_for_adapters.execute(
                 "SELECT id FROM chat_messages WHERE workspace_id = %s AND project_id = %s AND id = %s",
                 (scope.workspace_id, scope.project_id, fixture.message_a),
             ).fetchone()[0],
@@ -553,7 +553,7 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
     missing_message_id = max(fixture.message_a, fixture.message_other, fixture.message_b) + 1000
     for out_of_scope_id in (fixture.message_other, fixture.message_b, missing_message_id):
         with pytest.raises(HostedSourceMessageNotFound):
-            factory.execute_authorized(
+            factory._execute_authorized(
                 resolver, principal, fixture.project_key, "write",
                 lambda *_: pytest.fail("invalid source reference must stop before write"),
                 source_message_id=str(out_of_scope_id),
@@ -764,10 +764,10 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
 
     def save(session, scope):
         nonlocal backend_pid, transaction_id
-        assert opened and session.connection is opened[-1]
-        backend_pid = session.connection.raw.info.backend_pid
-        transaction_id = session.connection.execute("SELECT txid_current()").fetchone()[0]
-        return session.connection.execute(
+        assert opened and session._connection_for_adapters is opened[-1]
+        backend_pid = session._connection_for_adapters.raw.info.backend_pid
+        transaction_id = session._connection_for_adapters.execute("SELECT txid_current()").fetchone()[0]
+        return session._connection_for_adapters.execute(
             """INSERT INTO project_memory
                    (workspace_id, project_id, key, value, status, source_message_id,
                     created_at, updated_at)
@@ -777,7 +777,7 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
             (scope.workspace_id, scope.project_id, committed_key, fixture.message_a),
         ).fetchone()[0]
 
-    committed_id = factory.execute_authorized(
+    committed_id = factory._execute_authorized(
         resolver, principal, fixture.project_key, "write", save,
         source_message_id=str(fixture.message_a),
     )
@@ -790,10 +790,10 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
     rolled_back_conversation = f"rollback-{fixture.suffix}"
 
     def fail_after_insert(session, scope):
-        assert session.connection.raw.info.backend_pid != 0
-        assert session.connection.execute("SELECT txid_current()").fetchone()[0]
-        assert session.connection is opened[-1]
-        session.connection.execute(
+        assert session._connection_for_adapters.raw.info.backend_pid != 0
+        assert session._connection_for_adapters.execute("SELECT txid_current()").fetchone()[0]
+        assert session._connection_for_adapters is opened[-1]
+        session._connection_for_adapters.execute(
             """INSERT INTO chat_messages
                    (workspace_id, project_id, conversation_id, role, content, created_at)
                VALUES (%s, %s, %s, 'assistant', 'synthetic rollback probe', CURRENT_TIMESTAMP)""",
@@ -802,7 +802,7 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
         raise RuntimeError("synthetic operation failure")
 
     with pytest.raises(HostedAuthorizationUnavailable, match="authorized operation could not be completed"):
-        factory.execute_authorized(
+        factory._execute_authorized(
             resolver, principal, fixture.project_key, "write", fail_after_insert
         )
     assert _fetchone(
@@ -821,7 +821,7 @@ def test_sql_errors_are_redacted_and_connections_cursors_close(postgres_connecti
     connection.execute("SET search_path TO pg_catalog")
     factory = PostgresHostedAuthorizationSessionFactory(lambda: connection)
     with pytest.raises(HostedAuthorizationUnavailable) as error:
-        factory.execute_authorized(
+        factory._execute_authorized(
             fixture.resolver(), fixture.human(), fixture.project_key, "read",
             lambda *_: pytest.fail("authorization query failure must fail closed"),
         )
@@ -887,7 +887,7 @@ def test_inflight_authorized_operation_serializes_before_revocation(
                 raise TimeoutError("test synchronization timed out")
             return scope.project_id
 
-        return factory.execute_authorized(
+        return factory._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read", operation
         )
 
@@ -911,7 +911,7 @@ def test_inflight_authorized_operation_serializes_before_revocation(
         revoker.result(timeout=_LOCK_WAIT_SECONDS)
 
     with pytest.raises(HostedAccessDenied):
-        factory.execute_authorized(
+        factory._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read",
             lambda *_: pytest.fail("a request after committed revocation must be denied"),
         )

@@ -10,6 +10,7 @@ Candidate search and decision authoritative reload share one connection.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
@@ -18,6 +19,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from orbit.repositories._validation import validate_project
+from orbit.mcp_server.hosted_scope import HostedAccessDenied, ResolvedProjectScope
 from orbit.retrieval.data import (
     DecisionRecord,
     MessageRecord,
@@ -63,7 +65,11 @@ ConnectionFactory = Callable[[], _Connection]
 
 @dataclass(frozen=True, slots=True)
 class PostgresRetrievalScope:
-    """Trusted, pre-resolved tenant and project coordinates for one adapter."""
+    """Standalone adapter coordinates; not proof of hosted authorization.
+
+    Hosted request code must receive scope only from the authorization resolver
+    through the request unit of work.
+    """
 
     workspace_id: UUID | str
     project_id: UUID | str
@@ -95,12 +101,40 @@ class PostgresRetrievalData(RetrievalData):
             raise TypeError("scope must be a trusted PostgresRetrievalScope")
         self._connection_factory = connection_factory
         self._scope = scope
+        self._request_connection = None
+        self._request_permissions: frozenset[str] | None = None
+
+    @classmethod
+    def _for_request(
+        cls, connection: _Connection, scope: ResolvedProjectScope
+    ) -> PostgresRetrievalData:
+        """Bind retrieval to an authorized request's connection and scope.
+
+        This adapter borrows the connection and never opens or finalizes a
+        transaction. Candidate search and authoritative reload therefore stay
+        in the authorization owner's transaction.
+        """
+        if connection is None or not callable(getattr(connection, "execute", None)):
+            raise TypeError("connection must provide execute()")
+        if not isinstance(scope, ResolvedProjectScope):
+            raise TypeError("scope must be issued by HostedScopeResolver")
+        adapter = cls.__new__(cls)
+        adapter._scope = PostgresRetrievalScope(
+            scope.workspace_id, scope.project_id, scope.project_key
+        )
+        adapter._connection_factory = None
+        adapter._request_connection = connection
+        adapter._request_permissions = scope.permissions
+        return adapter
 
     @classmethod
     def from_dsn(
         cls, dsn: str, *, scope: PostgresRetrievalScope
     ) -> PostgresRetrievalData:
-        """Create a lazy optional-psycopg adapter; does not connect at construction."""
+        """Create a standalone adapter; it does not authorize its supplied scope.
+
+        Hosted request code must use the request unit of work instead.
+        """
         if not isinstance(dsn, str) or not dsn.strip():
             raise ValueError("dsn must be a non-empty string")
 
@@ -123,7 +157,7 @@ class PostgresRetrievalData(RetrievalData):
         strict = _strict_tsquery(query)
         if strict is None:
             return SearchPage((), "strict")
-        with self._connection_factory() as connection:
+        with self._connection() as connection:
             rows, tier = self._search_tiers(
                 connection,
                 "chat_messages",
@@ -156,7 +190,7 @@ class PostgresRetrievalData(RetrievalData):
         strict = _strict_tsquery(query)
         if strict is None:
             return SearchPage((), "strict")
-        with self._connection_factory() as connection:
+        with self._connection() as connection:
             candidate_rows, tier = self._search_tiers(
                 connection, "project_memory", "value", query, strict, limit, relax
             )
@@ -190,7 +224,7 @@ class PostgresRetrievalData(RetrievalData):
         ids = _positive_ids(message_ids)
         if not ids:
             return {}
-        with self._connection_factory() as connection:
+        with self._connection() as connection:
             rows = _fetchall(
                 connection,
                 _MESSAGE_LOAD_SQL,
@@ -214,7 +248,7 @@ class PostgresRetrievalData(RetrievalData):
         ids = _positive_ids(decision_ids)
         if not ids:
             return {}
-        with self._connection_factory() as connection:
+        with self._connection() as connection:
             return self._load_decisions(connection, ids)
 
     def _load_decisions(
@@ -299,6 +333,17 @@ class PostgresRetrievalData(RetrievalData):
     def _check_project(self, project: str) -> None:
         if validate_project(project) != self._scope.project_key:
             raise ProjectScopeMismatch("project does not match the trusted retrieval scope")
+        if self._request_permissions is not None and "read" not in self._request_permissions:
+            raise HostedAccessDenied("access denied")
+
+    @contextmanager
+    def _connection(self):
+        """Borrow an authorized request connection or own a standalone one."""
+        if self._request_connection is not None:
+            yield self._request_connection
+            return
+        with self._connection_factory() as connection:
+            yield connection
 
 
 def _search_sql(
