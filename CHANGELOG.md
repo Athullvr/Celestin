@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-17T14:10:10+05:30 — Cover dangling conflict links in reconstruction
+
+- Changed: Added a fake-backed project-state regression for a loaded knowledge record whose capture conflict points to a candidate absent from the returned records. It checks unresolved conflict classification, no fabricated counterpart, preserved capture-source/evidence provenance, unknown applicability, and no selected winner. Existing pinned-revision and read-only tests were left unchanged; no production or shared interface changed.
+- Why: Make reconstruction behavior explicit for incomplete knowledge results without treating omission from `list_records()` as confirmed absence or conflating candidate and knowledge IDs.
+- Validation: The focused new test passed (1 passed); `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m pytest -p no:cacheprovider -o addopts='' tests/project_state/test_reconstructor.py` — 21 passed. Python 3.12.3 and pytest 7.4.4; the test uses a fake knowledge source and a temporary Git repository. `git diff --check` passed.
+- Limitations: The read-only source protocol has no completeness or endpoint-status signal, so it cannot distinguish a temporarily unavailable counterpart from a confirmed absent one. These tests do not establish persistence, adapter behavior, or runtime integration.
+
 ## 2026-10-17T14:04:30+05:30 — Test evidence availability and verification separation
 
 - Changed: Added a fake-backed Evidence service regression for a source changing from `available` to `missing` at read time. It checks that read-time resolution does not mutate the stored reference and remains separate from knowledge/evidence verification, including an explicit `stale` knowledge status. No production code or shared interface changed.
