@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-16T23:11:03+05:30 — Add explicit MCP runtime composition
+
+- Changed: Added `build_runtime`, `ServerRuntime`, bound `MCPToolHandlers`, and `create_mcp_server`; documented the SQLite-only composition boundary. Updated runtime, authorization, persistence, and command-alias tests for instance-scoped dependencies.
+- Why: Make service wiring testable without module-global backends while keeping local SQLite, process-level authorization, stdio, and public MCP contracts intact.
+- Validation: Focused MCP runtime/protocol/persistence/authorization tests: 44 passed. Full suite: 473 passed, 38 skipped. Changed Python modules passed `py_compile`; `git diff --check` passed.
+- Limitations: Hosted PostgreSQL/Neon is not selectable in the MCP runtime; no database or Neon operation was performed.
+
 ## 2026-10-16T20:16:00+05:30 — Require an approved target for schema validation
 
 - Changed: Removed the fixed `celestin_schema_test_v2` target from the hosted-schema validator. It now requires an operator-supplied target to match the connected database, the disposable test naming pattern, the loopback endpoint, and the retired-target rejection list. Documented that no replacement database is approved in the repository. Reworked the reconstructor symlink fixture to create an explicit Git mode-120000 blob, preserving the security assertion without requiring Windows symlink privilege.

@@ -57,6 +57,12 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
+The MCP server builds a runtime when it starts and binds its tool handlers to
+that runtime's authorization, persistence, and retrieval services. The supported
+runtime remains SQLite-only; setting `CELESTIN_POSTGRES_DSN` does not enable a
+hosted MCP backend. Runtime construction does not open the SQLite database;
+connections and schema initialization remain lazy until a data operation.
+
 ### PostgreSQL migration foundation (explicit operator command)
 
 Local SQLite remains the default and is not affected by the PostgreSQL tooling.
