@@ -475,6 +475,8 @@ def test_reader_is_project_scoped_and_does_not_change_candidate_order(tmp_path):
     assert {item.reason for item in enriched.excluded} == {"draft_status", "deprecated_status"}
     assert reader.calls and all(project == "alpha" for project, _, _ in reader.calls)
     assert next(item for item in enriched.items if item.record_id == str(alpha_first)).knowledge_state
+    unmapped = next(item for item in enriched.items if item.record_id == str(alpha_second))
+    assert unmapped.knowledge_state is None
     assert "beta" not in enriched.rendered_context
     assert all(item.project_id == "alpha" for item in enriched.items)
     connection.close()
