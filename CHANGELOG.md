@@ -4,6 +4,35 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-18T20:26:33+05:30 — Review shared-memory storage decisions
+
+- Changed: Recorded `NEED DISCUSSION` technical dispositions for ST-01,
+  ST-02, and ST-03 in the decision review. Producer and Product/Security
+  response fields remain unanswered; no proposal is marked approved.
+- Why: Canonicalization, conversion identity, and the transaction boundary
+  depend on producer and security decisions that are still unresolved.
+- Validation: Reviewed the current decision register; document whitespace and
+  `git diff --check` passed. No tests or database commands ran.
+- Limitations: The repository does not identify an accountable storage owner.
+  Codex's dispositions are technical input, not owner sign-off. Orbit context
+  retrieval for project `celestin` returned `ACCESS_DENIED`; no alternate
+  project was tried.
+
+## 2026-10-18T14:40:07+05:30 — Make SQLite schema migrations atomic
+
+- Changed: Replaced migration script strings with ordered complete-statement
+  tuples, executed each statement inside an explicit `BEGIN IMMEDIATE`
+  transaction, rechecked `user_version` after acquiring the write lock, and
+  committed the schema changes and version together. Migration failures now
+  roll back and close the connection opened by `connect()`.
+- Why: Python SQLite `executescript()` can implicitly commit an open
+  transaction, and concurrent initializers need a locked version recheck.
+- Validation: The focused database, FTS retrieval, persistence, and MCP
+  regression command passed: 92 tests. `py_compile` and `git diff --check`
+  passed.
+- Limitations: Tests used temporary SQLite files; the full suite and all live
+  PostgreSQL behavior were not tested.
+
 ## 2026-10-17T14:30:21+05:30 — Align merged MCP regression with runtime handlers
 
 - Changed: Updated the adversarial retrieved-message regression to invoke the
