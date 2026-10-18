@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import multiprocessing
+import queue
 import sqlite3
 import threading
+import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -14,6 +18,38 @@ from orbit.database.engine import (
     SCHEMA_MIGRATIONS,
     connect,
 )
+
+
+def _initialize_database_in_process(database_path, start_barrier, results):
+    """Initialize one database in a spawned process and report its state."""
+    process_name = multiprocessing.current_process().name
+    try:
+        migration_applied = engine._migration_applied
+        first_version = min(SCHEMA_MIGRATIONS)
+        initial_check = True
+
+        def synchronize_initial_version_check(conn, version):
+            nonlocal initial_check
+            applied = migration_applied(conn, version)
+            if initial_check and version == first_version:
+                initial_check = False
+                start_barrier.wait(timeout=15)
+            return applied
+
+        engine._migration_applied = synchronize_initial_version_check
+        try:
+            conn = connect(database_path)
+        finally:
+            engine._migration_applied = migration_applied
+        try:
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+        finally:
+            conn.close()
+    except BaseException:
+        results.put(("error", f"{process_name}:\n{traceback.format_exc()}"))
+        raise
+    results.put(("ok", version, integrity, process_name))
 
 
 def test_connect_creates_tables_from_clean_checkout(tmp_path):
@@ -223,3 +259,86 @@ def test_concurrent_initializers_recheck_version_after_write_lock(tmp_path, monk
         ).fetchone()[0] == 6
     finally:
         conn.close()
+
+
+def test_process_concurrent_initializers_migrate_fresh_database(tmp_path):
+    path = tmp_path / "process-concurrent-migration.db"
+    context = multiprocessing.get_context("spawn")
+    start_barrier = context.Barrier(2)
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_initialize_database_in_process,
+            args=(str(path), start_barrier, results),
+        )
+        for _ in range(2)
+    ]
+    started = []
+
+    try:
+        for process in processes:
+            process.start()
+            started.append(process)
+        deadline = time.monotonic() + 30
+        for process in processes:
+            process.join(timeout=max(0, deadline - time.monotonic()))
+
+        still_running = [process.pid for process in processes if process.is_alive()]
+        assert not still_running, (
+            "database initializers exceeded the 30-second timeout: "
+            f"processes={still_running}"
+        )
+
+        outcomes = []
+        for process in processes:
+            try:
+                outcomes.append(results.get(timeout=5))
+            except queue.Empty:
+                outcomes.append(("missing", f"process {process.pid} returned no result"))
+
+        failures = [outcome[1] for outcome in outcomes if outcome[0] != "ok"]
+        assert not failures, "process initialization failed:\n" + "\n".join(failures)
+        assert [process.exitcode for process in processes] == [0, 0]
+        assert all(outcome[1] == max(SCHEMA_MIGRATIONS) for outcome in outcomes)
+        assert all(outcome[2] == "ok" for outcome in outcomes)
+
+        # Inspect directly so this assertion cannot hide an incomplete migration
+        # by initializing the database a third time.
+        inspection = sqlite3.connect(path)
+        try:
+            assert inspection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            assert inspection.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert int(inspection.execute("PRAGMA user_version").fetchone()[0]) == max(
+                SCHEMA_MIGRATIONS
+            )
+            objects = {
+                row[0]
+                for row in inspection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            assert {
+                "chat_messages",
+                "project_memory",
+                "chat_messages_fts",
+                "project_memory_fts",
+                "idx_chat_messages_project_conversation",
+                "idx_project_memory_project",
+                "chat_messages_fts_insert",
+                "chat_messages_fts_delete",
+                "chat_messages_fts_update",
+                "project_memory_fts_insert",
+                "project_memory_fts_delete",
+                "project_memory_fts_update",
+            } <= objects
+        finally:
+            inspection.close()
+    finally:
+        for process in started:
+            if process.is_alive():
+                process.terminate()
+        for process in started:
+            process.join(timeout=5)
+        results.close()
+        results.join_thread()

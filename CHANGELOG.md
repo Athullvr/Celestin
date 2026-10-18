@@ -4,6 +4,19 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-19T03:10:08+05:30 — Test process-level SQLite migration concurrency
+
+- Changed: Added a bounded process-level test that starts two independent
+  spawned processes against one fresh temporary SQLite file, then verifies
+  migration version, expected schema objects, database integrity, and foreign
+  key integrity.
+- Why: The prior concurrency coverage exercised threads; separate processes
+  verify SQLite's file-lock behavior across independent initializers.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/database/test_engine.py`
+  passed: 9 tests (Python 3.13.9, pytest 8.4.2).
+- Limitations: No production migration behavior changed. The test covers a local
+  temporary database only.
+
 ## 2026-10-18T20:26:33+05:30 — Review shared-memory storage decisions
 
 - Changed: Recorded `NEED DISCUSSION` technical dispositions for ST-01,
