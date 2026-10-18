@@ -31,6 +31,25 @@ Record each meaningful project change during the event, newest first. Update thi
 - Limitations: No production migration behavior changed. The test covers a local
   temporary database only.
 
+## 2026-10-19T03:03:17+05:30 — Audit delivery identity contract readiness
+
+- Changed: Added `docs/delivery-contract-decision-audit.md` with a traceable
+  D-01–D-13 comparison, separated settled v0.3 requirements from pending
+  delivery/producer extensions, documented dependencies, verification limits,
+  and an owner questionnaire.
+- Why: Avoid implementing delivery persistence from proposal details that the
+  requester-authorized conversion baseline does not settle or the local Capture
+  prototype cannot demonstrate.
+- Validation: Inspected the current decision record, proposal, historical
+  boundary/draft documents, Capture/Evidence code and tests, and project test
+  setup. `git diff --check` and focused documentation link/whitespace checks
+  are recorded in the final report. The focused canonicalization test was
+  attempted and could not collect because `rfc8785` is unavailable in the
+  current interpreter.
+- Limitations: No team owner response or upstream producer implementation was
+  available in the checkout. No schema, application, test, dependency, or
+  database change was made; no test pass is claimed.
+
 ## 2026-10-19T02:56:52+05:30 — Add proposed delivery identity vectors
 
 - Changed: Added explicit non-normative delivery and candidate-revision digest
