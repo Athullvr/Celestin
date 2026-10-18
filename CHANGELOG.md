@@ -4,6 +4,24 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-19T02:39:40+05:30 — Conform conversion hashing to the v0.3 contract
+
+- Changed: Replaced the provisional conversion JSON encoding with RFC 8785 JCS,
+  implemented the approved payload version, NFC and UTC timestamp normalization,
+  exact payload validation, ordered occurrences, sorted conflicts, and direct
+  lowercase-hex SHA-256. Added the bounded `rfc8785` runtime dependency and fixed
+  tests for both decision-record vectors. Updated README dependency/runtime notes.
+- Why: Conversion replay comparison must use the canonical bytes and digest
+  selected by the final shared-memory decision record.
+- Validation: Canonicalization tests: 41 passed; Evidence suite: 81 passed;
+  Capture mapping tests: 8 passed, 27 deselected. Both changed Python files
+  compiled; `git diff --check` and `git diff --cached --check` passed. Tests used
+  `rfc8785` 0.1.4 installed into a temporary target directory.
+- Limitations: Delivery retry equality remains undefined and is not implemented.
+  Inputs with more than six timestamp fractional digits are rejected rather than
+  rounded or truncated because that policy is unspecified. No producer integration
+  or persistence behavior was added.
+
 ## 2026-10-19T03:10:08+05:30 — Add Evidence store conformance tests
 
 - Changed: Added a reusable conformance mixin for the current
