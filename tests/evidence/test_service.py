@@ -27,7 +27,13 @@ from orbit.evidence.service import (
     EvidenceValidationError,
     KnowledgeNotFound,
 )
-from orbit.mcp_server.authorization import READ, WRITE, AuthorizedProject, ProjectAccessPolicy
+from orbit.mcp_server.authorization import (
+    READ,
+    WRITE,
+    AuthorizedProject,
+    ProjectAccessDenied,
+    ProjectAccessPolicy,
+)
 
 
 NOW = datetime(2026, 10, 14, 12, 30, tzinfo=timezone.utc)
@@ -629,6 +635,57 @@ def test_authorized_action_is_required_for_each_operation():
         )
     with pytest.raises(PermissionError, match="read selector"):
         service.get_knowledge(authorized("p", WRITE), "missing")
+
+
+def test_read_revocation_between_successive_reads_denies_before_store_access():
+    class RevocableAuthorizer:
+        def __init__(self):
+            self.actions = {READ, WRITE}
+
+        def authorize(self, principal, project, action):
+            if action not in self.actions:
+                raise ProjectAccessDenied("project access denied")
+            return AuthorizedProject(project, action, principal)
+
+    class CountingStore(FakeEvidenceStore):
+        def __init__(self):
+            super().__init__()
+            self.reads = []
+
+        def get_knowledge(self, project, knowledge_id):
+            self.reads.append(("get", project, knowledge_id))
+            return super().get_knowledge(project, knowledge_id)
+
+        def list_evidence(self, project, knowledge_id):
+            self.reads.append(("list", project, knowledge_id))
+            return super().list_evidence(project, knowledge_id)
+
+    store = CountingStore()
+    authorizer = RevocableAuthorizer()
+    service = EvidenceLinkedMemoryService(
+        store,
+        Resolver(),
+        authorizer=authorizer,
+        id_factory=lambda: "knowledge-revocation",
+        clock=lambda: NOW,
+    )
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DISCOVERY,
+        "Protected claim.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+
+    first_read = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+    assert first_read.record.claim == "Protected claim."
+    assert [operation for operation, _, _ in store.reads] == ["get", "list"]
+
+    authorizer.actions.remove(READ)
+    reads_before_revoked_call = tuple(store.reads)
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert tuple(store.reads) == reads_before_revoked_call
 
 
 @pytest.mark.parametrize(
