@@ -4,38 +4,6 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
-## 2026-10-19T02:27:26+05:30 — Establish shared-memory v0.3 decision baseline
-
-- Changed: Added the final v0.3 decision record and Resurrection boundary review
-  from the verified `origin/retrival` ref. Marked the local v0.3 contract and
-  decision request as historical where the final record supersedes them.
-- Why: Establish one implementation baseline without merging retrieval history
-  or importing its virtual environment and generated artifacts.
-- Validation: Compared both imported documents to their source Git blobs;
-  reviewed the reconciliation diff and `git diff --check`.
-- Limitations: No tests, database commands, migrations, or implementation
-  changes ran. The provisional canonicalization helper does not match the
-  JCS/hash profile selected in the decision record and remains unchanged for a
-  separate task.
-
-## 2026-10-19T02:39:40+05:30 — Conform conversion hashing to the v0.3 contract
-
-- Changed: Replaced the provisional conversion JSON encoding with RFC 8785 JCS,
-  implemented the approved payload version, NFC and UTC timestamp normalization,
-  exact payload validation, ordered occurrences, sorted conflicts, and direct
-  lowercase-hex SHA-256. Added the bounded `rfc8785` runtime dependency and fixed
-  tests for both decision-record vectors. Updated README dependency/runtime notes.
-- Why: Conversion replay comparison must use the canonical bytes and digest
-  selected by the final shared-memory decision record.
-- Validation: Canonicalization tests: 41 passed; Evidence suite: 81 passed;
-  Capture mapping tests: 8 passed, 27 deselected. Both changed Python files
-  compiled; `git diff --check` and `git diff --cached --check` passed. Tests used
-  `rfc8785` 0.1.4 installed into a temporary target directory.
-- Limitations: Delivery retry equality remains undefined and is not implemented.
-  Inputs with more than six timestamp fractional digits are rejected rather than
-  rounded or truncated because that policy is unspecified. No producer integration
-  or persistence behavior was added.
-
 ## 2026-10-19T03:10:08+05:30 — Add Evidence store conformance tests
 
 - Changed: Added a reusable conformance mixin for the current
@@ -62,6 +30,68 @@ Record each meaningful project change during the event, newest first. Update thi
   passed: 9 tests (Python 3.13.9, pytest 8.4.2).
 - Limitations: No production migration behavior changed. The test covers a local
   temporary database only.
+
+## 2026-10-19T02:56:52+05:30 — Add proposed delivery identity vectors
+
+- Changed: Added explicit non-normative delivery and candidate-revision digest
+  examples covering exact retry, changed content, omitted versus null fields,
+  Unicode normalization, equivalent timestamp offsets, and rejected timestamp
+  edge cases. Clarified the limits of the digest verification environment.
+- Why: Make the pending delivery-equality proposal reviewable without treating
+  it as an approved contract or changing the final decision record.
+- Validation: Re-derived the restricted example digests with Python's
+  standard-library JSON encoder and checked links/whitespace plus
+  `git diff --check`; this was not a test or general JCS implementation check.
+- Limitations: `rfc8785` is not importable from the default Python or repository
+  validation environment in this continuation; no second runtime was used.
+
+## 2026-10-19T02:54:13+05:30 — Propose delivery and producer identity boundary
+
+- Changed: Added a source-grounded, unapproved delivery/producer contract
+  proposal with separate delivery, candidate, revision, conversion, and digest
+  identities; retry rules; illustrative vectors; producer/source lifecycle;
+  canonicalization edge policies; and future acceptance tests. Corrected stale
+  implementation-status descriptions in the two historical v0.3 review drafts.
+- Why: The approved conversion profile does not define delivery equality, and
+  the Capture prototype lacks producer, delivery, and immutable revision IDs.
+- Validation: Local relative Markdown links and whitespace checked in five
+  documentation/log files; `git diff --check` and `git diff --cached --check`
+  passed. No tests or database commands ran.
+- Limitations: All additional delivery, revision-equality, timestamp-edge,
+  comparator, certainty-mapping, and producer-lifecycle rules remain proposals
+  pending the relevant owner responses. The final decision record was unchanged.
+
+## 2026-10-19T02:39:40+05:30 — Conform conversion hashing to the v0.3 contract
+
+- Changed: Replaced the provisional conversion JSON encoding with RFC 8785 JCS,
+  implemented the approved payload version, NFC and UTC timestamp normalization,
+  exact payload validation, ordered occurrences, sorted conflicts, and direct
+  lowercase-hex SHA-256. Added the bounded `rfc8785` runtime dependency and fixed
+  tests for both decision-record vectors. Updated README dependency/runtime notes.
+- Why: Conversion replay comparison must use the canonical bytes and digest
+  selected by the final shared-memory decision record.
+- Validation: Canonicalization tests: 41 passed; Evidence suite: 81 passed;
+  Capture mapping tests: 8 passed, 27 deselected. Both changed Python files
+  compiled; `git diff --check` and `git diff --cached --check` passed. Tests used
+  `rfc8785` 0.1.4 installed into a temporary target directory.
+- Limitations: Delivery retry equality remains undefined and is not implemented.
+  Inputs with more than six timestamp fractional digits are rejected rather than
+  rounded or truncated because that policy is unspecified. No producer integration
+  or persistence behavior was added.
+
+## 2026-10-19T02:27:26+05:30 — Establish shared-memory v0.3 decision baseline
+
+- Changed: Added the final v0.3 decision record and Resurrection boundary review
+  from the verified `origin/retrival` ref. Marked the local v0.3 contract and
+  decision request as historical where the final record supersedes them.
+- Why: Establish one implementation baseline without merging retrieval history
+  or importing its virtual environment and generated artifacts.
+- Validation: Compared both imported documents to their source Git blobs;
+  reviewed the reconciliation diff and `git diff --check`.
+- Limitations: No tests, database commands, migrations, or implementation
+  changes ran. The provisional canonicalization helper does not match the
+  JCS/hash profile selected in the decision record and remains unchanged for a
+  separate task.
 
 ## 2026-10-18T20:26:33+05:30 — Review shared-memory storage decisions
 
