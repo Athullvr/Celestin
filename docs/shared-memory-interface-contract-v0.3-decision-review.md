@@ -1,5 +1,7 @@
 # Celestin Shared Memory Interface Contract v0.3 — Decision Review
 
+> **Historical review notice:** This decision request predates the requester-authorized implementation baseline in [`SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md`](SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md). Its `PROPOSED` defaults are superseded as implementation choices only where that record explicitly decides the same question. Owner-response fields remain unanswered unless an owner fills them; this record does not claim teammate or external-owner acceptance. `UNRESOLVED` owner-response status remains unresolved as a matter of cross-team acceptance and does not override the implementation baseline. Technical details not answered by the record also remain open.
+
 ## Purpose and response instructions
 
 This package requests explicit Producer/Resurrection and Product/Security decisions before Celestin implements an Evidence persistence adapter or finalizes storage semantics. It is based on the unresolved register in [`shared-memory-interface-contract-v0.3.md`](shared-memory-interface-contract-v0.3.md) and the supporting [`evidence-linked-memory-contract.md`](evidence-linked-memory-contract.md).
@@ -211,11 +213,13 @@ These are storage-owner decisions and implementation dependencies, not producer 
 
 **Consequences if unresolved:** Without an agreed canonicalization and hash profile, exact-replay comparison versus changed-payload detection is unreliable. Do not treat a locally computed hash as a canonical payload identity.
 
-**Choices that must wait:** Selecting a canonical serializer/dependency; freezing payload bytes/hash; adding hash/version columns; defining changed-payload conflicts. Without stable producer fields, golden vectors would canonize guesses.
+**Choices not settled by the final record:** Defining delivery-ID equality fields/profile and candidate-revision payload equality; confirming that an upstream producer can supply the required fields and reproduce canonical bytes; adding persistence hash/version columns and implementing changed-payload conflicts. The final decision record selects the conversion JCS/hash profile and its two vectors as the requester-authorized implementation baseline. Those decisions do not prove producer support or teammate acceptance. Without the delivery and producer fields, delivery vectors would still canonize guesses.
 
 **Constraint versus policy:** Database checks may require a non-null supported version and hash format once agreed, and may preserve immutable payload rows. Which fields represent an approved claim and how normalization affects meaning are domain/application contract, not facts a SQL constraint can decide.
 
-**Safe preparation:** Inventory candidate serialization libraries and language/runtime support without selecting one; draft test-vector format with placeholders; list source fields and their owners. Do not generate normative vectors before the canonical fields and normalization are approved.
+**Safe preparation:** Compare the current `src/orbit/evidence/canonicalization.py` implementation with the final decision record and with any producer implementation; review the fixed conversion vectors without treating them as evidence that Resurrection emits these fields; separately propose delivery and revision-equality vectors for owner review. Do not infer producer support or finalize a delivery profile.
+
+**Implementation note (does not change the historical owner-response field):** The current local module uses RFC 8785 JCS and matches the final decision record's fixed conversion vectors. The conversion profile is selected by that requester-authorized record. The ST-01 response in this older review remains unfilled as a cross-team response; delivery equality, producer reproduction, and durable hash persistence remain unimplemented or unresolved.
 
 **Response:** `[ ] AGREE WITH PROPOSAL` / `[ ] REJECT PROPOSAL` / `[ ] NEED DISCUSSION`<br>
 **Owner rationale:** `____________________________________________________________`<br>
@@ -261,6 +265,6 @@ These are storage-owner decisions and implementation dependencies, not producer 
 
 ## Decision state and next gate
 
-All `PR-*`, `PS-*`, and `ST-*` items remain **UNRESOLVED** until an owner records a response and rationale. No proposal in this document changes the status of v0.3 decisions or authorizes a schema choice.
+The response fields in this historical review remain **UNRESOLVED** until the relevant owner records a response and rationale. The requester-authorized decision record establishes the implementation baseline for the questions it covers; it does not imply cross-team acceptance or authorize guessing at technical details it does not specify.
 
 Before Evidence schema or producer-adapter work begins, record producer confirmation for PR-01–PR-07, Product/Security decisions for PS-01–PS-05, and Storage agreement for ST-01–ST-03. Then reconcile any rejected or modified defaults into v0.3 and derive deterministic acceptance tests. Persistence-free documentation, serialization-library inventory, and provisional transaction/race test design may proceed, but must remain non-normative until the relevant decisions are recorded.

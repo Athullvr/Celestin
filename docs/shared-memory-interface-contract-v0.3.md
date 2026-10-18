@@ -1,8 +1,10 @@
 # Celestin Shared Memory Interface Contract v0.3
 
-**Status:** Source-backed design draft for review. This document describes verified local prototype behavior and separately labels target recommendations and unresolved decisions. It is not an approved persistence schema, a producer guarantee, or a claim that Capture-to-Evidence storage is implemented.
+> **Authority and status:** The requester-authorized implementation baseline for the first PostgreSQL Evidence/Knowledge work is recorded in [`SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md`](SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md). This file remains a historical source-backed prototype inventory. Its `PROPOSED` and `OPEN DECISION` labels preserve the earlier review state and are superseded only where the decision record explicitly addresses the same question. Producer fields in that record are requirements, not proof that an upstream producer already supplies them. The decision record does not implement persistence or imply teammate acceptance. Any behavior or implementation detail not specified there remains unresolved; do not infer schema or runtime behavior from this draft.
 
-**Baseline inspected:** branch `codex/celestin-core-memory-platform`, commit `eff1b10f926e5f13ab57822c2cbec30330af5160`.
+**Status:** Historical source-backed design draft for review. It describes local prototype behavior and the earlier target proposals. The final decision record governs the initial implementation requirements; this document is not a persistence schema, a guarantee that producers emit the required fields, or proof that Capture-to-Evidence storage is implemented.
+
+**Baseline inspected (historical snapshot):** branch `codex/celestin-core-memory-platform`, commit `eff1b10f926e5f13ab57822c2cbec30330af5160`.
 
 ## 1. Scope and terminology
 
@@ -148,7 +150,9 @@ For one conversion key:
 
 **PROPOSED exclusions:** resolver-derived availability, current source freshness, read-time lookup results, retrieval ranking, generated database UUIDs, and local wall-clock observation times. These may change without changing approved candidate content and must not silently alter payload equality.
 
-**OPEN DECISION:** The exact canonicalization profile is not selected. Before implementation, agree on:
+**Historical implementation snapshot (the baseline inspected above):** At that earlier baseline, the local helper used its provisional JSON/hash behavior. That description is retained as history only; it is not the current implementation or the normative profile.
+
+**OPEN DECISION:** The local profile behavior is not approved as the normative producer/storage contract. Before adoption, agree on:
 
 - Object key ordering and UTF-8 encoding.
 - Whether strings are preserved byte-for-byte or normalized (recommend preserving claim/source strings; only identifiers with an explicit normalization rule may be normalized).
@@ -158,7 +162,9 @@ For one conversion key:
 - Hash algorithm and domain/version prefix. SHA-256 is a reasonable proposal, not a current conversion guarantee.
 - Version compatibility and behavior when a prior payload version is unavailable.
 
-No RFC 8785 conformance is assumed. The existing local candidate SHA fingerprint and `KnowledgeStateEnvelope(schema_version=1)` are not canonical conversion payload hashes.
+The final decision record supersedes this historical open-decision text for conversion canonicalization. The local candidate SHA fingerprint and `KnowledgeStateEnvelope(schema_version=1)` are still not canonical conversion payload hashes.
+
+**Current implementation status:** `src/orbit/evidence/canonicalization.py` now implements the final record's `smic-conversion-payload-v1+jcs-rfc8785+sha256` profile with RFC 8785 JCS, NFC normalization, UTC timestamps at six fractional digits, explicit nullable fields, ordinal-ordered occurrences, sorted conflicts, and direct lowercase-hex SHA-256 over canonical UTF-8 bytes. The approved fixed vectors are exercised in `tests/evidence/test_canonicalization.py`. The separate knowledge-content hash remains provisional. Delivery retry equality and candidate-revision payload equality are not implemented; this helper is not wired to Capture, durable persistence, conversion/replay, or Retrieval. A profile change requires a new profile identifier; existing profile semantics must not be silently reinterpreted.
 
 ## 6. Approval, correction, revocation, and conflicts
 

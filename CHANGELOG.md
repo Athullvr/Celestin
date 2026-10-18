@@ -4,6 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-19T02:27:26+05:30 — Establish shared-memory v0.3 decision baseline
+
+- Changed: Added the final v0.3 decision record and Resurrection boundary review
+  from the verified `origin/retrival` ref. Marked the local v0.3 contract and
+  decision request as historical where the final record supersedes them.
+- Why: Establish one implementation baseline without merging retrieval history
+  or importing its virtual environment and generated artifacts.
+- Validation: Compared both imported documents to their source Git blobs;
+  reviewed the reconciliation diff and `git diff --check`.
+- Limitations: No tests, database commands, migrations, or implementation
+  changes ran. The provisional canonicalization helper does not match the
+  JCS/hash profile selected in the decision record and remains unchanged for a
+  separate task.
+
 ## 2026-10-19T02:39:40+05:30 — Conform conversion hashing to the v0.3 contract
 
 - Changed: Replaced the provisional conversion JSON encoding with RFC 8785 JCS,
