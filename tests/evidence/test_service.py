@@ -20,6 +20,7 @@ from orbit.evidence.model import (
     VerificationStatus,
 )
 from orbit.evidence.service import (
+    EvidenceNotAssociated,
     EvidenceMemoryError,
     EvidenceLinkedMemoryService,
     EvidenceReferenceMissing,
@@ -28,6 +29,7 @@ from orbit.evidence.service import (
     KnowledgeNotFound,
 )
 from orbit.mcp_server.authorization import READ, WRITE, AuthorizedProject, ProjectAccessPolicy
+from tests.evidence.store_contract import EvidenceLinkedMemoryStoreContract
 
 
 NOW = datetime(2026, 10, 14, 12, 30, tzinfo=timezone.utc)
@@ -61,16 +63,27 @@ class FakeEvidenceStore:
         self.records = {}
         self.evidence = {}
         self.fail_on = None
+        self.fail_after_staging = None
 
     def _fail(self, operation):
         if self.fail_on == operation:
             raise OSError(f"{operation} failed")
 
+    def _fail_after_staging(self, operation):
+        if self.fail_after_staging == operation:
+            self.fail_after_staging = None
+            raise RuntimeError(f"injected {operation} failure after staging")
+
     def create_knowledge(self, record, evidence):
         self._fail("create")
         key = (record.project, record.knowledge_id)
-        self.records[key] = record
-        self.evidence[key] = {item.evidence_id: item for item in evidence}
+        staged_records = self.records.copy()
+        staged_evidence = self.evidence.copy()
+        staged_records[key] = record
+        staged_evidence[key] = {item.evidence_id: item for item in evidence}
+        self._fail_after_staging("create")
+        self.records = staged_records
+        self.evidence = staged_evidence
 
     def attach_evidence(self, project, knowledge_id, evidence):
         self._fail("attach")
@@ -94,11 +107,22 @@ class FakeEvidenceStore:
 
     def set_knowledge_verification(self, project, knowledge_id, record):
         self._fail("verify_knowledge")
-        self.records[(project, knowledge_id)] = record
+        key = (project, knowledge_id)
+        if key not in self.records or record.project != project:
+            raise KnowledgeNotFound(knowledge_id)
+        self.records[key] = record
 
     def set_evidence_verification(self, project, knowledge_id, evidence):
         self._fail("verify_evidence")
-        self.evidence[(project, knowledge_id)][evidence.evidence_id] = evidence
+        key = (project, knowledge_id)
+        if key not in self.records:
+            raise KnowledgeNotFound(knowledge_id)
+        if (
+            evidence.project != project
+            or evidence.evidence_id not in self.evidence.get(key, {})
+        ):
+            raise EvidenceNotAssociated(evidence.evidence_id)
+        self.evidence[key][evidence.evidence_id] = evidence
 
     def supersede_knowledge(self, project, previous_id, successor, evidence):
         self._fail("supersede")
@@ -107,14 +131,19 @@ class FakeEvidenceStore:
         if old_key not in self.records:
             raise KnowledgeNotFound(previous_id)
         old = self.records[old_key]
-        self.records[old_key] = replace(
+        staged_records = self.records.copy()
+        staged_evidence = self.evidence.copy()
+        staged_records[old_key] = replace(
             old,
             lifecycle_status=LifecycleStatus.SUPERSEDED,
             superseded_by_id=successor.knowledge_id,
             updated_at=successor.created_at,
         )
-        self.records[new_key] = successor
-        self.evidence[new_key] = {item.evidence_id: item for item in evidence}
+        staged_records[new_key] = successor
+        staged_evidence[new_key] = {item.evidence_id: item for item in evidence}
+        self._fail_after_staging("supersede")
+        self.records = staged_records
+        self.evidence = staged_evidence
 
 
 def _evidence_identity(evidence: EvidenceRecord):
@@ -634,3 +663,13 @@ def test_storage_errors_are_propagated_without_fabricated_success(operation):
 
     with pytest.raises(OSError, match=f"{operation} failed"):
         call()
+
+
+class TestFakeEvidenceLinkedMemoryStoreContract(EvidenceLinkedMemoryStoreContract):
+    """Run the reusable protocol checks against the in-memory reference fake."""
+
+    def make_store(self):
+        return FakeEvidenceStore()
+
+    def arm_failure_after_staging(self, store, operation):
+        store.fail_after_staging = operation

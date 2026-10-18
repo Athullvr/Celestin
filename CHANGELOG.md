@@ -4,6 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-19T03:10:08+05:30 — Add Evidence store conformance tests
+
+- Changed: Added a reusable conformance mixin for the current
+  `EvidenceLinkedMemoryStore` protocol and applied it to the in-memory reference
+  fake. It covers represented round-trip fields, project-scoped operations,
+  atomic staged-failure behavior, supersession, idempotent attachment, and
+  missing-record behavior.
+- Why: Give future store implementations a shared offline contract suite without
+  implying that a fake proves database transaction or durability behavior.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/evidence/test_service.py`
+  passed: 40 tests (Python 3.13.9, pytest 8.4.2).
+- Limitations: This is fake-store contract coverage only. No PostgreSQL adapter,
+  schema, or live-database behavior was tested.
+
 ## 2026-10-19T03:10:08+05:30 — Test process-level SQLite migration concurrency
 
 - Changed: Added a bounded process-level test that starts two independent
