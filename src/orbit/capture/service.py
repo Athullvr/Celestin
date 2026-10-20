@@ -27,6 +27,7 @@ from .model import (
     CandidateCertainty,
     CaptureEvent,
     CaptureInput,
+    CaptureOccurrence,
     CaptureResult,
     CaptureSourceReference,
     CaptureSourceType,
@@ -168,11 +169,13 @@ class KnowledgeCapturePipeline:
         source = self._validate_input(request)
         extracted = self._extract(request, source)
         accepted: list[KnowledgeCandidate] = []
+        occurrences: list[CaptureOccurrence] = []
         suppressed: list[SuppressedCapture] = []
         duplicate_count = 0
 
         for event, reference in extracted:
-            evidence = _unique_evidence((*request.evidence, *event.evidence))
+            occurrence_evidence = (*request.evidence, *event.evidence)
+            evidence = _unique_evidence(occurrence_evidence)
             if _contains_secret(event.claim) or any(_evidence_has_secret(item) for item in evidence):
                 suppressed.append(SuppressedCapture(event.category, reference, "secret_like_content"))
                 continue
@@ -230,6 +233,14 @@ class KnowledgeCapturePipeline:
                         )
                     else:
                         accepted.append(previous)
+                        occurrences.append(
+                            CaptureOccurrence(
+                                ordinal=len(occurrences),
+                                candidate_id=previous.candidate_id,
+                                source_reference=reference,
+                                evidence_sources=occurrence_evidence,
+                            )
+                        )
                     continue
                 candidate = replace(
                     previous,
@@ -242,6 +253,14 @@ class KnowledgeCapturePipeline:
                 duplicate_count += 1
             candidate = self._link_conflicts(candidate)
             accepted.append(candidate)
+            occurrences.append(
+                CaptureOccurrence(
+                    ordinal=len(occurrences),
+                    candidate_id=candidate.candidate_id,
+                    source_reference=reference,
+                    evidence_sources=occurrence_evidence,
+                )
+            )
 
         # Later events in this batch can merge source references or add conflict
         # links to candidates already returned above. Return the final queue
@@ -254,7 +273,9 @@ class KnowledgeCapturePipeline:
                 raise CaptureRepositoryError(
                     "review repository omitted a candidate accepted in this batch"
                 ) from exc
-        return CaptureResult(tuple(accepted), tuple(suppressed), duplicate_count)
+        return CaptureResult(
+            tuple(accepted), tuple(suppressed), duplicate_count, tuple(occurrences)
+        )
 
     def list_candidates(
         self, project_id: str, status: ReviewStatus | None = None

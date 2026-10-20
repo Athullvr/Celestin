@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import re
 from threading import Lock, Thread
 import time
 
@@ -118,7 +119,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3]
+    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6]
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -132,6 +133,84 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     assert "to_tsvector('simple'::regconfig, content)" in migrations[2].sql
     assert "WHERE archived_at IS NULL" in migrations[2].sql
     assert "idx_project_memory_search_vector" in migrations[2].sql
+    assert migrations[3].name == "0004_memory_capabilities.sql"
+    assert "can_approve_candidates BOOLEAN NOT NULL DEFAULT FALSE" in migrations[3].sql
+    assert "can_convert_memory BOOLEAN NOT NULL DEFAULT FALSE" in migrations[3].sql
+    assert "can_read_history BOOLEAN NOT NULL DEFAULT FALSE" in migrations[3].sql
+    assert "can_read_audit BOOLEAN NOT NULL DEFAULT FALSE" in migrations[3].sql
+    assert migrations[3].sql.count("ALTER TABLE") == 2
+    assert migrations[4].name == "0005_evidence_linked_memory.sql"
+    assert "CREATE TABLE celestin_knowledge_records" in migrations[4].sql
+    assert "CREATE TABLE celestin_evidence_records" in migrations[4].sql
+    assert "capture_provenance" in migrations[4].sql
+    assert "JSONB" in migrations[4].sql
+    assert "created_at             TIMESTAMPTZ NOT NULL" in migrations[4].sql
+    assert "captured_at           TIMESTAMPTZ NOT NULL" in migrations[4].sql
+    assert "CREATE UNIQUE INDEX idx_celestin_knowledge_one_successor" in migrations[4].sql
+    assert migrations[5].name == "0006_candidate_revision_store.sql"
+
+
+def test_candidate_revision_migration_defines_scoped_history_and_ordered_occurrences():
+    migration_sql = load_migrations()[5].sql
+    normalized_sql = " ".join(migration_sql.split())
+
+    def table_body(table_name):
+        match = re.search(
+            rf"CREATE TABLE {re.escape(table_name)} \((.*?)\);",
+            migration_sql,
+            re.DOTALL,
+        )
+        assert match is not None, f"missing table definition: {table_name}"
+        return " ".join(match.group(1).split())
+
+    assert "PRIMARY KEY (workspace_id, project_id, producer_id, candidate_id)" in table_body(
+        "celestin_candidates"
+    )
+    revision = table_body("celestin_candidate_revisions")
+    assert (
+        "PRIMARY KEY (workspace_id, project_id, producer_id, candidate_id, candidate_revision)"
+        in revision
+    )
+    assert "CHECK (candidate_revision > 0)" in revision
+    assert "REFERENCES celestin_candidates(workspace_id, project_id, producer_id, candidate_id)" in revision
+
+    review = table_body("celestin_candidate_review_events")
+    assert "event_type IN ('approved', 'rejected', 'revoked')" in review
+    assert "event_number INTEGER NOT NULL DEFAULT 1" in review
+
+    evidence = table_body("celestin_candidate_evidence_records")
+    assert "PRIMARY KEY (workspace_id, project_id, evidence_record_id)" in evidence
+    assert "FOREIGN KEY (workspace_id, project_id, source_namespace)" in evidence
+
+    occurrence = table_body("celestin_candidate_occurrences")
+    assert (
+        "PRIMARY KEY ( workspace_id, project_id, producer_id, candidate_id, "
+        "candidate_revision, ordinal )"
+        in occurrence
+    )
+    assert "FOREIGN KEY (workspace_id, project_id, evidence_record_id)" in occurrence
+    assert "UNIQUE" not in occurrence.upper()
+    assert "occurrence ordinal must be contiguous from zero" in normalized_sql
+    assert "candidate revision must be the next sequential revision" in normalized_sql
+
+    conversion = table_body("celestin_candidate_conversions")
+    assert (
+        "PRIMARY KEY ( workspace_id, project_id, producer_id, candidate_id, "
+        "candidate_revision )"
+        in conversion
+    )
+    assert (
+        "REFERENCES celestin_knowledge_records( workspace_id, project_id, "
+        "knowledge_id )"
+        in conversion
+    )
+    assert "smic-conversion-payload-v1+jcs-rfc8785+sha256" in conversion
+    assert "celestin_candidate_identity_immutable" in normalized_sql
+    assert "celestin_candidate_conversion_approval" in normalized_sql
+    assert "celestin_request_scope_matches(workspace_id, project_id)" in normalized_sql
+    assert "current_setting('celestin.workspace_id', true)" in normalized_sql
+    assert "current_setting('celestin.project_id', true)" in normalized_sql
+    assert "delivery_id" not in normalized_sql
 
 
 def test_migration_order_is_normalized_and_gaps_or_duplicates_are_rejected():

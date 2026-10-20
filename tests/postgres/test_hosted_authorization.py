@@ -28,6 +28,7 @@ MESSAGE = 41
 class FakeConnection:
     def __init__(self, *, kind="human", identity_status="active", project_archived=None,
                  workspace_archived=None, membership="active", grant=(True, True, None),
+                 capabilities=(False, False, False, False),
                  message_id=MESSAGE, fail_query=None, fail_commit=False,
                  identity_missing=False, workspace_missing=False, fail_close=False):
         self.kind = kind
@@ -36,6 +37,7 @@ class FakeConnection:
         self.workspace_archived = workspace_archived
         self.membership = membership
         self.grant = grant
+        self.capabilities = capabilities
         self.message_id = message_id
         self.fail_query = fail_query
         self.fail_commit = fail_commit
@@ -64,10 +66,24 @@ class FakeConnection:
             return Result((PROJECT, "demo", self.project_archived))
         if normalized.startswith("SELECT status FROM celestin_workspace_memberships"):
             return Result((self.membership,) if self.membership is not None else None)
-        if normalized.startswith("SELECT can_read, can_write, revoked_at FROM celestin_project_memberships"):
-            return Result(self.grant)
-        if normalized.startswith("SELECT can_read, can_write, revoked_at FROM celestin_service_project_grants"):
-            return Result(self.grant)
+        if normalized.startswith("SELECT can_read, can_write, can_approve_candidates"):
+            if self.grant is None:
+                return Result(None)
+            return Result(
+                (
+                    self.grant[0], self.grant[1], *self.capabilities, self.grant[2]
+                )
+            )
+        if normalized.startswith("SELECT can_read, can_write, can_convert_memory"):
+            if self.grant is None:
+                return Result(None)
+            _, can_convert, can_history, can_audit = self.capabilities
+            return Result(
+                (
+                    self.grant[0], self.grant[1], can_convert, can_history,
+                    can_audit, self.grant[2],
+                )
+            )
         if normalized.startswith("SELECT id FROM chat_messages"):
             return Result((self.message_id,) if self.message_id is not None else None)
         raise AssertionError(f"unexpected SQL in test: {normalized}")
@@ -189,7 +205,7 @@ def test_explicit_grant_resolves_scope_and_grant_query_is_project_scoped(kind):
         scope = resolver.resolve(session, principal, "demo", "write")
         assert scope.project_id == PROJECT
         assert scope.workspace_id == WORKSPACE
-        assert scope.permissions == frozenset({"read", "write"})
+        assert scope.permissions == frozenset({"read", "write", "memory:read"})
     grant_queries = [
         (sql, params) for sql, params in connection.queries
         if "celestin_project_memberships" in sql or "celestin_service_project_grants" in sql
@@ -208,12 +224,76 @@ def test_read_only_grant_allows_read_but_denies_write():
     resolver = build_resolver()
     read_factory, _ = factory_for(FakeConnection(grant=(True, False, None)))
     with read_factory._transaction() as session:
-        assert resolver.resolve(session, principal, "demo", "read").permissions == frozenset({"read"})
+        assert resolver.resolve(session, principal, "demo", "read").permissions == frozenset(
+            {"read", "memory:read"}
+        )
 
     write_factory, _ = factory_for(FakeConnection(grant=(True, False, None)))
     with pytest.raises(HostedAccessDenied):
         with write_factory._transaction() as session:
             resolver.resolve(session, principal, "demo", "write")
+
+    memory_read_factory, _ = factory_for(
+        FakeConnection(grant=(True, False, None))
+    )
+    with memory_read_factory._transaction() as session:
+        memory_scope = resolver.resolve(session, principal, "demo", "memory:read")
+    assert "memory:read" in memory_scope.permissions
+    assert "write" not in memory_scope.permissions
+
+
+def test_v03_capabilities_are_explicit_default_deny_and_scope_bound():
+    principal = VerifiedPrincipal("issuer", "subject", "human")
+    resolver = build_resolver()
+    capability_cases = (
+        ("candidate:approve", (True, False, False, False)),
+        ("memory:convert", (False, True, False, False)),
+        ("memory:history", (False, False, True, False)),
+        ("audit:read", (False, False, False, True)),
+    )
+
+    for action, capabilities in capability_cases:
+        denied_factory, _ = factory_for(FakeConnection())
+        with pytest.raises(HostedAccessDenied):
+            with denied_factory._transaction() as session:
+                resolver.resolve(session, principal, "demo", action)
+
+        connection = FakeConnection(
+            grant=(False, False, None), capabilities=capabilities
+        )
+        factory, _ = factory_for(connection)
+        with factory._transaction() as session:
+            scope = resolver.resolve(session, principal, "demo", action)
+            assert scope.permissions == frozenset({action})
+
+        grant_query = next(
+            (sql, params)
+            for sql, params in connection.queries
+            if "celestin_project_memberships" in sql
+        )
+        assert "FOR SHARE" in grant_query[0]
+        assert grant_query[1] == (WORKSPACE, PROJECT, USER)
+
+
+def test_candidate_approval_is_human_only_and_convert_does_not_imply_write():
+    resolver = build_resolver()
+    service = VerifiedPrincipal("issuer", "subject", "service")
+    service_factory, _ = factory_for(
+        FakeConnection(kind="service", capabilities=(True, True, True, True))
+    )
+    with pytest.raises(HostedAccessDenied):
+        with service_factory._transaction() as session:
+            resolver.resolve(session, service, "demo", "candidate:approve")
+
+    principal = VerifiedPrincipal("issuer", "subject", "human")
+    convert_factory, _ = factory_for(
+        FakeConnection(grant=(False, False, None), capabilities=(False, True, False, False))
+    )
+    with convert_factory._transaction() as session:
+        scope = resolver.resolve(session, principal, "demo", "memory:convert")
+    assert scope.permissions == frozenset({"memory:convert"})
+    assert "read" not in scope.permissions
+    assert "write" not in scope.permissions
 
 
 def test_missing_membership_grant_archived_resource_and_write_without_read_deny():

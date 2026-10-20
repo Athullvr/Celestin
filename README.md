@@ -23,10 +23,13 @@ Celestin's product direction includes automatic knowledge capture, evidence-link
 - SQLite built with FTS5 support (used for full-text search)
 - An MCP-compatible client for the tools; Codex CLI instructions are below
 
-The project uses the [Python MCP SDK](https://github.com/modelcontextprotocol/python-sdk)
-and Python's standard-library SQLite interface. It does not bundle an external
-dataset. Optional semantic embeddings run locally; experimental PageIndex can
-send a query and document outline to the configured model provider when enabled.
+The project uses the [Python MCP SDK](https://github.com/modelcontextprotocol/python-sdk),
+the [RFC 8785 JCS library](https://github.com/trailofbits/rfc8785.py) for the
+isolated Evidence conversion-hashing helper, and Python's standard-library
+SQLite interface. That helper is not yet wired to durable conversion or the MCP
+runtime. The project does not bundle an external dataset. Optional semantic
+embeddings run locally; experimental PageIndex can send a query and document
+outline to the configured model provider when enabled.
 
 ## Install
 

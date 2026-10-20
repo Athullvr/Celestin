@@ -11,6 +11,7 @@ from orbit.capture import (
     CandidateNotFound,
     CaptureEvent,
     CaptureInput,
+    CaptureOccurrence,
     CaptureRepositoryError,
     CaptureSourceType,
     CaptureValidationError,
@@ -117,6 +118,60 @@ def test_structured_event_preserves_source_and_capability_one_evidence():
         revision="rev-123",
     ) in mapped
     assert evidence in mapped
+
+
+def test_occurrences_preserve_order_duplicates_and_shared_deduplicated_evidence():
+    shared = EvidenceSource(EvidenceType.DOCUMENT, "design.md", "storage")
+    repeated = CaptureEvent(
+        CandidateCategory.DISCOVERY,
+        "SQLite keeps local state available offline",
+        evidence=(shared,),
+        locator="same-locator",
+    )
+    later = CaptureEvent(
+        CandidateCategory.BUG_FIX,
+        "Fixed the project scope check",
+        evidence=(shared,),
+        locator="same-locator",
+    )
+
+    result = pipeline().capture(request((repeated, repeated, later)))
+
+    assert len(result.occurrences) == 3
+    assert all(isinstance(item, CaptureOccurrence) for item in result.occurrences)
+    assert [item.ordinal for item in result.occurrences] == [0, 1, 2]
+    assert [item.candidate_id for item in result.occurrences] == [
+        result.candidates[0].candidate_id,
+        result.candidates[1].candidate_id,
+        result.candidates[2].candidate_id,
+    ]
+    assert result.occurrences[0].candidate_id == result.occurrences[1].candidate_id
+    assert result.occurrences[0] != result.occurrences[1]
+    assert result.occurrences[0].source_reference == result.occurrences[1].source_reference
+    assert all(item.evidence_sources == (shared,) for item in result.occurrences)
+    assert result.candidates[0].evidence == (shared,)
+    assert result.candidates[1].evidence == (shared,)
+    assert result.candidates[2].evidence == (shared,)
+
+
+def test_reordering_input_changes_capture_occurrence_order():
+    repeated = CaptureEvent(CandidateCategory.DISCOVERY, "same claim")
+    later = CaptureEvent(CandidateCategory.BUG_FIX, "different claim")
+
+    forward = pipeline().capture(request((repeated, repeated, later)))
+    reverse = pipeline().capture(request((later, repeated, repeated)))
+
+    assert [item.ordinal for item in forward.occurrences] == [0, 1, 2]
+    assert [item.ordinal for item in reverse.occurrences] == [0, 1, 2]
+    assert [item.candidate_id for item in forward.occurrences] == [
+        forward.candidates[0].candidate_id,
+        forward.candidates[1].candidate_id,
+        forward.candidates[2].candidate_id,
+    ]
+    assert [item.candidate_id for item in forward.occurrences] == [
+        item.candidate_id for item in reverse.occurrences
+    ][::-1]
+    assert forward.occurrences != reverse.occurrences
 
 
 def test_evidence_mapping_requires_a_valid_matching_target_project():

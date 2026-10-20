@@ -15,6 +15,14 @@ from orbit.mcp_server.hosted_scope import (
     VerifiedPrincipal,
 )
 from orbit.mcp_server.hosted_identity import HostedRequestBoundary
+from orbit.evidence.postgres import PostgresEvidenceLinkedMemoryStore
+from orbit.evidence.model import (
+    EvidenceRecord,
+    EvidenceType,
+    KnowledgeRecord,
+    KnowledgeType,
+    ReferenceStatus,
+)
 from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
 from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
 from orbit.retrieval.postgres_data import PostgresRetrievalData
@@ -47,10 +55,12 @@ class Result:
 class Connection:
     def __init__(self, *, project_archived=None, workspace_archived=None,
                  grant=(True, True, None), message_id=MESSAGE_ID,
+                 capabilities=(False, False, False, False),
                  fail_on=None):
         self.project_archived = project_archived
         self.workspace_archived = workspace_archived
         self.grant = grant
+        self.capabilities = capabilities
         self.message_id = message_id
         self.fail_on = fail_on
         self.queries = []
@@ -59,6 +69,9 @@ class Connection:
         self.rollbacks = 0
         self.close_calls = 0
         self.closed = False
+        self.transaction_depth = 0
+        self.scope_set_transaction_depth = None
+        self.scope_cursor = None
 
     def execute(self, query, params=()):
         sql = " ".join(query.split())
@@ -66,7 +79,10 @@ class Connection:
         if self.fail_on and self.fail_on in sql:
             raise RuntimeError("private database detail")
 
-        if sql.startswith("SELECT id FROM celestin_workspaces"):
+        if sql.startswith("SELECT set_config('celestin.workspace_id'"):
+            self.scope_set_transaction_depth = self.transaction_depth
+            row, rows = (params[0], params[1]), ()
+        elif sql.startswith("SELECT id FROM celestin_workspaces"):
             row = (WORKSPACE,)
             rows = ()
         elif sql.startswith("SELECT id, status FROM celestin_users"):
@@ -77,8 +93,14 @@ class Connection:
             row, rows = (PROJECT, "demo", self.project_archived), ()
         elif sql.startswith("SELECT status FROM celestin_workspace_memberships"):
             row, rows = ("active",), ()
-        elif sql.startswith("SELECT can_read, can_write, revoked_at FROM celestin_project_memberships"):
-            row, rows = self.grant, ()
+        elif sql.startswith("SELECT can_read, can_write, can_approve_candidates"):
+            row, rows = (*self.grant[:2], *self.capabilities, self.grant[2]), ()
+        elif sql.startswith("SELECT can_read, can_write, can_convert_memory"):
+            _, can_convert, can_history, can_audit = self.capabilities
+            row, rows = (
+                self.grant[0], self.grant[1], can_convert, can_history,
+                can_audit, self.grant[2],
+            ), ()
         elif sql.startswith("SELECT id FROM chat_messages"):
             row, rows = ((self.message_id,) if self.message_id is not None else None), ()
         elif sql.startswith("INSERT INTO chat_messages"):
@@ -87,6 +109,12 @@ class Connection:
             row, rows = ((1,) if self.message_id is not None else None), ()
         elif sql.startswith("INSERT INTO project_memory"):
             row, rows = (91, "draft", MESSAGE_ID, NOW, NOW, "topic", "value"), ()
+        elif sql.startswith("INSERT INTO celestin_knowledge_records"):
+            row, rows = None, ()
+        elif sql.startswith("INSERT INTO celestin_evidence_records"):
+            row, rows = None, ()
+        elif sql.startswith("SELECT knowledge_id, knowledge_type"):
+            row, rows = None, ()
         elif "FROM chat_messages AS record" in sql:
             row, rows = None, [(81, "synthetic memory", NOW, "conversation", 0.7)]
         else:
@@ -94,17 +122,25 @@ class Connection:
 
         cursor = Result(row, rows)
         self.cursors.append(cursor)
+        if sql.startswith("SELECT set_config('celestin.workspace_id'"):
+            self.scope_cursor = cursor
         return cursor
 
     @contextmanager
     def transaction(self):
+        outermost = self.transaction_depth == 0
+        self.transaction_depth += 1
         try:
             yield
         except Exception:
-            self.rollbacks += 1
+            if outermost:
+                self.rollbacks += 1
             raise
         else:
-            self.commits += 1
+            if outermost:
+                self.commits += 1
+        finally:
+            self.transaction_depth -= 1
 
     def close(self):
         self.close_calls += 1
@@ -164,7 +200,16 @@ def test_authorized_memory_and_retrieval_share_one_connection_and_commit_once():
     factory, connect_calls = build_request(connection)
 
     def operation(request):
+        scope_query, scope_params = next(
+            (sql, params) for sql, params in connection.queries
+            if sql.startswith("SELECT set_config('celestin.workspace_id'")
+        )
+        assert scope_params == (str(WORKSPACE), str(PROJECT))
+        assert scope_query.startswith("SELECT set_config('celestin.workspace_id'")
+        assert connection.scope_set_transaction_depth == 1
+        assert connection.scope_cursor.closed
         assert request.memory_store._request_connection is connection
+        assert request.evidence_store._connection is connection
         assert request.retrieval_data._request_connection is connection
         assert not hasattr(request, "authorization_session")
         assert not hasattr(request, "scope")
@@ -202,6 +247,80 @@ def test_authorized_memory_and_retrieval_share_one_connection_and_commit_once():
         for sql, _ in connection.queries
         if "FROM chat_messages AS record" in sql
     )
+
+
+def test_evidence_store_is_bound_to_resolver_scope_and_same_authorized_session():
+    connection = Connection()
+    factory, connect_calls = build_request(connection)
+
+    def operation(request):
+        store = request.evidence_store
+        assert isinstance(store, PostgresEvidenceLinkedMemoryStore)
+        assert store._scope.project_id == PROJECT
+        assert store._scope.workspace_id == WORKSPACE
+        assert store._scope.project_key == "demo"
+        assert store._connection is connection
+        assert store.get_knowledge("demo", "missing") is None
+        with pytest.raises(HostedAccessDenied):
+            store.get_knowledge("another-project", "missing")
+
+    execute_request(factory, "demo", "read", operation)
+    assert connect_calls == [connection]
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1 and connection.closed
+    query, params = next(
+        (sql, params) for sql, params in connection.queries
+        if sql.startswith("SELECT knowledge_id, knowledge_type")
+    )
+    assert "workspace_id = %s AND project_id = %s" in query
+    assert params == (WORKSPACE, PROJECT, "missing")
+
+
+def test_authorized_evidence_write_uses_the_request_connection_and_outer_transaction():
+    connection = Connection()
+    factory, connect_calls = build_request(connection)
+    knowledge = KnowledgeRecord(
+        knowledge_id="knowledge-uow",
+        project="demo",
+        knowledge_type=KnowledgeType.DISCOVERY,
+        claim="Scoped write.",
+        created_at="2026-10-17T06:00:00.000000Z",
+        updated_at="2026-10-17T06:00:00.000000Z",
+    )
+    evidence = EvidenceRecord(
+        evidence_id="evidence-uow",
+        project="demo",
+        evidence_type=EvidenceType.DOCUMENT,
+        source_id="doc-uow",
+        locator=None,
+        revision=None,
+        content_hash=None,
+        captured_at="2026-10-17T06:00:00.000000Z",
+        reference_status=ReferenceStatus.UNRESOLVED,
+    )
+
+    def operation(request):
+        request.evidence_store.create_knowledge(knowledge, (evidence,))
+        assert connection.commits == 0 and connection.rollbacks == 0
+        assert connection.transaction_depth == 1
+        assert connection.close_calls == 0
+
+    execute_request(factory, "demo", "write", operation)
+
+    assert connect_calls == [connection]
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1 and connection.closed
+    scoped_inserts = [
+        params for sql, params in connection.queries
+        if sql.startswith(
+            (
+                "INSERT INTO celestin_knowledge_records",
+                "INSERT INTO celestin_evidence_records",
+            )
+        )
+    ]
+    assert len(scoped_inserts) == 2
+    assert all(params[:2] == (WORKSPACE, PROJECT) for params in scoped_inserts)
 
 
 def test_later_operation_failure_rolls_back_prior_write_and_closes_without_commit():
@@ -278,6 +397,10 @@ def test_archived_scope_or_missing_source_denies_before_operation(connection):
     assert not called
     assert connection.rollbacks == 1 and connection.close_calls == 1
     assert connection.commits == 0
+    assert not any(
+        sql.startswith("SELECT set_config('celestin.workspace_id'")
+        for sql, _ in connection.queries
+    )
 
 
 def test_source_validation_uses_workspace_and_project_ids_before_operation():

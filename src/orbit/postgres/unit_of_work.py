@@ -14,6 +14,7 @@ from orbit.mcp_server.hosted_scope import (
     ResolvedProjectScope,
 )
 from orbit.postgres.authorization import PostgresHostedAuthorizationSession
+from orbit.evidence.postgres import PostgresEvidenceLinkedMemoryStore
 from orbit.retrieval.postgres_data import PostgresRetrievalData
 from orbit.retrieval.service import RetrievalService
 from orbit.storage.postgres import PostgresMemoryStore
@@ -30,6 +31,7 @@ class PostgresRequestUnitOfWork:
 
     _authorization_session: PostgresHostedAuthorizationSession
     _scope: ResolvedProjectScope
+    evidence_store: PostgresEvidenceLinkedMemoryStore
     memory_store: PostgresMemoryStore
     retrieval_data: PostgresRetrievalData
     retrieval_service: RetrievalService
@@ -45,9 +47,27 @@ class PostgresRequestUnitOfWork:
         if not isinstance(scope, ResolvedProjectScope):
             raise TypeError("scope must be issued by HostedScopeResolver")
         connection = session._connection_for_adapters
+        # RLS is fail-closed until the authorized resolver has issued scope.
+        # `true` makes both settings transaction-local; the session factory
+        # still owns the connection and the outer commit/rollback.
+        cursor = connection.execute(
+            """
+            SELECT set_config('celestin.workspace_id', %s, true),
+                   set_config('celestin.project_id', %s, true)
+            """,
+            (str(scope.workspace_id), str(scope.project_id)),
+        )
+        close = getattr(cursor, "close", None)
+        if callable(close):
+            close()
         instance = object.__new__(cls)
         object.__setattr__(instance, "_authorization_session", session)
         object.__setattr__(instance, "_scope", scope)
+        object.__setattr__(
+            instance,
+            "evidence_store",
+            PostgresEvidenceLinkedMemoryStore._for_request(connection, scope),
+        )
         object.__setattr__(
             instance, "memory_store", PostgresMemoryStore._for_request(connection, scope)
         )

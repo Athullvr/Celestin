@@ -2,11 +2,19 @@
 
 ## Status
 
-This is a storage-neutral domain and service prototype. It is **not wired to
-SQLite, PostgreSQL, an MCP tool, or a production authorization request path**.
-The current `MemoryStore` port supports messages and decisions only. No evidence
-schema or adapter contract has been approved, so this change deliberately adds
-no migration and changes no existing persistence or MCP behavior.
+This document began as a storage-neutral domain and service prototype. The
+current `EvidenceLinkedMemoryStore` port has a request-bound PostgreSQL
+implementation in `src/orbit/evidence/postgres.py`, with schema in migrations
+`0005_evidence_linked_memory.sql` and `0006_candidate_revision_store.sql`.
+The adapter is exposed through `PostgresRequestUnitOfWork`; it is not wired to
+the SQLite MCP runtime, and there is no SQLite Evidence adapter. Its behavior
+has scripted coverage, but PostgreSQL migrations and adapter behavior have not
+yet been verified against a live server.
+
+The original `MemoryStore` message/decision port and its persistence behavior
+remain separate. The PostgreSQL Evidence adapter does not implement Capture
+conversion, delivery receipts, hosted MCP selection, or external credential
+authentication.
 
 The service accepts an `AuthorizedProject` as a project/action selector and
 re-authorizes each operation through an injected `ProjectAuthorizer`. The
@@ -70,13 +78,14 @@ reviewer labels are untrusted provenance and are never copied into
 | Conflicts | `capture_provenance.conflicts_with` | Candidate IDs remain linkable across records. No semantic conflict resolution occurs. The adapter must support querying by candidate ID or the conflict IDs are only retained, not conveniently traversable. |
 | Lifecycle/supersession | Existing `KnowledgeRecord.lifecycle_status`, `supersedes_id`, `superseded_by_id` | These remain authoritative and separate from capture review. Superseded records retain their own capture provenance and evidence. Capability 3 candidates do not currently express lifecycle transitions. |
 
-This is a domain contract only. PostgreSQL/SQLite adapters must agree on a
-representation that round-trips `capture_provenance`, preserves source-to-
-evidence associations, knowledge/evidence record IDs, checker metadata,
-lifecycle links, and candidate idempotency before persistence integration. No
-database schema is implied by these dataclasses. A storage
-adapter that cannot preserve the optional value must reject/flag the conversion
-instead of silently dropping it.
+This is a domain contract only. Before Capture conversion is persisted,
+PostgreSQL/SQLite conversion adapters must agree on a representation that
+round-trips `capture_provenance`, preserves source-to-evidence associations,
+knowledge/evidence record IDs, checker metadata, lifecycle links, and candidate
+idempotency. The current PostgreSQL Evidence adapter implements the base store
+port, not Capture conversion or candidate-to-knowledge mapping. No conversion
+schema is implied by these dataclasses. An adapter that cannot preserve the
+optional value must reject/flag the conversion instead of silently dropping it.
 
 ## Storage port required for integration
 
@@ -92,24 +101,31 @@ instead of silently dropping it.
 - Project-scoped identifier checks and transaction/error behavior consistent
   with the existing adapter.
 
-The persistence owner must agree how this relation maps to SQLite and the
-hosted PostgreSQL schema before adapters or migrations are added. In
-particular, external source references need a stable format and the hosted
-adapter must bind every evidence row to its workspace and project. The
-existing decision `source_message_id` can remain useful as a legacy one-source
-link, but it cannot represent multiple sources, independent verification, or
-supersession history. Reusing decision upsert behavior would overwrite history
-and is not suitable.
+The existing PostgreSQL adapter maps this port to the schema in migration
+`0005_evidence_linked_memory.sql` and uses workspace/project scope from the
+authorized request unit of work. It has not yet been exercised against a live
+PostgreSQL server; schema/runtime behavior therefore remains unverified. There
+is no SQLite implementation of this port. The existing decision
+`source_message_id` remains a legacy one-source link and cannot represent
+multiple sources, independent verification, or supersession history. Reusing
+decision upsert behavior would overwrite history and is not suitable.
 
 `EvidenceReferenceResolver` is a second integration seam. The current storage
-port has no source-read method, so an adapter still needs a project-scoped way
-to resolve Celestin message IDs. Repository files, commits, tests, and
-documents need their own authorized resolver or trusted integration. Until
-those adapters exist, this service is not a usable persistence feature.
+port has no source-read method, so a source resolver still needs a project-scoped
+way to resolve Celestin message IDs. Repository files, commits, tests, and
+documents need their own authorized resolver or trusted integration. The
+PostgreSQL store can persist the current port directly, but the domain service
+cannot be fully composed for source types lacking an authorized resolver.
 
-## Deliberate non-goals for this stage
+## Original prototype non-goals
 
-- No SQLite or PostgreSQL DDL, migration, or adapter implementation.
+The following boundaries remain in effect; the original statement that no
+PostgreSQL Evidence adapter or schema exists has been superseded by migration
+0005 and the request-bound adapter. Migration 0006 also adds candidate/revision
+storage structures, but does not add Capture conversion:
+
+- No SQLite Evidence adapter, Capture conversion, producer delivery receipts,
+  or retry arbitration.
 - No automatic source scanning, source-content copying, or claim extraction.
 - No automatic conflict resolution, freshness inference, or decision approval.
 - No new MCP tool and no change to existing retrieval contracts.
@@ -117,8 +133,9 @@ those adapters exist, this service is not a usable persistence feature.
 
 The deterministic unit tests use a test-only fake store. They exercise domain
 validation, status distinctions, scope propagation, idempotent port semantics,
-and failure handling; they do not validate persistence, cross-process
-durability, PostgreSQL behavior, or hosted authorization.
+and failure handling; they do not validate database durability or PostgreSQL
+behavior. The separate PostgreSQL integration tests are opt-in and require a
+fresh, explicitly configured disposable target.
 
 ---
 
