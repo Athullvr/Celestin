@@ -36,7 +36,13 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(config, items):
     if config.getoption("--run-postgres-integration"):
         return
-    skip_live = pytest.mark.skip(reason="pass --run-postgres-integration to opt in")
+    skip_live = pytest.mark.skip(
+        reason=(
+            "requires --run-postgres-integration and a fresh loopback disposable target "
+            "configured with all CELESTIN_TEST_POSTGRES_* variables; see "
+            "docs/postgres-integration-tests.md"
+        )
+    )
     for item in items:
         if item.get_closest_marker("postgres_integration"):
             item.add_marker(skip_live)
@@ -102,7 +108,10 @@ def live_postgres(request):
 
     dsn = os.environ.get("CELESTIN_TEST_POSTGRES_DSN", "")
     if not dsn:
-        pytest.skip("CELESTIN_TEST_POSTGRES_DSN is not set")
+        pytest.skip(
+            "CELESTIN_TEST_POSTGRES_DSN is not set; configure the complete fresh "
+            "loopback disposable target described in docs/postgres-integration-tests.md"
+        )
 
     try:
         import psycopg

@@ -11,7 +11,18 @@ scope and foreign keys, SQL checks/uniqueness/restrictive deletion, transaction
 commit/rollback, error redaction, resource cleanup, and concurrent grant,
 membership, and service-identity revocation.
 
-The suite is opt-in. It never uses SQLite as a fallback, never reads
+The opt-in suite also includes `tests/postgres/test_live_evidence_store.py`.
+It uses the same live fixture and request-scoped authorization/unit-of-work
+path to cover migrations 0005–0006, Evidence/Knowledge round-trips, attachment
+idempotency, verification updates, supersession, project isolation,
+authorization denial, forced row-level security, database constraints,
+nested savepoint recovery, and outer-transaction rollback. These live cases
+are implemented; this documentation does not claim that they have run against
+PostgreSQL.
+
+The suite is opt-in. Without `--run-postgres-integration`, PostgreSQL cases
+skip with the missing opt-in and disposable-target prerequisites in the reason.
+It never uses SQLite as a fallback, never reads
 `CELESTIN_POSTGRES_DSN`, never creates or drops a database, and never uses
 `celestin_schema_test_v2`. On the first live fixture setup it applies migrations
 only through `orbit.postgres.migrations.runner.apply_migrations()`, once per
