@@ -4,6 +4,48 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-19T18:22:59+05:30 — Add opt-in live PostgreSQL Evidence tests
+
+- Changed: Added seven opt-in PostgreSQL integration cases for migrations 0005–0006, Evidence/Knowledge round-trips, attachment idempotency, verification updates, supersession, project isolation, authorization denial, forced RLS, database constraints, savepoint recovery, and outer rollback. Reused the existing fresh-disposable-target fixture and request-bound authorization/UoW. Clarified skip reasons and corrected stale adapter/schema status documentation.
+- Why: Exercise the current Evidence adapter and migrations against real PostgreSQL when an explicitly configured safe target is available, without creating another database setup path or implying Capture conversion/runtime integration.
+- Validation: Python 3.13.9 / pytest 8.4.2, focused offline command — 92 passed, 7 live tests skipped. The live module was also collected with skip reasons — 7 skipped because the opt-in flag and approved target are not configured. Changed Python modules compiled; `git diff --check` and cached diff check passed.
+- Limitations: No PostgreSQL target variables were configured, so the live fixture was not enabled and no connection or migration ran. The live cases and server-side SQL behavior remain unverified. The test authenticator is synthetic and does not verify real transport credentials; hosted MCP remains disabled.
+
+## 2026-10-19T11:30:35+05:30 — Add shared-memory PostgreSQL schema foundation
+
+- Changed: Added migration `0006_candidate_revision_store.sql` with project-scoped producer/source namespace and candidate identities, sequential immutable candidate revisions, append-only review events, candidate evidence records, ordered duplicate-preserving occurrence links, and a conversion-ledger relationship to existing knowledge. Added row-level project/workspace policies and set their transaction-local scope from the authorized request unit of work. Added static migration-definition assertions and scripted UoW scope tests; updated migration documentation.
+- Why: Establish relational constraints for the approved candidate/revision and occurrence model while keeping delivery replay out until its separate equality profile is defined.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_request_unit_of_work.py tests/postgres/test_migration_runner.py tests/postgres/test_hosted_authorization.py tests/postgres/test_hosted_identity_boundary.py tests/evidence/test_postgres_store.py tests/evidence/test_service.py tests/capture/test_pipeline.py tests/test_hosted_scope.py` — 156 passed. `python -m py_compile src/orbit/postgres/unit_of_work.py tests/postgres/test_request_unit_of_work.py tests/postgres/test_migration_runner.py`, `git diff --check`, and `git diff --cached --check` passed.
+- Limitations: The D-08 delivery/revision equality projection/profile remains unresolved, so no delivery receipt, delivery-ID uniqueness, or replay implementation was added. No candidate ingress/conversion service, normalized conflict-edge/pending-endpoint graph, or audit-event storage is implemented. Migration SQL has not been run or validated against PostgreSQL; no database or Neon resource was contacted. MCP remains SQLite-backed.
+
+## 2026-10-19T11:16:13+05:30 — Add request-bound PostgreSQL Evidence/Knowledge persistence
+
+- Changed: Implemented the current manual `EvidenceLinkedMemoryStore` contract in a PostgreSQL adapter, added its additive migration, and exposed it through the authorized request unit of work using the resolver-issued project scope and borrowed connection. Added scripted tests for round-trip fields, project isolation, atomic create/supersede, idempotent evidence attachment, rollback, and transaction sharing.
+- Why: Establish a durable adapter boundary for existing Evidence/Knowledge operations without inventing producer delivery/revision semantics or wiring incomplete hosted functionality into MCP.
+- Validation: Focused Evidence/UoW/migration tests — 72 passed; broader Evidence/Capture/hosted authorization/Retrieval/MCP regression set — 214 passed; changed Python files compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: Tests use scripted connections only; PostgreSQL syntax and live transaction/concurrency behavior were not verified against a server. Migration `0005` is not applied. The MCP runtime remains SQLite-backed. Capture occurrence persistence, candidate approval/revision, delivery retry, conversion, shared-memory retrieval, and authenticated hosted runtime integration remain unimplemented.
+
+## 2026-10-19T10:30:03+05:30 — Add default-deny hosted memory capabilities
+
+- Changed: Extended hosted project access records and scope resolution with `candidate:approve`, `memory:convert`, `memory:history`, and `audit:read`; approval is limited to active human project members. Added migration `0004_memory_capabilities.sql`, with new human and service grants defaulting to false, updated scripted authorization and migration tests, and documented the migration.
+- Why: The approved v0.3 workflow requires separate project capabilities; the existing hosted grants only represented generic read/write access.
+- Validation: Baseline hosted authorization/identity/request-UoW/migration tests — 48 passed. After the change, `python -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_hosted_authorization.py tests/postgres/test_hosted_identity_boundary.py tests/postgres/test_request_unit_of_work.py tests/postgres/test_migration_runner.py tests/test_hosted_scope.py` — 68 passed; `python -m pytest -p no:cacheprovider -o addopts='' tests/test_mcp_tools.py tests/test_mcp_protocol.py tests/test_mcp_persistence.py tests/test_mcp_end_to_end.py tests/test_mcp_authorization.py tests/integration/test_capability_flow.py tests/capture/test_pipeline.py tests/evidence/test_service.py` — 122 passed; `python -m py_compile src/orbit/mcp_server/hosted_scope.py src/orbit/postgres/authorization.py tests/postgres/test_hosted_authorization.py tests/postgres/test_request_unit_of_work.py tests/postgres/test_migration_runner.py tests/test_hosted_scope.py`, `git diff --check`, and `git diff --cached --check` passed. No live database, migration, or Neon commands were run.
+- Limitations: This does not implement a credential verifier, Evidence/Knowledge tables or adapter, conversion/replay, retrieval from shared knowledge, or hosted MCP wiring. The new migration is not applied and the hosted schema remains a draft. The existing canonicalization suite was attempted but could not collect because `rfc8785` is missing from the active interpreter; no package was installed.
+
+## 2026-10-19T10:03:44+05:30 — Prototype lossless Capture occurrences
+
+- Changed: Added an internal typed occurrence record to CaptureResult and emitted one ordered entry per accepted extracted event, preserving duplicate events and their input evidence references independently from deduplicated candidate evidence. Exported the additive Capture model and added focused regression tests.
+- Why: Keep local Capture order and multiplicity observable while retaining the existing candidate identity, candidate merge, and evidence deduplication behavior. The per-call ordinal is not a producer-issued or durable ID.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/capture/test_pipeline.py tests/integration/test_capability_flow.py tests/evidence/test_service.py` — 84 passed; `python -m py_compile src/orbit/capture/model.py src/orbit/capture/service.py src/orbit/capture/__init__.py tests/capture/test_pipeline.py` — passed; `git diff --check` and `git diff --cached --check` — passed.
+- Limitations: This is an in-memory Capture prototype only. It does not provide stable producer occurrence IDs, durable occurrence/evidence association IDs, serialization, conversion persistence, Resurrection conformance, or live database behavior.
+
+## 2026-10-19T09:51:21+05:30 — Prepare delivery contract owner decision packet
+
+- Changed: Added `docs/delivery-contract-owner-decision-packet.md` with role-level questions for the unapproved delivery/producer extensions, dependencies, hypothetical flow, persistence gate, and canonicalization verification steps. Updated this record and `AI_USAGE.md`.
+- Why: Obtain explicit producer, product/security, and storage decisions before durable delivery persistence; preserve the requester-authorized v0.3 baseline without claiming teammate approval.
+- Validation: Repository/source inspection, focused canonicalization test attempt, Markdown/link review, and diff whitespace checks; exact results are recorded in the task report and AI usage entry.
+- Limitations: Canonicalization tests could not collect because the active Python 3.13.9 environment lacks `rfc8785`; no dependency was installed. Cross-runtime vectors and all owner decisions remain unverified/open.
+
 ## 2026-10-19T03:10:08+05:30 — Add Evidence store conformance tests
 
 - Changed: Added a reusable conformance mixin for the current
