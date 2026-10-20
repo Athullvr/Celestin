@@ -14,8 +14,27 @@ from uuid import UUID
 
 
 PrincipalKind = Literal["human", "service"]
-ProjectAction = Literal["read", "write"]
-ProjectPermission = Literal["read", "write"]
+ProjectAction = Literal[
+    "read",
+    "write",
+    "memory:read",
+    "candidate:approve",
+    "memory:convert",
+    "memory:history",
+    "audit:read",
+]
+ProjectPermission = ProjectAction
+_PROJECT_PERMISSIONS = frozenset(
+    {
+        "read",
+        "write",
+        "memory:read",
+        "candidate:approve",
+        "memory:convert",
+        "memory:history",
+        "audit:read",
+    }
+)
 _SCOPE_ISSUER = object()
 
 
@@ -116,8 +135,8 @@ class ResolvedProjectScope:
             raise ValueError("project_key must be a non-empty string")
         if not isinstance(self.permissions, frozenset):
             raise TypeError("permissions must be a frozenset")
-        if not self.permissions or not self.permissions <= {"read", "write"}:
-            raise ValueError("permissions must contain read and/or write")
+        if not self.permissions or not self.permissions <= _PROJECT_PERMISSIONS:
+            raise ValueError("permissions contain an unsupported project capability")
         if "write" in self.permissions and "read" not in self.permissions:
             raise ValueError("write permission requires read permission")
 
@@ -145,6 +164,10 @@ class ProjectAccessRecord:
     grant_revoked: bool
     can_read: bool
     can_write: bool
+    can_approve_candidates: bool = False
+    can_convert_memory: bool = False
+    can_read_history: bool = False
+    can_read_audit: bool = False
 
     def __post_init__(self) -> None:
         for name in ("principal_id", "workspace_id", "project_id"):
@@ -163,6 +186,10 @@ class ProjectAccessRecord:
             "grant_revoked",
             "can_read",
             "can_write",
+            "can_approve_candidates",
+            "can_convert_memory",
+            "can_read_history",
+            "can_read_audit",
         ):
             if type(getattr(self, name)) is not bool:
                 raise TypeError(f"{name} must be a bool")
@@ -241,7 +268,7 @@ class HostedScopeResolver:
         """Return a scope only when all identity, lifecycle, and grant checks pass."""
         if not isinstance(principal, VerifiedPrincipal):
             raise HostedAccessDenied("access denied")
-        if action not in ("read", "write"):
+        if action not in _PROJECT_PERMISSIONS:
             raise HostedAccessDenied("access denied")
         if not isinstance(project_key, str) or not project_key.strip() or "\x00" in project_key:
             raise HostedAccessDenied("access denied")
@@ -298,13 +325,21 @@ class HostedScopeResolver:
         elif record.service_status != "active":
             raise HostedAccessDenied("access denied")
 
-        permissions: frozenset[ProjectPermission]
+        permissions_set: set[ProjectPermission] = set()
+        if record.can_read:
+            permissions_set.add("read")
+            permissions_set.add("memory:read")
         if record.can_write:
-            permissions = frozenset({"read", "write"})
-        elif record.can_read:
-            permissions = frozenset({"read"})
-        else:
-            raise HostedAccessDenied("access denied")
+            permissions_set.add("write")
+        if principal.kind == "human" and record.can_approve_candidates:
+            permissions_set.add("candidate:approve")
+        if record.can_convert_memory:
+            permissions_set.add("memory:convert")
+        if record.can_read_history:
+            permissions_set.add("memory:history")
+        if record.can_read_audit:
+            permissions_set.add("audit:read")
+        permissions = frozenset(permissions_set)
 
         if action not in permissions:
             raise HostedAccessDenied("access denied")

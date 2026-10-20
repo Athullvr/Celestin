@@ -355,7 +355,9 @@ class HostedScopeTests(unittest.TestCase):
         )
         scope = resolver().resolve(session, principal, PROJECT_KEY, "write")
         self.assertEqual(scope.principal_id, SERVICE_ID)
-        self.assertEqual(scope.permissions, frozenset({"read", "write"}))
+        self.assertEqual(
+            scope.permissions, frozenset({"read", "write", "memory:read"})
+        )
 
     def test_archived_workspace_or_project_is_denied(self) -> None:
         principal = human()

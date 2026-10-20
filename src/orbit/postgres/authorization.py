@@ -146,7 +146,9 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
                 if membership is not None:
                     membership_status = str(membership[0])
                 grant = self._connection.execute(
-                    """SELECT can_read, can_write, revoked_at
+                    """SELECT can_read, can_write, can_approve_candidates,
+                              can_convert_memory, can_read_history, can_read_audit,
+                              revoked_at
                          FROM celestin_project_memberships
                         WHERE workspace_id = %s AND project_id = %s AND user_id = %s
                         FOR SHARE""",
@@ -156,13 +158,42 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
                 service_status = identity_status
                 membership = None
                 grant = self._connection.execute(
-                    """SELECT can_read, can_write, revoked_at
+                    """SELECT can_read, can_write, can_convert_memory,
+                              can_read_history, can_read_audit, revoked_at
                          FROM celestin_service_project_grants
                         WHERE workspace_id = %s AND project_id = %s
                           AND service_identity_id = %s
                         FOR SHARE""",
                     (workspace_id, project_id, principal_id),
                 ).fetchone()
+
+            if grant is None:
+                can_read = can_write = False
+                can_approve_candidates = can_convert_memory = False
+                can_read_history = can_read_audit = False
+                grant_revoked = False
+            elif principal.kind == "human":
+                (
+                    can_read,
+                    can_write,
+                    can_approve_candidates,
+                    can_convert_memory,
+                    can_read_history,
+                    can_read_audit,
+                    revoked_at,
+                ) = grant
+                grant_revoked = revoked_at is not None
+            else:
+                (
+                    can_read,
+                    can_write,
+                    can_convert_memory,
+                    can_read_history,
+                    can_read_audit,
+                    revoked_at,
+                ) = grant
+                can_approve_candidates = False
+                grant_revoked = revoked_at is not None
 
             return ProjectAccessRecord(
                 principal_id=principal_id,
@@ -174,9 +205,13 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
                 membership_status=membership_status,
                 service_status=service_status,
                 grant_present=grant is not None,
-                grant_revoked=grant is not None and grant[2] is not None,
-                can_read=grant is not None and bool(grant[0]),
-                can_write=grant is not None and bool(grant[1]),
+                grant_revoked=grant_revoked,
+                can_read=bool(can_read),
+                can_write=bool(can_write),
+                can_approve_candidates=bool(can_approve_candidates),
+                can_convert_memory=bool(can_convert_memory),
+                can_read_history=bool(can_read_history),
+                can_read_audit=bool(can_read_audit),
             )
         except HostedAuthorizationUnavailable:
             raise

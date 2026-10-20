@@ -14,6 +14,8 @@ The active `retrival` checkout is an older, partial product snapshot. The interf
 
 **Resolution as of 2026-10-19:** the initial v0.3 implementation decisions are recorded in the [final decision record](SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md). The `PROPOSED` and `UNRESOLVED` labels in this review describe the 2026-10-18 review snapshot and are superseded for the first PostgreSQL Evidence/Knowledge implementation by that record.
 
+**Implementation status update (2026-10-19):** Since this review, `PostgresEvidenceLinkedMemoryStore` and migrations 0005–0006 were added for the existing Evidence/Knowledge port and candidate/revision structures. The historical statements below that no production store existed describe the review snapshot. The adapter has scripted tests, and live cases are now defined but have not been executed against PostgreSQL. Capture conversion, delivery replay, authenticated producer ingress, and MCP runtime selection remain outside that adapter.
+
 - **APPROVED (coordination only, per the shared-storage owner’s instruction supplied for this review):** the workstreams proceed in parallel and jointly review interface boundaries; neither workstream unilaterally decides candidate identity, revisions, replay, authorization, or public contracts.
 - **UNRESOLVED (approval status):** no detailed C1 storage, mapping, conversion, replay, or additive MCP decision was independently verifiable in the inspected repository. The evidence-linked-memory document calls its reconciliation section a design proposal and says no schema or adapter contract has been approved (`docs/evidence-linked-memory-contract.md:3-19,125-134`).
 
