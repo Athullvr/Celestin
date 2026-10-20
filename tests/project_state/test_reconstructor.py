@@ -119,11 +119,30 @@ class KnowledgeSource:
 
 
 def test_inspects_a_fixed_revision_and_ignores_worktree_changes(tmp_path):
-    root = repository(tmp_path, {"src/module.py": "VALUE = 'committed'\n"})
+    root = repository(
+        tmp_path,
+        {
+            "src/module.py": "VALUE = 'committed'\n# TODO: committed source marker\n",
+            "README.md": "- [ ] committed open item\n",
+        },
+    )
     fixed = commit(root)
-    (root / "src/module.py").write_text("VALUE = 'uncommitted'\n", encoding="utf-8")
+    (root / "src/module.py").write_text(
+        "VALUE = 'uncommitted'\n# TODO: uncommitted source marker\n", encoding="utf-8"
+    )
+    (root / "README.md").write_text("- [ ] uncommitted open item\n", encoding="utf-8")
+    (root / "src/untracked.py").write_text("# TODO: untracked source marker\n", encoding="utf-8")
 
     snapshot = reconstructor(root).reconstruct(fixed)
+    findings = (
+        *snapshot.implemented,
+        *snapshot.incomplete,
+        *snapshot.unresolved,
+        *snapshot.decisions,
+        *snapshot.recorded_knowledge,
+        *snapshot.next_steps,
+    )
+    claims = [finding.claim for finding in findings]
 
     assert snapshot.inspected_revision == fixed
     assert snapshot.is_current_head
@@ -131,7 +150,14 @@ def test_inspects_a_fixed_revision_and_ignores_worktree_changes(tmp_path):
     assert snapshot.implemented[0].classification is EvidenceClass.VERIFIED
     assert snapshot.implemented[0].evidence[0].source_type == "git_blob"
     assert snapshot.implemented[0].evidence[0].revision == fixed
-    assert (root / "src/module.py").read_text(encoding="utf-8") == "VALUE = 'uncommitted'\n"
+    assert "Open checklist item: committed open item" in claims
+    assert "Unfinished-work marker: # TODO: committed source marker" in claims
+    assert not any("uncommitted" in claim or "untracked" in claim for claim in claims)
+    assert (root / "src/module.py").read_text(encoding="utf-8") == (
+        "VALUE = 'uncommitted'\n# TODO: uncommitted source marker\n"
+    )
+    assert (root / "README.md").read_text(encoding="utf-8") == "- [ ] uncommitted open item\n"
+    assert (root / "src/untracked.py").exists()
 
 
 def test_open_work_is_inferred_and_completed_checklist_is_unverified(tmp_path):
@@ -557,20 +583,8 @@ def test_repository_root_boundary_and_symlink_blob_are_safe(tmp_path):
     outside.write_text("TODO: secret outside repo\n", encoding="utf-8")
     root = repository(tmp_path)
     (root / "docs").mkdir()
-    link_path = root / "docs/external.md"
-    link_path.write_text(str(outside), encoding="utf-8")
+    (root / "docs/external.md").symlink_to(outside)
     commit(root)
-    link_blob = git(root, "hash-object", str(link_path))
-    git(
-        root,
-        "update-index",
-        "--add",
-        "--cacheinfo",
-        f"120000,{link_blob},docs/external.md",
-    )
-    git(root, "commit", "--allow-empty", "-q", "-m", "symlink blob fixture")
-
-    assert git(root, "ls-tree", "HEAD", "docs/external.md").startswith("120000 blob ")
 
     with pytest.raises(RepositoryInspectionError, match="worktree root"):
         reconstructor(root / "docs").reconstruct()
