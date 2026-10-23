@@ -287,6 +287,7 @@ def _safe_identity(**overrides):
         "celestin_it_user_a1b2c3d4",
         "127.0.0.1/32",
         5432,
+        True,  # database owner
         False,  # SUPERUSER
         False,  # CREATEROLE
         False,  # CREATEDB
@@ -300,12 +301,13 @@ def _safe_identity(**overrides):
         "session_user": 2,
         "host": 3,
         "port": 4,
-        "superuser": 5,
-        "create_roles": 6,
-        "create_databases": 7,
-        "replication": 8,
-        "bypass_rls": 9,
-        "disallowed_memberships": 10,
+        "owns_database": 5,
+        "superuser": 6,
+        "create_roles": 7,
+        "create_databases": 8,
+        "replication": 9,
+        "bypass_rls": 10,
+        "disallowed_memberships": 11,
     }
     for key, value in overrides.items():
         identity[positions[key]] = value
@@ -319,6 +321,7 @@ def test_identity_accepts_scoped_non_superuser_role():
     verify_connection_identity(connection, target)
 
     assert "pg_database_owner" in connection.query
+    assert "database.datdba = role.oid AS owns_database" in connection.query
     assert "pg_catalog.pg_has_role(current_user, granted_role.oid, 'MEMBER')" in connection.query
 
 
@@ -342,6 +345,14 @@ def test_identity_rejects_disallowed_role_memberships():
         verify_connection_identity(connection, target)
 
 
+def test_identity_rejects_migration_login_that_does_not_own_target_database():
+    connection = _IdentityConnection(_safe_identity(owns_database=False))
+    target = postgres_target_from_environment(target_environment())
+
+    with pytest.raises(UnsafePostgresTestTarget, match="role privileges"):
+        verify_connection_identity(connection, target)
+
+
 def test_identity_rejects_current_role_that_differs_from_authenticated_session_user():
     connection = _IdentityConnection(
         _safe_identity(session_user="another_role_a1b2c3d4")
@@ -355,8 +366,10 @@ def test_identity_rejects_current_role_that_differs_from_authenticated_session_u
 class _RuntimeIdentityConnection:
     def __init__(self, identity):
         self.identity = identity
+        self.query = None
 
-    def execute(self, _query, _params=()):
+    def execute(self, query, _params=()):
+        self.query = query
         return self
 
     def fetchone(self):
@@ -371,14 +384,14 @@ def _safe_runtime_identity(**overrides):
         "127.0.0.1/32",
         5432,
         False, False, False, False, False, True,
-        True, True, True, True,
+        True, True, True, True, True,
     ]
     positions = {
         "database": 0, "current_user": 1, "session_user": 2,
         "host": 3, "port": 4, "superuser": 5, "create_roles": 6,
         "create_databases": 7, "replication": 8, "bypass_rls": 9,
         "inherit": 10, "expected_group": 11, "other_groups": 12,
-        "owns_table": 13, "can_create_schema": 14,
+        "admin_option": 13, "owns_table": 14, "can_create_schema": 15,
     }
     for key, value in overrides.items():
         identity[positions[key]] = value
@@ -387,12 +400,14 @@ def _safe_runtime_identity(**overrides):
 
 def test_runtime_identity_accepts_only_the_expected_direct_project_login():
     target = postgres_target_from_environment(target_environment())
+    connection = _RuntimeIdentityConnection(_safe_runtime_identity())
     verify_runtime_connection_identity(
-        _RuntimeIdentityConnection(_safe_runtime_identity()),
+        connection,
         target,
         expected_user=target.project_a_user,
         expected_group="celestin_project_runtime",
     )
+    assert "membership.admin_option" in connection.query
 
 
 @pytest.mark.parametrize(
@@ -411,6 +426,7 @@ def test_runtime_identity_accepts_only_the_expected_direct_project_login():
         ("inherit", False),
         ("expected_group", False),
         ("other_groups", False),
+        ("admin_option", False),
         ("owns_table", False),
         ("can_create_schema", False),
     ],

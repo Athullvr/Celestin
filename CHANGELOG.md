@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T22:00:08+05:30 — Require safe PostgreSQL test-role ownership and memberships
+
+- Changed: The guarded live-test preflight now requires the migration login to own the target database and rejects runtime-role membership with `ADMIN OPTION`; added regression coverage for both checks.
+- Why: The disposable test harness must not begin migration setup with an unexpected database owner or roles capable of granting themselves further membership.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests\postgres\test_live_support.py` — 73 passed. No PostgreSQL connection or migration was run.
+- Limitations: Database ownership and role catalog results were tested with fakes only; the live target still requires explicit owner approval and PostgreSQL verification.
+
 ## 2026-10-23T21:58:56+05:30 — Harden hosted PostgreSQL tenant readiness and locking
 
 - Changed: Replaced substring-based readiness checks with fail-closed catalog comparisons for expected RLS policies and authorization helpers; expanded effective-privilege and role-membership checks; added migration 0009 and request routing so project logins can lock only their mapped workspace while the authorization reader retains broad locks.

@@ -43,7 +43,8 @@ _REQUIRED_ENV = (
 )
 _IDENTITY_SQL = """
 SELECT current_database(), current_user, session_user, inet_server_addr()::text,
-       inet_server_port(), role.rolsuper, role.rolcreaterole,
+       inet_server_port(), database.datdba = role.oid AS owns_database,
+       role.rolsuper, role.rolcreaterole,
        role.rolcreatedb, role.rolreplication, role.rolbypassrls,
        EXISTS (
            SELECT 1
@@ -53,6 +54,8 @@ SELECT current_database(), current_user, session_user, inet_server_addr()::text,
               AND pg_catalog.pg_has_role(current_user, granted_role.oid, 'MEMBER')
        ) AS has_disallowed_memberships
   FROM pg_catalog.pg_roles AS role
+  JOIN pg_catalog.pg_database AS database
+    ON database.datname = current_database()
  WHERE role.rolname = current_user
 """
 
@@ -221,6 +224,7 @@ def verify_connection_identity(connection, target: PostgresTestTarget) -> None:
         session_user,
         host,
         port,
+        owns_database,
         is_superuser,
         can_create_roles,
         can_create_databases,
@@ -234,6 +238,7 @@ def verify_connection_identity(connection, target: PostgresTestTarget) -> None:
         or session_user != target.user
         or not server_address_matches_target(host, target.host)
         or port != target.port
+        or not owns_database
         or is_superuser
         or can_create_roles
         or can_create_databases
@@ -267,6 +272,11 @@ def verify_runtime_connection_identity(
                          AND inherited.rolname NOT IN (%s, 'pg_database_owner')
                          AND pg_catalog.pg_has_role(role.oid, inherited.oid, 'MEMBER')
                   ),
+                   NOT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                        WHERE membership.member = role.oid
+                          AND membership.admin_option
+                   ),
                   NOT EXISTS (
                       SELECT 1 FROM pg_catalog.pg_class AS relation
                        WHERE relation.relnamespace = 'public'::regnamespace
@@ -300,7 +310,8 @@ def verify_runtime_connection_identity(
     (
         database, current_user, session_user, host, port, is_superuser,
         can_create_roles, can_create_databases, can_replicate, can_bypass_rls,
-        can_inherit, has_expected_group, has_no_other_groups, owns_no_protected_table,
+        can_inherit, has_expected_group, has_no_other_groups, no_admin_option,
+        owns_no_protected_table,
         cannot_create_private_schema_objects,
     ) = identity
     if (
@@ -317,6 +328,7 @@ def verify_runtime_connection_identity(
         or not can_inherit
         or not has_expected_group
         or not has_no_other_groups
+        or not no_admin_option
         or not owns_no_protected_table
         or not cannot_create_private_schema_objects
     ):
