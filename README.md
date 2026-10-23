@@ -60,11 +60,12 @@ Set `CELESTIN_DB_PATH` to an absolute writable path to choose another
 location. The older `MEMORY_BRIDGE_DB_PATH` is still honored when
 `CELESTIN_DB_PATH` is unset.
 
-The MCP server builds a runtime when it starts and binds its tool handlers to
-that runtime's authorization, persistence, and retrieval services. The supported
-runtime remains SQLite-only; setting `CELESTIN_POSTGRES_DSN` does not enable a
-hosted MCP backend. Runtime construction does not open the SQLite database;
-connections and schema initialization remain lazy until a data operation.
+The local `celestin`, `orbit`, and `memory-bridge` commands build a runtime when
+they start and bind their tool handlers to the existing local authorization,
+persistence, and retrieval services. They remain stdio/SQLite commands;
+setting `CELESTIN_POSTGRES_DSN` does not change their transport or backend.
+Runtime construction does not open the SQLite database; connections and schema
+initialization remain lazy until a data operation.
 
 ### PostgreSQL migration foundation (explicit operator command)
 
@@ -75,6 +76,82 @@ For a separately provisioned, empty hosted database, install the optional
 server never runs hosted migrations during startup. See
 [PostgreSQL migrations](docs/postgres-migrations.md) for safety checks and the
 required handling for an existing database without a migration ledger.
+
+### Separate hosted Streamable HTTP runtime
+
+The `celestin-hosted` entry point is a separate, opt-in HTTPS Streamable HTTP
+MCP runtime. It uses the existing PostgreSQL message/decision and retrieval
+adapters through one request-scoped authorization transaction. It does not
+change the local commands, run migrations, create Auth0 resources, or expose an
+administration endpoint. Hosted source code and offline tests are present, but
+this checkout has not been connected to PostgreSQL or a non-production Auth0
+tenant; do not treat it as a verified deployment.
+
+Install the optional extra with `python -m pip install -e ".[hosted]"`. Before
+starting the command, obtain and review actual non-production Auth0 and
+PostgreSQL settings. The following values are required; use the deployment's
+secret manager for the PostgreSQL DSN and keep issuer/audience values specific
+to the approved Auth0 tenant and Celestin API:
+
+- `CELESTIN_POSTGRES_DSN`
+- `CELESTIN_AUTH0_ISSUER_URL`, `CELESTIN_AUTH0_AUDIENCE`,
+  `CELESTIN_AUTH0_TOKEN_PROFILE` (`auth0` or `rfc9068`),
+  `CELESTIN_AUTH0_SIGNING_ALGORITHM` (`RS256`), and
+  `CELESTIN_AUTH0_APPROVED_CLIENTS` (JSON object mapping approved client IDs
+  to `human` or `service`)
+- `CELESTIN_HOSTED_PUBLIC_URL`, `CELESTIN_HOSTED_TLS_CERTFILE`, and
+  `CELESTIN_HOSTED_TLS_KEYFILE`
+- Optional limits: `CELESTIN_HOSTED_BIND` (defaults to `127.0.0.1`),
+  `CELESTIN_HOSTED_ALLOW_NON_LOOPBACK` (defaults to `false`),
+  `CELESTIN_HOSTED_PORT` (8765), `CELESTIN_HOSTED_DB_POOL_MIN_SIZE` (1),
+  `CELESTIN_HOSTED_DB_POOL_MAX_SIZE` (10),
+  `CELESTIN_HOSTED_DB_POOL_TIMEOUT` (5 seconds),
+  `CELESTIN_HOSTED_DB_CONNECT_TIMEOUT` (5 seconds), and
+  `CELESTIN_HOSTED_DB_STATEMENT_TIMEOUT_MS` (10000)
+
+The HTTP server requires TLS certificate/key files and binds to loopback by
+default. Non-loopback binding requires an explicit setting, but that setting is
+not a substitute for deployment/security review. The runtime rejects a
+superuser, `BYPASSRLS`, schema-creation or role-creation privileges, protected
+table ownership, missing forced-RLS policies, and other excessive privileges
+at startup/readiness. Run migrations using a separate schema-owner credential;
+the application role must not own tables or run migrations. See
+[PostgreSQL migrations](docs/postgres-migrations.md) for the permission split
+and RLS setup.
+
+Hosted requests require exactly one canonical UUID in
+`X-Celestin-Workspace-ID`. The project tool argument remains a resource
+selector; PostgreSQL validates the workspace binding, current principal,
+project lifecycle, membership, and grants on each protected request. The API
+scopes are fixed to `memory:read` and `memory:write`: ingestion and decision
+saving require write scope and PostgreSQL write grants; search and context
+retrieval require read scope and PostgreSQL read grants. `ping` still requires
+an authenticated MCP request but no memory scope. The transaction sets
+workspace/project RLS context only after authorization.
+
+`/healthz` is a public process health check; `/readyz` checks PostgreSQL role
+and RLS prerequisites without returning database details. Uvicorn applies a
+request-body limit, connection-pool bounds, statement/connect timeouts, a
+concurrency limit, and a short keep-alive. There is no edge or per-principal
+rate limiter, quota system, production reverse-proxy configuration, or
+monitoring/alerting setup in this repository. Do not enable non-loopback access
+until those deployment controls, TLS termination/trusted-proxy assumptions,
+secret rotation, backup/restore, and incident procedures are reviewed.
+After the database is migrated with an owner credential, the non-owner runtime
+role has the reviewed privileges, and an initial workspace/owner has been
+provisioned through an approved bootstrap procedure, start the separate
+command with `celestin-hosted`. It fails closed on missing Auth0/TLS
+configuration or unsafe database-role/RLS state; it does not fall back to the
+local SQLite server. Orderly Uvicorn shutdown runs the pool-close lifespan.
+
+The provisioning module has internal, workspace-admin-authorized operations,
+but no public admin API or operator CLI. Initial workspace/owner bootstrap,
+human account deactivation synchronization from Auth0, durable administrative
+audit storage, and event-driven deactivation with reconciliation are not
+implemented. Human membership and service/project grant revocation are
+transactional in the existing code; this does not disable token issuance at
+Auth0. D-08 delivery receipts/equality/replay and Capture-to-Evidence
+conversion are outside the hosted MCP path.
 
 ## Optional Neon tooling for Codex
 
@@ -93,9 +170,11 @@ npx skills add neondatabase/agent-skills --skill neon --skill neon-postgres --sk
 neon mcp --oauth --project --agent codex -y
 ```
 
-Neon tooling is optional and separate from Celestin's runtime. The MCP server
-in this project still uses local SQLite; these agent skills and the Neon
-management MCP entry do not connect Celestin to Neon or change its storage.
+Neon tooling is optional and separate from Celestin's runtime; these agent
+skills and the Neon management MCP entry do not connect Celestin to Neon or
+change its storage. The local MCP commands remain SQLite-backed. The separate
+hosted command uses only the explicitly configured PostgreSQL DSN; this project
+does not configure that DSN or a Neon endpoint.
 
 
 ## Run with Codex CLI
@@ -346,12 +425,12 @@ overall improvement is claimed. See the [Laya results and per-query artifacts](e
 
 ## Tests
 
-Install the test dependency and run the test suite from the repository root
-(use `.[test,semantic]` to include the vector-index tests; they are skipped
-without the semantic extra):
+Install the test dependencies and run the test suite from the repository root
+(use `.[test,semantic,hosted]` to include the hosted Auth0/runtime tests; hosted
+and vector-index tests may skip when their optional extras are absent):
 
 ```sh
-python -m pip install -e ".[test,semantic]"
+python -m pip install -e ".[test,semantic,hosted]"
 python -m pytest -q
 ```
 
@@ -360,11 +439,13 @@ fake embedding provider (tests only, not semantic search). They do not require
 network access after dependencies are installed. The real-model test is opt-in
 (see above).
 
-The PostgreSQL migration runner and authorization session also have fake-based
-tests that need no server. Live PostgreSQL tests are separately marked and
-skipped by default. See [PostgreSQL integration tests](docs/postgres-integration-tests.md)
-for the disposable database requirements and explicit opt-in command. Those
-tests never create or drop a database and do not enable hosted MCP mode.
+The PostgreSQL migration runner, authorization session, hosted token verifier,
+hosted runtime composition, and provisioning operations have offline tests.
+Live PostgreSQL tests are separately marked and skipped by default. See
+[PostgreSQL integration tests](docs/postgres-integration-tests.md) for the
+disposable database requirements and explicit opt-in command. The tests never
+create or drop a database. Live PostgreSQL behavior, runtime-role grants, and
+Auth0 end-to-end behavior remain unverified in this checkout.
 
 ## Optional granular commit watcher
 

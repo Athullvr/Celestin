@@ -4,6 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T18:53:08+05:30 — Add opt-in hosted Auth0/PostgreSQL runtime
+
+- Changed: Added a separate `celestin-hosted` Streamable HTTP entry point with Auth0 access-token verification, a fixed approved-client allowlist and scopes, explicit workspace context, the existing authorized request UoW for current memory tools, bounded PostgreSQL pool/HTTP settings, TLS requirements, sanitized errors, health/readiness checks, and loopback-by-default binding. Added internal workspace-admin-authorized human/service provisioning and revocation operations. Added migration `0007_memory_request_rls.sql` to apply forced request-scope RLS to `chat_messages` and `project_memory`. Added a runtime-role catalog check for forced RLS, current tool privileges, and absence of excessive/unexposed table privileges. Updated README and PostgreSQL operations documentation.
+- Why: Provide a separate, explicit hosted request path while keeping local stdio/SQLite commands and public tool schemas unchanged, and ensure hosted database access fails closed when authentication or database role/RLS prerequisites are unsafe.
+- Validation: Python 3.13.9 / pytest 8.4.2: focused hosted/auth/UoW/provisioning/live-test collection command — 127 passed, 26 skipped; broad suite excluding `tests/evidence/test_canonicalization.py` — 663 passed, 46 skipped; changed-Python syntax compilation — 22 files passed; `git diff --check` and `git diff --cached --check` — passed. Unfiltered suite attempted and blocked at collection because the active environment lacks the declared `rfc8785` dependency.
+- Limitations: No Auth0 tenant/configuration, secrets, PostgreSQL driver, approved disposable target, database connection, or migration run is available or claimed. Live PostgreSQL/RLS/runtime-role behavior and Auth0 end-to-end behavior remain unverified. Initial workspace/owner bootstrap, Auth0 account deactivation synchronization, durable administrative audit, rate limits/quotas, production proxy/monitoring/backup/restore procedures, Capture conversion, and D-08 delivery receipts/equality/replay remain outside this change. Human security review is pending.
+
+## 2026-10-20T15:52:41+05:30 — Clarify producer-qualified candidate identity
+
+- Changed: Marked the older `(project, candidate_id)` uniqueness and generic replay wording in `docs/evidence-linked-memory-contract.md` as a superseded prototype assumption, and distinguished v0.3 revision-scoped conversion retry behavior from unresolved D-08 delivery/revision payload equality.
+- Why: Prevent the historical prototype table from appearing to override the authoritative producer-qualified identity contract.
+- Validation: Compared the wording with `docs/SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md`; `git diff --check` passed.
+- Limitations: D-08 delivery/revision payload-equality details remain unresolved. No code, schema, migration, or runtime behavior changed.
+
 ## 2026-10-19T18:22:59+05:30 — Add opt-in live PostgreSQL Evidence tests
 
 - Changed: Added seven opt-in PostgreSQL integration cases for migrations 0005–0006, Evidence/Knowledge round-trips, attachment idempotency, verification updates, supersession, project isolation, authorization denial, forced RLS, database constraints, savepoint recovery, and outer rollback. Reused the existing fresh-disposable-target fixture and request-bound authorization/UoW. Clarified skip reasons and corrected stale adapter/schema status documentation.

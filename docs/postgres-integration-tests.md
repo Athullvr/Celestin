@@ -9,11 +9,13 @@ service identity status, workspace membership and explicit project grants,
 same-key project isolation across workspaces, archived resources, source-message
 scope and foreign keys, SQL checks/uniqueness/restrictive deletion, transaction
 commit/rollback, error redaction, resource cleanup, and concurrent grant,
-membership, and service-identity revocation.
+membership, and service-identity revocation. It also checks the forced RLS
+policies on `chat_messages` and `project_memory` for missing request context,
+cross-project reads, and a rejected cross-project write.
 
 The opt-in suite also includes `tests/postgres/test_live_evidence_store.py`.
 It uses the same live fixture and request-scoped authorization/unit-of-work
-path to cover migrations 0005–0006, Evidence/Knowledge round-trips, attachment
+path to cover migrations 0005–0007, Evidence/Knowledge round-trips, attachment
 idempotency, verification updates, supersession, project isolation,
 authorization denial, forced row-level security, database constraints,
 nested savepoint recovery, and outer-transaction rollback. These live cases
@@ -273,3 +275,11 @@ or wire PostgreSQL into the local stdio server. The workspace binding in live
 tests is a synthetic test double. Passing this suite is evidence about the
 PostgreSQL repository/session and schema only, not production authentication,
 remote transport, or complete hosted authorization.
+
+The live fixture's login is the non-superuser database owner used to apply the
+migrations. `FORCE ROW LEVEL SECURITY` subjects that owner to row policies, so
+the RLS cases verify policy behavior but do not prove that the distinct
+non-owner application role has only the intended grants. The hosted startup
+catalog guard has offline fake-based tests; live validation under a separately
+provisioned runtime role and role-specific grant set remains required before
+hosted release. Do not reuse the migration-test DSN as the runtime DSN.

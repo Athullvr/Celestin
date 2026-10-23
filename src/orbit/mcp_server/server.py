@@ -299,13 +299,18 @@ def create_mcp_server(runtime: ServerRuntime | None = None) -> FastMCP:
     runtime = runtime or build_runtime()
     handlers = MCPToolHandlers(runtime)
     mcp = FastMCP("Celestin")
+    register_mcp_tools(mcp, handlers)
+    return mcp
+
+
+def register_mcp_tools(mcp: FastMCP, handlers: Any) -> None:
+    """Register the stable public tool contracts on a FastMCP instance."""
     mcp._tool_manager = _SafeToolManager(warn_on_duplicate_tools=mcp.settings.warn_on_duplicate_tools)
     mcp.tool(description="Record one chat message in a project.")(handlers.ingest_chat_message)
     mcp.tool(description="Save a project decision linked to a source message as a draft.")(handlers.save_decision)
     mcp.tool(description="Search chat messages within one project. Limit must be between 1 and 100.")(handlers.search_chat_history)
     mcp.tool(description="Build project-scoped context within a positive token budget (maximum 20000). Counts may be estimates.")(handlers.retrieve_context)
     mcp.tool(description="Confirm that the Celestin MCP server is responding.")(handlers.ping)
-    return mcp
 
 
 def main() -> None:
