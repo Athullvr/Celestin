@@ -10,12 +10,15 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any, Mapping
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
@@ -36,10 +39,13 @@ from orbit.mcp_server.hosted_scope import (
     HostedAuthorizationUnavailable,
     HostedSourceMessageNotFound,
     PrincipalStatusProvider,
+    ResolvedProjectScope,
     VerifiedPrincipal,
     WorkspaceBinding,
 )
-from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
+from orbit.postgres.authorization import (
+    ProjectScopedPostgresHostedAuthorizationSessionFactory,
+)
 from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
 from orbit.retrieval.service import _search_result_dict
 
@@ -78,8 +84,11 @@ AUTHORIZATION_TABLES = (
     "celestin_project_memberships",
     "celestin_service_identities",
     "celestin_service_project_grants",
-    "celestin_schema_migrations",
 )
+AUTHORIZATION_READER_ROLE = "celestin_authorization_reader"
+PROJECT_RUNTIME_ROLE = "celestin_project_runtime"
+_PROJECT_DSN_ENV_NAME = re.compile(r"^CELESTIN_PROJECT_POSTGRES_DSN_[A-Z0-9_]{1,96}$")
+_MAX_CONFIGURED_PROJECT_POOLS = 32
 
 
 class HostedRuntimeConfigurationError(ValueError):
@@ -88,23 +97,55 @@ class HostedRuntimeConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class HostedRuntimeSettings:
-    postgres_dsn: str
+    authorization_dsn: str = field(repr=False)
+    project_dsn_env_by_scope: Mapping[tuple[UUID, UUID], str] = field(repr=False)
     auth: Auth0VerifierConfig
     public_url: str
     tls_certfile: Path
     tls_keyfile: Path
+    project_role_isolation_enabled: bool = False
     bind_host: str = "127.0.0.1"
     port: int = 8765
-    pool_min_size: int = 1
-    pool_max_size: int = 10
+    control_pool_min_size: int = 1
+    control_pool_max_size: int = 4
+    project_pool_max_size: int = 2
     pool_timeout: float = 5.0
     connection_timeout: int = 5
     statement_timeout_ms: int = 10_000
     allow_non_loopback: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(self.postgres_dsn, str) or not self.postgres_dsn.strip():
-            raise HostedRuntimeConfigurationError("CELESTIN_POSTGRES_DSN is required.")
+        if not isinstance(self.authorization_dsn, str) or not self.authorization_dsn.strip():
+            raise HostedRuntimeConfigurationError(
+                "CELESTIN_POSTGRES_AUTHORIZATION_DSN is required."
+            )
+        if type(self.project_role_isolation_enabled) is not bool or not self.project_role_isolation_enabled:
+            raise HostedRuntimeConfigurationError(
+                "Hosted project-role isolation is disabled until its live security gate is approved."
+            )
+        if not isinstance(self.project_dsn_env_by_scope, Mapping) or not self.project_dsn_env_by_scope:
+            raise HostedRuntimeConfigurationError(
+                "At least one project-scoped PostgreSQL pool must be configured."
+            )
+        if len(self.project_dsn_env_by_scope) > _MAX_CONFIGURED_PROJECT_POOLS:
+            raise HostedRuntimeConfigurationError(
+                "Hosted project pool configuration exceeds its fixed safety bound."
+            )
+        if len(set(self.project_dsn_env_by_scope.values())) != len(self.project_dsn_env_by_scope):
+            raise HostedRuntimeConfigurationError(
+                "Each project scope must use a distinct project DSN environment variable."
+            )
+        for scope_key, env_name in self.project_dsn_env_by_scope.items():
+            if (
+                not isinstance(scope_key, tuple)
+                or len(scope_key) != 2
+                or not all(isinstance(value, UUID) for value in scope_key)
+                or not isinstance(env_name, str)
+                or not _PROJECT_DSN_ENV_NAME.fullmatch(env_name)
+            ):
+                raise HostedRuntimeConfigurationError(
+                    "Project pool routing must map UUID workspace/project pairs to approved DSN variable names."
+                )
         public = urlsplit(self.public_url)
         if (
             public.scheme != "https" or not public.hostname
@@ -129,12 +170,21 @@ class HostedRuntimeSettings:
         if isinstance(self.port, bool) or not isinstance(self.port, int) or not 1 <= self.port <= 65535:
             raise HostedRuntimeConfigurationError("Hosted port must be between 1 and 65535.")
         if (
-            isinstance(self.pool_min_size, bool) or not isinstance(self.pool_min_size, int)
-            or isinstance(self.pool_max_size, bool) or not isinstance(self.pool_max_size, int)
-            or self.pool_min_size < 0 or self.pool_max_size < 1
-            or self.pool_min_size > self.pool_max_size
+            isinstance(self.control_pool_min_size, bool)
+            or not isinstance(self.control_pool_min_size, int)
+            or isinstance(self.control_pool_max_size, bool)
+            or not isinstance(self.control_pool_max_size, int)
+            or self.control_pool_min_size < 0
+            or self.control_pool_max_size < 1
+            or self.control_pool_min_size > self.control_pool_max_size
+            or self.control_pool_max_size > 4
+            or isinstance(self.project_pool_max_size, bool)
+            or not isinstance(self.project_pool_max_size, int)
+            or not 1 <= self.project_pool_max_size <= 2
         ):
-            raise HostedRuntimeConfigurationError("PostgreSQL pool size configuration is invalid.")
+            raise HostedRuntimeConfigurationError(
+                "PostgreSQL pool sizes exceed their safety bounds."
+            )
         if (
             isinstance(self.connection_timeout, bool)
             or not isinstance(self.connection_timeout, int)
@@ -166,24 +216,75 @@ class HostedRuntimeSettings:
             raise HostedRuntimeConfigurationError(
                 "CELESTIN_HOSTED_DB_POOL_TIMEOUT must be a positive number."
             )
-        dsn = os.environ.get("CELESTIN_POSTGRES_DSN", "")
+        authorization_dsn = os.environ.get(
+            "CELESTIN_POSTGRES_AUTHORIZATION_DSN", ""
+        )
+        raw_project_dsns = os.environ.get(
+            "CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP", ""
+        )
+        if not raw_project_dsns:
+            raise HostedRuntimeConfigurationError(
+                "CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP is required for project-isolated pools."
+            )
+        try:
+            raw_map = json.loads(raw_project_dsns)
+        except (TypeError, ValueError):
+            raise HostedRuntimeConfigurationError(
+                "CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP must be a JSON object."
+            ) from None
+        if not isinstance(raw_map, dict):
+            raise HostedRuntimeConfigurationError(
+                "CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP must be a JSON object."
+            )
+        project_dsns: dict[tuple[UUID, UUID], str] = {}
+        for key, env_name in raw_map.items():
+            if not isinstance(key, str) or key.count("/") != 1:
+                raise HostedRuntimeConfigurationError(
+                    "Project pool keys must be canonical workspace UUID/project UUID pairs."
+                )
+            workspace_text, project_text = key.split("/", 1)
+            try:
+                workspace_id, project_id = UUID(workspace_text), UUID(project_text)
+            except (ValueError, AttributeError):
+                raise HostedRuntimeConfigurationError(
+                    "Project pool keys must be canonical workspace UUID/project UUID pairs."
+                ) from None
+            if f"{workspace_id}/{project_id}" != key or (workspace_id, project_id) in project_dsns:
+                raise HostedRuntimeConfigurationError(
+                    "Project pool keys must be unique canonical UUID pairs."
+                )
+            if not isinstance(env_name, str) or not _PROJECT_DSN_ENV_NAME.fullmatch(env_name):
+                raise HostedRuntimeConfigurationError(
+                    "Project pool values must name CELESTIN_PROJECT_POSTGRES_DSN_* variables."
+                )
+            if not os.environ.get(env_name, "").strip():
+                raise HostedRuntimeConfigurationError(
+                    "A configured project PostgreSQL DSN environment variable is empty."
+                )
+            project_dsns[(workspace_id, project_id)] = env_name
+        isolation_enabled = os.environ.get(
+            "CELESTIN_HOSTED_PROJECT_ROLE_ISOLATION_ENABLED", "false"
+        ).casefold() == "true"
         public_url = os.environ.get("CELESTIN_HOSTED_PUBLIC_URL", "")
         cert = os.environ.get("CELESTIN_HOSTED_TLS_CERTFILE", "")
         key = os.environ.get("CELESTIN_HOSTED_TLS_KEYFILE", "")
-        if not dsn or not public_url or not cert or not key:
+        if not authorization_dsn or not public_url or not cert or not key:
             raise HostedRuntimeConfigurationError(
-                "Hosted mode requires the PostgreSQL DSN, public HTTPS URL, and TLS certificate/key paths."
+                "Hosted mode requires the authorization PostgreSQL DSN, public HTTPS URL, and TLS certificate/key paths."
             )
         return cls(
-            postgres_dsn=dsn,
+            authorization_dsn=authorization_dsn,
+            project_dsn_env_by_scope=project_dsns,
             auth=Auth0VerifierConfig.from_environment(),
             public_url=public_url,
             tls_certfile=Path(cert),
             tls_keyfile=Path(key),
+            project_role_isolation_enabled=isolation_enabled,
             bind_host=os.environ.get("CELESTIN_HOSTED_BIND", "127.0.0.1"),
             port=positive_int("CELESTIN_HOSTED_PORT", 8765),
-            pool_min_size=positive_int("CELESTIN_HOSTED_DB_POOL_MIN_SIZE", 1),
-            pool_max_size=positive_int("CELESTIN_HOSTED_DB_POOL_MAX_SIZE", 10),
+            control_pool_min_size=positive_int("CELESTIN_HOSTED_CONTROL_POOL_MIN_SIZE", 1),
+            control_pool_max_size=positive_int("CELESTIN_HOSTED_CONTROL_POOL_MAX_SIZE", 4),
+            project_pool_max_size=positive_int("CELESTIN_HOSTED_PROJECT_POOL_MAX_SIZE", 2),
             pool_timeout=timeout,
             connection_timeout=positive_int("CELESTIN_HOSTED_DB_CONNECT_TIMEOUT", 5),
             statement_timeout_ms=positive_int("CELESTIN_HOSTED_DB_STATEMENT_TIMEOUT_MS", 10_000),
@@ -226,6 +327,65 @@ class _PoolConnectionLease:
         if not self._closed:
             self._closed = True
             self._pool.putconn(self._connection)
+
+
+class HostedDatabasePools:
+    """Fixed, bounded pool registry for one control login and project logins."""
+
+    def __init__(
+        self,
+        control_pool: Any,
+        project_pools: Mapping[tuple[UUID, UUID], Any],
+        *,
+        timeout: float,
+    ) -> None:
+        if not isinstance(project_pools, Mapping) or not project_pools:
+            raise ValueError("project database pools are required")
+        if len(project_pools) > _MAX_CONFIGURED_PROJECT_POOLS:
+            raise ValueError("project database pool count exceeds the safety bound")
+        self.control_pool = control_pool
+        self.project_pools = dict(project_pools)
+        self.timeout = timeout
+
+    def project_connection(self, scope: ResolvedProjectScope):
+        """Return a lease only for the exact resolver-issued pair; never fallback."""
+        if not isinstance(scope, ResolvedProjectScope):
+            raise TypeError("project pools require a resolver-issued scope")
+        pool = self.project_pools.get((scope.workspace_id, scope.project_id))
+        if pool is None:
+            raise HostedAuthorizationUnavailable("project database is unavailable")
+        return _PoolConnectionLease(pool, self.timeout)
+
+    def open(self) -> None:
+        opened = []
+        try:
+            for pool in self.all_pools:
+                # Include the pool before opening it: some implementations can
+                # allocate resources before reporting an open failure.
+                opened.append(pool)
+                pool.open(wait=True, timeout=self.timeout)
+        except Exception:
+            for pool in reversed(opened):
+                try:
+                    pool.close()
+                except Exception:
+                    pass
+            raise
+
+    def close(self) -> None:
+        first_error = None
+        for pool in reversed(self.all_pools):
+            try:
+                pool.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise RuntimeError("a hosted PostgreSQL pool could not be closed") from None
+
+    @property
+    def all_pools(self) -> tuple[Any, ...]:
+        return (self.control_pool, *self.project_pools.values())
 
 
 class HostedMCPServices:
@@ -447,12 +607,12 @@ class WorkspaceContextMiddleware:
 def create_hosted_mcp_app(
     settings: HostedRuntimeSettings,
     *,
-    pool=None,
+    pools: HostedDatabasePools | None = None,
     token_verifier=None,
 ):
     """Compose an HTTPS-only Streamable HTTP app; construction does no DB I/O."""
     mcp = create_hosted_mcp_server(
-        settings, pool=pool, token_verifier=token_verifier
+        settings, pools=pools, token_verifier=token_verifier
     )
     return WorkspaceContextMiddleware(mcp.streamable_http_app())
 
@@ -460,15 +620,20 @@ def create_hosted_mcp_app(
 def create_hosted_mcp_server(
     settings: HostedRuntimeSettings,
     *,
-    pool=None,
+    pools: HostedDatabasePools | None = None,
     token_verifier=None,
 ) -> FastMCP:
     """Build the authenticated hosted FastMCP composition without opening DB I/O."""
-    if pool is None:
-        pool = _create_pool(settings)
+    if not settings.project_role_isolation_enabled:
+        raise HostedRuntimeConfigurationError(
+            "Hosted project-role isolation is disabled until its live security gate is approved."
+        )
+    if pools is None:
+        pools = _create_pools(settings)
     verifier = token_verifier or Auth0TokenVerifier(settings.auth)
-    session_factory = PostgresHostedAuthorizationSessionFactory(
-        lambda: _PoolConnectionLease(pool, settings.pool_timeout),
+    session_factory = ProjectScopedPostgresHostedAuthorizationSessionFactory(
+        lambda: _PoolConnectionLease(pools.control_pool, settings.pool_timeout),
+        pools.project_connection,
         statement_timeout_ms=settings.statement_timeout_ms,
     )
     boundary = HostedRequestBoundary(
@@ -485,12 +650,12 @@ def create_hosted_mcp_server(
 
     @asynccontextmanager
     async def lifespan(_server):
-        await asyncio.to_thread(pool.open, wait=True, timeout=settings.pool_timeout)
+        await asyncio.to_thread(pools.open)
         try:
-            await asyncio.to_thread(_assert_safe_runtime_role, pool, settings.pool_timeout)
+            await asyncio.to_thread(_assert_safe_hosted_pools, pools, settings.pool_timeout)
             yield
         finally:
-            await asyncio.to_thread(pool.close)
+            await asyncio.to_thread(pools.close)
 
     mcp = FastMCP(
         "Celestin Hosted",
@@ -514,7 +679,7 @@ def create_hosted_mcp_server(
 
     async def readyz(_request: Request):
         try:
-            await asyncio.to_thread(_assert_safe_runtime_role, pool, settings.pool_timeout)
+            await asyncio.to_thread(_assert_safe_hosted_pools, pools, settings.pool_timeout)
         except Exception as exc:
             logger.error("hosted readiness check failed (%s)", type(exc).__name__)
             return JSONResponse({"status": "unavailable"}, status_code=503)
@@ -525,7 +690,13 @@ def create_hosted_mcp_server(
     return mcp
 
 
-def _create_pool(settings: HostedRuntimeSettings):
+def _create_pool(
+    conninfo: str,
+    settings: HostedRuntimeSettings,
+    *,
+    min_size: int,
+    max_size: int,
+):
     try:
         from psycopg_pool import ConnectionPool
     except ImportError as exc:  # pragma: no cover - optional hosted extra
@@ -533,12 +704,39 @@ def _create_pool(settings: HostedRuntimeSettings):
             "Hosted PostgreSQL runtime requires the hosted optional dependencies."
         ) from exc
     return ConnectionPool(
-        conninfo=settings.postgres_dsn,
+        conninfo=conninfo,
         kwargs={"connect_timeout": settings.connection_timeout},
-        min_size=settings.pool_min_size,
-        max_size=settings.pool_max_size,
+        min_size=min_size,
+        max_size=max_size,
         timeout=settings.pool_timeout,
         open=False,
+    )
+
+
+def _create_pools(settings: HostedRuntimeSettings) -> HostedDatabasePools:
+    control_pool = _create_pool(
+        settings.authorization_dsn,
+        settings,
+        min_size=settings.control_pool_min_size,
+        max_size=settings.control_pool_max_size,
+    )
+    project_pools: dict[tuple[UUID, UUID], Any] = {}
+    for scope, env_name in settings.project_dsn_env_by_scope.items():
+        dsn = os.environ.get(env_name, "")
+        if not dsn.strip():
+            raise HostedRuntimeConfigurationError(
+                "A configured project PostgreSQL DSN environment variable is empty."
+            )
+        project_pools[scope] = _create_pool(
+            dsn,
+            settings,
+            min_size=0,
+            max_size=settings.project_pool_max_size,
+        )
+    return HostedDatabasePools(
+        control_pool,
+        project_pools,
+        timeout=settings.pool_timeout,
     )
 
 
@@ -553,19 +751,118 @@ def _is_loopback_bind(host: str) -> bool:
         return False
 
 
-def _assert_safe_runtime_role(pool, timeout: float) -> None:
+def _assert_safe_hosted_pools(pools: HostedDatabasePools, timeout: float) -> None:
+    _assert_safe_authorization_reader(pools.control_pool, timeout)
+    for scope, pool in pools.project_pools.items():
+        _assert_safe_project_runtime(pool, timeout, scope)
+
+
+def _assert_safe_authorization_reader(pool, timeout: float) -> None:
     query = """
         SELECT role.rolsuper, role.rolbypassrls,
-               role.rolcreaterole, role.rolcreatedb,
-               EXISTS (
-                   SELECT 1
-                     FROM pg_catalog.pg_class AS relation
+               role.rolcreaterole, role.rolcreatedb, role.rolreplication,
+               current_user = session_user AS exact_login,
+               pg_catalog.pg_has_role(current_user, %s, 'MEMBER') AS has_reader_group,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_roles AS inherited
+                    WHERE inherited.rolname <> current_user
+                      AND inherited.rolname NOT IN (%s, 'pg_database_owner')
+                      AND pg_catalog.pg_has_role(current_user, inherited.oid, 'MEMBER')
+               ) AS no_other_role_memberships,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_class AS relation
                      JOIN pg_catalog.pg_namespace AS namespace
                        ON namespace.oid = relation.relnamespace
                     WHERE namespace.nspname = 'public'
                       AND relation.relname = ANY(%s)
                       AND relation.relowner = role.oid
-               ) AS owns_protected_table,
+               ) AS owns_no_tenant_or_auth_table,
+               has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_public_objects,
+               NOT EXISTS (
+                   SELECT 1 FROM unnest(%s::text[]) AS auth(table_name)
+                    WHERE NOT has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'SELECT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'INSERT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'UPDATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'DELETE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'INSERT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'UPDATE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'REFERENCES')
+               ) AS authorization_read_only,
+               NOT EXISTS (
+                   SELECT 1 FROM unnest(%s::text[]) AS tenant(table_name)
+                    WHERE has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'SELECT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'INSERT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'UPDATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'DELETE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'SELECT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'INSERT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'UPDATE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'REFERENCES')
+               ) AS no_tenant_data_access,
+               has_schema_privilege(current_user, 'public', 'USAGE') AS can_use_public_schema
+          FROM pg_catalog.pg_roles AS role
+         WHERE role.rolname = current_user
+    """
+    row = _run_pool_probe(
+        pool,
+        timeout,
+        query,
+        (
+            AUTHORIZATION_READER_ROLE,
+            AUTHORIZATION_READER_ROLE,
+            list(PROTECTED_TABLES + AUTHORIZATION_TABLES),
+            list(AUTHORIZATION_TABLES),
+            list(PROTECTED_TABLES),
+        ),
+    )
+    if (
+        row is None
+        or any(bool(value) for value in row[:5])
+        or not all(bool(value) for value in row[5:9])
+        or bool(row[9])
+        or not all(bool(value) for value in row[10:13])
+    ):
+        raise RuntimeError("PostgreSQL authorization-reader role violates its least-privilege requirements")
+
+
+def _assert_safe_project_runtime(
+    pool, timeout: float, scope: tuple[UUID, UUID]
+) -> None:
+    query = """
+        SELECT role.rolsuper, role.rolbypassrls,
+               role.rolcreaterole, role.rolcreatedb, role.rolreplication,
+               current_user = session_user AS exact_login,
+               pg_catalog.pg_has_role(current_user, %s, 'MEMBER') AS has_project_group,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_roles AS inherited
+                    WHERE inherited.rolname <> current_user
+                      AND inherited.rolname NOT IN (%s, 'pg_database_owner')
+                      AND pg_catalog.pg_has_role(current_user, inherited.oid, 'MEMBER')
+               ) AS no_other_role_memberships,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_class AS relation
+                     JOIN pg_catalog.pg_namespace AS namespace
+                       ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND relation.relname = ANY(%s)
+                      AND relation.relowner = role.oid
+               ) AS owns_no_tenant_or_auth_table,
+               has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_public_objects,
                (
                    SELECT count(*) = cardinality(%s::text[])
                      FROM pg_catalog.pg_class AS relation
@@ -574,9 +871,8 @@ def _assert_safe_runtime_role(pool, timeout: float) -> None:
                     WHERE namespace.nspname = 'public'
                       AND relation.relname = ANY(%s)
                       AND relation.relkind IN ('r', 'p')
-                      AND relation.relrowsecurity
-                      AND relation.relforcerowsecurity
-               ) AS all_tables_force_rls,
+                      AND relation.relrowsecurity AND relation.relforcerowsecurity
+               ) AS all_tenant_tables_force_rls,
                (
                    SELECT count(policy.oid) = cardinality(%s::text[])
                       AND count(policy.oid) FILTER (
@@ -593,207 +889,208 @@ def _assert_safe_runtime_role(pool, timeout: float) -> None:
                        ON policy.polrelid = relation.oid
                     WHERE namespace.nspname = 'public'
                       AND relation.relname = ANY(%s)
-               ) AS all_tables_have_scope_policy,
+               ) AS one_scope_policy_per_tenant_table,
+               (
+                   SELECT position('session_user' IN pg_catalog.pg_get_functiondef(
+                              'public.celestin_request_scope_matches(uuid, uuid)'::regprocedure)) > 0
+                      AND position('current_setting' IN pg_catalog.pg_get_functiondef(
+                              'public.celestin_request_scope_matches(uuid, uuid)'::regprocedure)) = 0
+               ) AS scope_uses_login_identity,
+               (
+                   SELECT count(*) = 1
+                          AND bool_and(login_role_name = session_user::name
+                              AND workspace_id = %s AND project_id = %s)
+                     FROM celestin_private.project_runtime_scopes
+                    WHERE login_role_name = session_user::name
+               ) AS exact_project_login_mapping,
+               public.celestin_request_scope_matches(%s::uuid, %s::uuid)
+                   AS request_scope_matches,
+               has_schema_privilege(current_user, 'celestin_private', 'CREATE')
+                   AS can_create_private_objects,
+               has_schema_privilege(current_user, 'celestin_private', 'USAGE')
+                   AS can_use_private_schema,
+               has_table_privilege(current_user,
+                   'celestin_private.project_runtime_scopes', 'SELECT')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'INSERT')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'UPDATE')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'DELETE')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'TRUNCATE')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'TRIGGER')
+                   AND NOT has_table_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'REFERENCES')
+                   AND NOT has_any_column_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'INSERT')
+                   AND NOT has_any_column_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'UPDATE')
+                   AND NOT has_any_column_privilege(current_user,
+                       'celestin_private.project_runtime_scopes', 'REFERENCES')
+                   AS read_only_scope_mapping,
                NOT EXISTS (
-                   SELECT 1
-                     FROM unnest(%s::text[]) AS protected(table_name)
-                    WHERE has_table_privilege(
-                              current_user,
-                              format('public.%I', protected.table_name),
-                              'DELETE'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', protected.table_name),
-                              'TRUNCATE'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', protected.table_name),
-                              'TRIGGER'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', protected.table_name),
-                              'REFERENCES'
-                          )
-               ) AS no_excess_table_privileges,
-               NOT EXISTS (
-                   SELECT 1
-                     FROM unnest(%s::text[]) AS control(table_name)
-                    WHERE has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'INSERT'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'UPDATE'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'DELETE'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'TRUNCATE'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'TRIGGER'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'REFERENCES'
-                          )
-                       OR has_any_column_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'INSERT'
-                          )
-                       OR has_any_column_privilege(
-                              current_user,
-                              format('public.%I', control.table_name),
-                              'UPDATE'
-                          )
-               ) AS authorization_tables_are_read_only,
-               has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_schema_objects,
-               EXISTS (
-                   SELECT 1
-                     FROM pg_catalog.pg_roles AS inherited
-                    WHERE inherited.rolname <> current_user
-                      AND (
-                          inherited.rolsuper OR inherited.rolbypassrls
-                          OR inherited.rolcreaterole OR inherited.rolcreatedb
-                          OR inherited.rolname IN (
-                              'pg_read_all_data', 'pg_write_all_data',
-                              'pg_execute_server_program'
-                          )
-                      )
-                      AND pg_has_role(current_user, inherited.oid, 'MEMBER')
-               ) AS member_of_privileged_role,
-               role.rolreplication AS can_replicate,
-               has_function_privilege(
-                   current_user,
-                   'public.celestin_request_scope_matches(uuid, uuid)'::regprocedure,
-                   'EXECUTE'
-               ) AS can_evaluate_request_scope,
-               has_schema_privilege(current_user, 'public', 'USAGE') AS can_use_public_schema,
-               NOT EXISTS (
-                   SELECT 1
-                     FROM unnest(%s::text[]) AS authorization(table_name)
-                    WHERE NOT has_table_privilege(
-                                  current_user,
-                                  format('public.%I', authorization.table_name),
-                                  'SELECT'
-                              )
-               ) AS can_read_authorization_state,
+                   SELECT 1 FROM unnest(%s::text[]) AS auth(table_name)
+                    WHERE NOT has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'SELECT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'INSERT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'UPDATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', auth.table_name), 'DELETE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'INSERT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'UPDATE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', auth.table_name), 'REFERENCES')
+               ) AS authorization_read_only,
                (
                    has_table_privilege(current_user, 'public.chat_messages', 'SELECT')
                    AND has_table_privilege(current_user, 'public.chat_messages', 'INSERT')
                    AND NOT has_table_privilege(current_user, 'public.chat_messages', 'UPDATE')
-                   AND NOT has_any_column_privilege(
-                       current_user, 'public.chat_messages', 'UPDATE'
-                   )
+                   AND NOT has_any_column_privilege(current_user, 'public.chat_messages', 'UPDATE')
                    AND has_table_privilege(current_user, 'public.project_memory', 'SELECT')
                    AND has_table_privilege(current_user, 'public.project_memory', 'INSERT')
                    AND has_table_privilege(current_user, 'public.project_memory', 'UPDATE')
-               ) AS can_run_current_memory_tools,
+               ) AS current_tool_grants,
                (
-                   has_sequence_privilege(
-                       current_user,
-                       pg_get_serial_sequence('public.chat_messages', 'id'),
-                       'USAGE'
-                   )
-                   AND has_sequence_privilege(
-                       current_user,
-                       pg_get_serial_sequence('public.project_memory', 'id'),
-                       'USAGE'
-                   )
-               ) AS can_allocate_memory_ids,
+                   has_sequence_privilege(current_user,
+                       pg_get_serial_sequence('public.chat_messages', 'id'), 'USAGE')
+                   AND has_sequence_privilege(current_user,
+                       pg_get_serial_sequence('public.project_memory', 'id'), 'USAGE')
+               ) AS current_tool_sequence_grants,
                NOT EXISTS (
-                   SELECT 1
-                     FROM unnest(%s::text[]) AS unexposed(table_name)
-                    WHERE has_table_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'SELECT'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'INSERT'
-                          )
-                       OR has_table_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'UPDATE'
-                          )
-                       OR has_any_column_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'SELECT'
-                          )
-                       OR has_any_column_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'INSERT'
-                          )
-                       OR has_any_column_privilege(
-                              current_user,
-                              format('public.%I', unexposed.table_name),
-                              'UPDATE'
-                          )
-               ) AS no_unexposed_tenant_table_privileges
+                   SELECT 1 FROM unnest(%s::text[]) AS unexposed(table_name)
+                    WHERE has_table_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'SELECT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'INSERT')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'UPDATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'DELETE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'SELECT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'INSERT')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'UPDATE')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', unexposed.table_name), 'REFERENCES')
+               ) AS no_unexposed_content_grants,
+               NOT EXISTS (
+                   SELECT 1 FROM unnest(%s::text[]) AS tenant(table_name)
+                    WHERE has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'DELETE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'TRUNCATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'TRIGGER')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'REFERENCES')
+                       OR has_any_column_privilege(current_user,
+                              format('public.%I', tenant.table_name), 'REFERENCES')
+               ) AS no_excess_content_grants,
+               has_function_privilege(current_user,
+                   'public.celestin_lock_authorization_request(uuid, text, text, text)',
+                   'EXECUTE') AS can_lock_request_authorization,
+               has_function_privilege(current_user,
+                   'public.celestin_request_scope_matches(uuid, uuid)', 'EXECUTE')
+                   AS can_check_project_scope,
+               has_schema_privilege(current_user, 'public', 'USAGE') AS can_use_public_schema,
+               (
+                   SELECT relation.relrowsecurity
+                      AND count(policy.oid) = 2
+                      AND count(policy.oid) FILTER (
+                          WHERE policy.polcmd = 'r'
+                            AND policy.polroles = ARRAY[(
+                                SELECT oid FROM pg_catalog.pg_roles
+                                 WHERE rolname = 'celestin_project_runtime'
+                            )]
+                            AND pg_catalog.pg_get_expr(policy.polqual, policy.polrelid)
+                                ILIKE '%login_role_name%'
+                            AND pg_catalog.pg_get_expr(policy.polqual, policy.polrelid)
+                                ILIKE '%session_user%'
+                            AND policy.polwithcheck IS NULL
+                      ) = 1
+                      AND count(policy.oid) FILTER (
+                          WHERE policy.polcmd = '*'
+                            AND policy.polroles = ARRAY[(
+                                SELECT oid FROM pg_catalog.pg_roles
+                                 WHERE rolname = 'celestin_authorization_admin'
+                            )]
+                            AND pg_catalog.pg_get_expr(policy.polqual, policy.polrelid) = 'true'
+                            AND pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid) = 'true'
+                      ) = 1
+                     FROM pg_catalog.pg_class AS relation
+                     JOIN pg_catalog.pg_namespace AS namespace
+                       ON namespace.oid = relation.relnamespace
+                     LEFT JOIN pg_catalog.pg_policy AS policy
+                       ON policy.polrelid = relation.oid
+                    WHERE namespace.nspname = 'celestin_private'
+                      AND relation.relname = 'project_runtime_scopes'
+                    GROUP BY relation.relrowsecurity
+               ) AS safe_scope_mapping_policy
           FROM pg_catalog.pg_roles AS role
          WHERE role.rolname = current_user
     """
-    with pool.connection(timeout=timeout) as connection:
-        protected = list(PROTECTED_TABLES)
-        owned = protected + list(AUTHORIZATION_TABLES)
-        cursor = connection.execute(
-            query,
-            (
-                owned,
-                protected,
-                protected,
-                protected,
-                protected,
-                protected,
-                protected,
-                list(AUTHORIZATION_TABLES),
-                list(AUTHORIZATION_TABLES),
-                list(PROTECTED_TABLES[2:]),
-            ),
-        )
-        try:
-            row = cursor.fetchone()
-        finally:
-            cursor.close()
+    tenant_tables = list(PROTECTED_TABLES)
+    auth_tables = list(AUTHORIZATION_TABLES)
+    row = _run_pool_probe(
+        pool,
+        timeout,
+        query,
+        (
+            PROJECT_RUNTIME_ROLE,
+            PROJECT_RUNTIME_ROLE,
+            tenant_tables + auth_tables,
+            tenant_tables,
+            tenant_tables,
+            tenant_tables,
+            tenant_tables,
+            tenant_tables,
+            scope[0], scope[1], scope[0], scope[1],
+            auth_tables,
+            list(PROTECTED_TABLES[2:]),
+            tenant_tables,
+        ),
+    )
     if (
         row is None
         or any(bool(value) for value in row[:5])
-        or not bool(row[5])
-        or not bool(row[6])
-        or not bool(row[7])
-        or not bool(row[8])
+        or not all(bool(value) for value in row[5:9])
         or bool(row[9])
-        or bool(row[10])
-        or bool(row[11])
+        or not bool(row[10])
+        or not bool(row[11])
         or not bool(row[12])
         or not bool(row[13])
         or not bool(row[14])
-        or not bool(row[15])
+        or bool(row[15])
         or not bool(row[16])
         or not bool(row[17])
+        or not bool(row[18])
+        or not bool(row[19])
+        or not bool(row[20])
+        or not bool(row[21])
+        or not bool(row[22])
+        or not bool(row[23])
+        or not bool(row[24])
+        or not bool(row[25])
+        or not bool(row[26])
     ):
-        raise RuntimeError("PostgreSQL runtime role violates the least-privilege/RLS requirements")
+        raise RuntimeError("PostgreSQL project role violates its project-isolation requirements")
 
+
+def _run_pool_probe(pool, timeout: float, query: str, params: tuple[Any, ...]):
+    with pool.connection(timeout=timeout) as connection:
+        cursor = connection.execute(query, params)
+        try:
+            return cursor.fetchone()
+        finally:
+            cursor.close()
 
 def main() -> None:
     """Start the separate hosted runtime with required TLS and explicit config."""

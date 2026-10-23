@@ -80,20 +80,34 @@ required handling for an existing database without a migration ledger.
 ### Separate hosted Streamable HTTP runtime
 
 The `celestin-hosted` entry point is a separate, opt-in HTTPS Streamable HTTP
-MCP runtime. It uses the existing PostgreSQL message/decision and retrieval
-adapters through one request-scoped authorization transaction. It does not
+MCP runtime, with an Auth0 access-token verifier, PostgreSQL authorization, and
+project-scoped PostgreSQL connections. The project-specific login identity is
+bound in PostgreSQL to one workspace/project pair; RLS derives that pair from
+`session_user`, rather than caller-settable scope settings. Hosted code does not
 change the local commands, run migrations, create Auth0 resources, or expose an
-administration endpoint. Hosted source code and offline tests are present, but
-this checkout has not been connected to PostgreSQL or a non-production Auth0
-tenant; do not treat it as a verified deployment.
+administration endpoint. Its offline tests are available, but this checkout has
+not been validated against PostgreSQL or a non-production Auth0 tenant; do not
+treat it as a verified deployment. Hosted startup remains fail-closed unless
+project-role isolation is explicitly enabled, and that setting is not release
+approval.
 
 Install the optional extra with `python -m pip install -e ".[hosted]"`. Before
 starting the command, obtain and review actual non-production Auth0 and
-PostgreSQL settings. The following values are required; use the deployment's
-secret manager for the PostgreSQL DSN and keep issuer/audience values specific
-to the approved Auth0 tenant and Celestin API:
+PostgreSQL settings. Use the deployment's secret manager for DSNs and keep
+issuer/audience values specific to the approved Auth0 tenant and Celestin API:
 
-- `CELESTIN_POSTGRES_DSN`
+- `CELESTIN_POSTGRES_AUTHORIZATION_DSN` — the read-only authorization-reader
+  login. `CELESTIN_POSTGRES_DSN` is for the separate migration command and is
+  not a hosted-runtime fallback.
+- `CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP` — JSON mapping canonical
+  `workspace-uuid/project-uuid` keys to distinct environment-variable names.
+  Each named `CELESTIN_PROJECT_POSTGRES_DSN_*` variable contains that project's
+  database-login DSN. Each login must map to only its configured project in
+  `celestin_private.project_runtime_scopes` and must not have a path to another
+  project's login.
+- `CELESTIN_HOSTED_PROJECT_ROLE_ISOLATION_ENABLED=true` — an explicit gate;
+  the default is disabled. Enabling the setting does not itself approve a
+  deployment.
 - `CELESTIN_AUTH0_ISSUER_URL`, `CELESTIN_AUTH0_AUDIENCE`,
   `CELESTIN_AUTH0_TOKEN_PROFILE` (`auth0` or `rfc9068`),
   `CELESTIN_AUTH0_SIGNING_ALGORITHM` (`RS256`), and
@@ -103,31 +117,38 @@ to the approved Auth0 tenant and Celestin API:
   `CELESTIN_HOSTED_TLS_KEYFILE`
 - Optional limits: `CELESTIN_HOSTED_BIND` (defaults to `127.0.0.1`),
   `CELESTIN_HOSTED_ALLOW_NON_LOOPBACK` (defaults to `false`),
-  `CELESTIN_HOSTED_PORT` (8765), `CELESTIN_HOSTED_DB_POOL_MIN_SIZE` (1),
-  `CELESTIN_HOSTED_DB_POOL_MAX_SIZE` (10),
+  `CELESTIN_HOSTED_PORT` (8765),
+  `CELESTIN_HOSTED_CONTROL_POOL_MIN_SIZE` (1),
+  `CELESTIN_HOSTED_CONTROL_POOL_MAX_SIZE` (4),
+  `CELESTIN_HOSTED_PROJECT_POOL_MAX_SIZE` (2; at most 32 configured project
+  pools),
   `CELESTIN_HOSTED_DB_POOL_TIMEOUT` (5 seconds),
   `CELESTIN_HOSTED_DB_CONNECT_TIMEOUT` (5 seconds), and
   `CELESTIN_HOSTED_DB_STATEMENT_TIMEOUT_MS` (10000)
 
 The HTTP server requires TLS certificate/key files and binds to loopback by
 default. Non-loopback binding requires an explicit setting, but that setting is
-not a substitute for deployment/security review. The runtime rejects a
-superuser, `BYPASSRLS`, schema-creation or role-creation privileges, protected
-table ownership, missing forced-RLS policies, and other excessive privileges
-at startup/readiness. Run migrations using a separate schema-owner credential;
-the application role must not own tables or run migrations. See
-[PostgreSQL migrations](docs/postgres-migrations.md) for the permission split
-and RLS setup.
+not a substitute for deployment/security review. `/readyz` checks the configured
+authorization-reader and project-login roles, scope mappings, grants, and RLS
+policies. It rejects elevated privileges, unsafe role memberships, protected
+table ownership, or missing isolation prerequisites. Run migrations using a
+separate schema-owner credential; the runtime does not use that credential and
+does not run migrations. See [PostgreSQL migrations](docs/postgres-migrations.md)
+for the role split and tenant-isolation model.
 
 Hosted requests require exactly one canonical UUID in
-`X-Celestin-Workspace-ID`. The project tool argument remains a resource
-selector; PostgreSQL validates the workspace binding, current principal,
-project lifecycle, membership, and grants on each protected request. The API
-scopes are fixed to `memory:read` and `memory:write`: ingestion and decision
-saving require write scope and PostgreSQL write grants; search and context
-retrieval require read scope and PostgreSQL read grants. `ping` still requires
-an authenticated MCP request but no memory scope. The transaction sets
-workspace/project RLS context only after authorization.
+`X-Celestin-Workspace-ID`; it selects context but is not an access grant. The
+project tool argument remains a resource selector. A read-only authorization
+connection resolves the principal, workspace, project lifecycle, membership,
+and grants; the runtime then selects only the statically configured pool for
+that resolver-issued workspace/project pair and repeats authorization in the
+project transaction. The database checks every tenant row against the protected
+login-to-project map for `session_user`; it does not trust the request header,
+tool arguments, or legacy custom GUCs for RLS scope. The API scopes are fixed to
+`memory:read` and `memory:write`: ingestion and decision saving require write
+scope and PostgreSQL write grants; search and context retrieval require read
+scope and PostgreSQL read grants. `ping` still requires an authenticated MCP
+request but no memory scope.
 
 `/healthz` is a public process health check; `/readyz` checks PostgreSQL role
 and RLS prerequisites without returning database details. Uvicorn applies a
@@ -137,21 +158,24 @@ rate limiter, quota system, production reverse-proxy configuration, or
 monitoring/alerting setup in this repository. Do not enable non-loopback access
 until those deployment controls, TLS termination/trusted-proxy assumptions,
 secret rotation, backup/restore, and incident procedures are reviewed.
-After the database is migrated with an owner credential, the non-owner runtime
-role has the reviewed privileges, and an initial workspace/owner has been
-provisioned through an approved bootstrap procedure, start the separate
-command with `celestin-hosted`. It fails closed on missing Auth0/TLS
-configuration or unsafe database-role/RLS state; it does not fall back to the
-local SQLite server. Orderly Uvicorn shutdown runs the pool-close lifespan.
+For a hosted deployment, first provision the required no-login database group
+roles, then apply migrations with a separate owner credential. Provision the
+distinct runtime logins and one-to-one project mappings through an approved
+operator process; only consider deployment after the live security gate and
+release review pass. The command fails closed on missing Auth0/TLS
+configuration, disabled project-role isolation, an unmapped project, or unsafe
+database-role/RLS state; it does not fall back to the local SQLite server.
+Orderly Uvicorn shutdown runs the pool-close lifespan.
 
 The provisioning module has internal, workspace-admin-authorized operations,
 but no public admin API or operator CLI. Initial workspace/owner bootstrap,
 human account deactivation synchronization from Auth0, durable administrative
 audit storage, and event-driven deactivation with reconciliation are not
-implemented. Human membership and service/project grant revocation are
-transactional in the existing code; this does not disable token issuance at
-Auth0. D-08 delivery receipts/equality/replay and Capture-to-Evidence
-conversion are outside the hosted MCP path.
+implemented. Authorization changes acquire transaction-scoped exclusive
+advisory locks corresponding to the shared locks held by protected requests; an
+already-authorized operation can finish before a concurrent revocation commits.
+This does not disable token issuance at Auth0. D-08 delivery receipts/equality/
+replay and Capture-to-Evidence conversion are outside the hosted MCP path.
 
 ## Optional Neon tooling for Codex
 

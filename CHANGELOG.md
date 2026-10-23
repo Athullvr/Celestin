@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T20:50:53+05:30 — Route hosted requests through project PostgreSQL pools
+
+- Changed: Updated the hosted runtime to use a read-only authorization pool first, then select only the configured project-specific pool for the resolved scope. Added final in-transaction authorization and startup role checks; documented the configuration and trust boundary while preserving local stdio/SQLite behavior.
+- Why: Project-scoped database identities must be selected only after application authorization and checked again in the data transaction.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 53 passed. The hosted module compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: Hosted mode remains disabled by default. No live PostgreSQL target, credentials, Auth0 service, or deployment was used; database role and RLS behavior remains unverified.
+
 ## 2026-10-23T20:50:28+05:30 — Bind PostgreSQL RLS to project logins
 
 - Changed: Added migration `0008_project_scoped_runtime_roles.sql`, a protected `session_user`-to-project scope map, and authorization-lock coordination for project login provisioning and revocation.
