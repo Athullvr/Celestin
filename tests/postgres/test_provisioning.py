@@ -16,6 +16,7 @@ from mcp.server.auth.middleware.bearer_auth import AccessToken
 from orbit.mcp_server.hosted_auth import Auth0TokenVerifier, Auth0VerifierConfig
 from orbit.postgres.provisioning import (
     HumanProjectCapabilities,
+    ProjectDatabaseLoginRegistry,
     PostgresAccessProvisioner,
     ProvisioningConflict,
     ProvisioningDenied,
@@ -57,6 +58,9 @@ class Connection:
         target_membership_status="active",
         grant_revoked_at=None,
         service_status="active",
+        project_login_eligible=True,
+        login_mapping_present=False,
+        login_role_name="celestin_project_test_a1b2c3d4",
     ):
         self.role = role
         self.existing_service = existing_service
@@ -66,6 +70,9 @@ class Connection:
         self.target_membership_status = target_membership_status
         self.grant_revoked_at = grant_revoked_at
         self.service_status = service_status
+        self.project_login_eligible = project_login_eligible
+        self.login_mapping_present = login_mapping_present
+        self.login_role_name = login_role_name
         self.calls = []
         self.commits = 0
         self.rollbacks = 0
@@ -85,6 +92,19 @@ class Connection:
             row = (self.role, "active")
         elif sql.startswith("SELECT id FROM celestin_projects"):
             row = (PROJECT,)
+        elif sql.startswith("SELECT role.rolcanlogin"):
+            row = (self.project_login_eligible,)
+        elif sql.startswith("SELECT 1 FROM celestin_private.project_runtime_scopes"):
+            row = (1,) if self.login_mapping_present else None
+        elif sql.startswith("SELECT workspace_id FROM celestin_private.project_runtime_scopes"):
+            row = (WORKSPACE,) if self.login_mapping_present else None
+        elif sql.startswith("INSERT INTO celestin_private.project_runtime_scopes"):
+            self.login_mapping_present = True
+            self.login_role_name = params[0]
+            row = None
+        elif sql.startswith("DELETE FROM celestin_private.project_runtime_scopes"):
+            row = (self.login_role_name,) if self.login_mapping_present else None
+            self.login_mapping_present = False
         elif sql.startswith("INSERT INTO celestin_users"):
             row = None if self.existing_human else (params[0],)
         elif sql.startswith("SELECT revoked_at FROM celestin_project_memberships"):
@@ -355,3 +375,91 @@ def test_caller_constructed_access_token_cannot_impersonate_admin():
             forged, workspace_id=WORKSPACE, service_identity_id=SERVICE_ID
         )
     assert connection_calls == []
+
+
+def test_project_database_login_registry_maps_only_precreated_eligible_project_login():
+    connection = Connection()
+    registry = ProjectDatabaseLoginRegistry(lambda: connection)
+    login = "celestin_project_test_a1b2c3d4"
+
+    registry.register_project_login(
+        login,
+        workspace_id=WORKSPACE,
+        project_id=PROJECT,
+    )
+
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1
+    assert connection.login_mapping_present
+    lock = next(call for call in connection.calls if call[0].startswith("SELECT public.celestin_lock"))
+    assert lock[1][0] == WORKSPACE
+    assert any("FROM celestin_projects" in sql and "archived_at IS NULL" in sql for sql, _ in connection.calls)
+    eligibility = next(call for call in connection.calls if call[0].startswith("SELECT role.rolcanlogin"))
+    assert eligibility[1][-1] == login
+    assert any("INSERT INTO celestin_private.project_runtime_scopes" in sql for sql, _ in connection.calls)
+    assert not any("CREATE ROLE" in sql or "DROP ROLE" in sql for sql, _ in connection.calls)
+
+
+@pytest.mark.parametrize(
+    "login",
+    ["", "Postgres", "celestin_project_test;drop_role", "x" * 64],
+)
+def test_project_database_login_registry_rejects_untrusted_role_name_before_connection(login):
+    opened = []
+    registry = ProjectDatabaseLoginRegistry(lambda: opened.append(True))
+
+    with pytest.raises(ValueError, match="lowercase PostgreSQL role identifier"):
+        registry.register_project_login(login, workspace_id=WORKSPACE, project_id=PROJECT)
+
+    assert opened == []
+
+
+def test_project_database_login_registry_rejects_unsafe_roles_and_existing_mapping():
+    ineligible = Connection(project_login_eligible=False)
+    registry = ProjectDatabaseLoginRegistry(lambda: ineligible)
+    with pytest.raises(ProvisioningDenied, match="not eligible"):
+        registry.register_project_login(
+            "celestin_project_test_a1b2c3d4",
+            workspace_id=WORKSPACE,
+            project_id=PROJECT,
+        )
+    assert ineligible.rollbacks == 1 and ineligible.commits == 0
+    assert not any("INSERT INTO celestin_private.project_runtime_scopes" in sql for sql, _ in ineligible.calls)
+
+    existing = Connection(login_mapping_present=True)
+    registry = ProjectDatabaseLoginRegistry(lambda: existing)
+    with pytest.raises(ProvisioningConflict, match="already registered"):
+        registry.register_project_login(
+            "celestin_project_test_a1b2c3d4",
+            workspace_id=WORKSPACE,
+            project_id=PROJECT,
+        )
+    assert existing.rollbacks == 1 and existing.commits == 0
+    assert existing.close_calls == 1
+
+
+def test_project_database_login_revocation_removes_scope_mapping_transactionally():
+    connection = Connection(
+        login_mapping_present=True,
+        login_role_name="celestin_project_test_a1b2c3d4",
+    )
+    registry = ProjectDatabaseLoginRegistry(lambda: connection)
+
+    registry.revoke_project_login("celestin_project_test_a1b2c3d4")
+
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1
+    assert not connection.login_mapping_present
+    assert any(sql.startswith("SELECT public.celestin_lock_authorization_write") for sql, _ in connection.calls)
+    assert any("DELETE FROM celestin_private.project_runtime_scopes" in sql for sql, _ in connection.calls)
+
+
+def test_project_database_login_revocation_of_missing_mapping_is_denied():
+    connection = Connection(login_mapping_present=False)
+    registry = ProjectDatabaseLoginRegistry(lambda: connection)
+
+    with pytest.raises(ProvisioningConflict, match="not registered"):
+        registry.revoke_project_login("celestin_project_test_a1b2c3d4")
+
+    assert connection.rollbacks == 1 and connection.commits == 0
+    assert connection.close_calls == 1

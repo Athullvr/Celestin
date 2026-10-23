@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T20:50:28+05:30 — Bind PostgreSQL RLS to project logins
+
+- Changed: Added migration `0008_project_scoped_runtime_roles.sql`, a protected `session_user`-to-project scope map, and authorization-lock coordination for project login provisioning and revocation.
+- Why: The former shared runtime credential could choose caller-settable tenant GUCs. Project-specific database identities provide the tenant scope used by RLS policies.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_migration_runner.py tests/postgres/test_provisioning.py tests/postgres/test_request_unit_of_work.py tests/postgres/test_hosted_authorization.py` — 71 passed. Changed PostgreSQL modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: Live SQL/RLS behavior remains unverified; the live PostgreSQL environment was not used. Hosted runtime routing and the guarded live-test suite are recorded in subsequent entries.
+
 ## 2026-10-23T19:35:21+05:30 — Document PostgreSQL RLS trust boundary
 
 - Changed: Added a source-derived inventory for all twelve content tables protected by migrations 0006–0007, listed the authorization/control tables without RLS, and documented that the current custom-GUC scope can be set by the shared runtime role. Clarified that existing live-owner tests do not prove direct-SQL isolation under the application role.

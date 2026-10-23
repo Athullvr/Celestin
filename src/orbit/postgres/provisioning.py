@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any, Callable, Iterator, Protocol
 from uuid import UUID, uuid4
 
@@ -18,9 +19,11 @@ from mcp.server.auth.middleware.bearer_auth import AccessToken
 from orbit.mcp_server.hosted_auth import Auth0AccessTokenAuthenticator
 from orbit.mcp_server.hosted_identity import PrincipalAuthenticationFailed
 from orbit.mcp_server.hosted_scope import VerifiedPrincipal
+from orbit.postgres.authorization_locking import lock_authorization_write
 
 
 logger = logging.getLogger(__name__)
+_DATABASE_LOGIN_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 class ProvisioningDenied(PermissionError):
@@ -118,6 +121,10 @@ class PostgresAccessProvisioner:
         subject = _required_identity_value("subject", subject)
         user_id = uuid4()
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             self._require_active_project(connection, workspace_id, project_id)
             inserted = connection.execute(
@@ -193,6 +200,10 @@ class PostgresAccessProvisioner:
             _require_uuid, (workspace_id, project_id, user_id)
         )
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             self._require_active_project(connection, workspace_id, project_id)
             target = connection.execute(
@@ -271,6 +282,10 @@ class PostgresAccessProvisioner:
         name = _required_identity_value("name", name)
         service_id = uuid4()
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             self._require_active_project(connection, workspace_id, project_id)
             identity = connection.execute(
@@ -328,6 +343,10 @@ class PostgresAccessProvisioner:
             _require_uuid, (workspace_id, service_identity_id)
         )
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             identity = connection.execute(
                 """SELECT status FROM celestin_service_identities
@@ -380,6 +399,10 @@ class PostgresAccessProvisioner:
             _require_uuid, (workspace_id, project_id, user_id)
         )
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             self._require_active_project(connection, workspace_id, project_id)
             grant = connection.execute(
@@ -428,6 +451,10 @@ class PostgresAccessProvisioner:
         actor = self._verified_admin(access_token)
         workspace_id, user_id = map(_require_uuid, (workspace_id, user_id))
         with self._transaction() as connection:
+            lock_authorization_write(
+                connection, workspace_id,
+                (actor.kind, actor.issuer, actor.subject),
+            )
             actor_user_id = self._require_workspace_admin(connection, actor, workspace_id)
             target = connection.execute(
                 """
@@ -533,6 +560,153 @@ class PostgresAccessProvisioner:
             raise ProvisioningDenied("access denied")
 
 
+class ProjectDatabaseLoginRegistry:
+    """Register pre-created project logins in the protected scope mapping.
+
+    PostgreSQL login creation, password/secret storage, and credential
+    rotation remain external operator responsibilities. This registry uses a
+    separate ``celestin_authorization_admin`` connection; it never creates a
+    role or accepts a DSN from a request.
+    """
+
+    def __init__(self, connection_factory: Callable[[], _Connection]) -> None:
+        if not callable(connection_factory):
+            raise TypeError("connection_factory must be callable")
+        self._connection_factory = connection_factory
+
+    def register_project_login(
+        self,
+        login_role_name: str,
+        *,
+        workspace_id: UUID,
+        project_id: UUID,
+    ) -> None:
+        login_role_name = _require_database_login_name(login_role_name)
+        workspace_id, project_id = map(_require_uuid, (workspace_id, project_id))
+        with self._transaction() as connection:
+            lock_authorization_write(connection, workspace_id)
+            project = connection.execute(
+                """SELECT id FROM celestin_projects
+                     WHERE workspace_id = %s AND id = %s AND archived_at IS NULL
+                     FOR SHARE""",
+                (workspace_id, project_id),
+            ).fetchone()
+            if project is None:
+                raise ProvisioningDenied("access denied")
+
+            eligible = connection.execute(
+                """SELECT role.rolcanlogin
+                            AND NOT role.rolsuper
+                            AND NOT role.rolbypassrls
+                            AND NOT role.rolcreaterole
+                            AND NOT role.rolcreatedb
+                            AND NOT role.rolreplication
+                            AND role.rolinherit
+                            AND pg_catalog.pg_has_role(
+                                role.oid, 'celestin_project_runtime', 'MEMBER'
+                            )
+                            AND NOT EXISTS (
+                                SELECT 1 FROM pg_catalog.pg_roles AS inherited
+                                 WHERE inherited.oid <> role.oid
+                                   AND inherited.rolname NOT IN (
+                                       'celestin_project_runtime', 'pg_database_owner'
+                                   )
+                                   AND pg_catalog.pg_has_role(
+                                       role.oid, inherited.oid, 'MEMBER'
+                                   )
+                            )
+                            AND NOT EXISTS (
+                                SELECT 1 FROM pg_catalog.pg_class AS relation
+                                 WHERE relation.relnamespace = 'public'::regnamespace
+                                   AND relation.relowner = role.oid
+                                   AND relation.relname = ANY(%s::text[])
+                            )
+                            AND NOT pg_catalog.has_schema_privilege(
+                                role.oid, 'public', 'CREATE'
+                            )
+                            AND NOT pg_catalog.has_schema_privilege(
+                                role.oid, 'celestin_private', 'CREATE'
+                            )
+                       FROM pg_catalog.pg_roles AS role
+                      WHERE role.rolname = %s""",
+                (
+                    [
+                        "chat_messages", "project_memory",
+                        "celestin_knowledge_records", "celestin_evidence_records",
+                        "celestin_project_producers", "celestin_project_source_namespaces",
+                        "celestin_candidates", "celestin_candidate_revisions",
+                        "celestin_candidate_review_events",
+                        "celestin_candidate_evidence_records",
+                        "celestin_candidate_occurrences", "celestin_candidate_conversions",
+                        "celestin_users", "celestin_workspaces",
+                        "celestin_workspace_memberships", "celestin_projects",
+                        "celestin_project_memberships", "celestin_service_identities",
+                        "celestin_service_project_grants",
+                    ],
+                    login_role_name,
+                ),
+            ).fetchone()
+            if eligible is None or eligible[0] is not True:
+                raise ProvisioningDenied("project database login is not eligible")
+
+            existing = connection.execute(
+                """SELECT 1 FROM celestin_private.project_runtime_scopes
+                     WHERE login_role_name = %s""",
+                (login_role_name,),
+            ).fetchone()
+            if existing is not None:
+                raise ProvisioningConflict("project database login is already registered")
+            connection.execute(
+                """INSERT INTO celestin_private.project_runtime_scopes
+                       (login_role_name, workspace_id, project_id)
+                   VALUES (%s, %s, %s)""",
+                (login_role_name, workspace_id, project_id),
+            )
+
+    def revoke_project_login(self, login_role_name: str) -> None:
+        """Remove the scope mapping; an operator must also disable its role."""
+        login_role_name = _require_database_login_name(login_role_name)
+        with self._transaction() as connection:
+            mapping = connection.execute(
+                """SELECT workspace_id FROM celestin_private.project_runtime_scopes
+                     WHERE login_role_name = %s FOR UPDATE""",
+                (login_role_name,),
+            ).fetchone()
+            if mapping is None:
+                raise ProvisioningConflict("project database login is not registered")
+            lock_authorization_write(connection, _require_uuid(mapping[0]))
+            deleted = connection.execute(
+                """DELETE FROM celestin_private.project_runtime_scopes
+                     WHERE login_role_name = %s RETURNING login_role_name""",
+                (login_role_name,),
+            ).fetchone()
+            if deleted is None:
+                raise ProvisioningConflict("project database login is not registered")
+
+    @contextmanager
+    def _transaction(self) -> Iterator[_Connection]:
+        try:
+            connection = self._connection_factory()
+        except Exception:
+            raise ProvisioningUnavailable("database login registry is unavailable") from None
+        try:
+            with connection.transaction():
+                yield connection
+        except (ProvisioningDenied, ProvisioningConflict, ProvisioningUnavailable):
+            raise
+        except Exception:
+            raise ProvisioningUnavailable(
+                "database login registry operation could not be completed"
+            ) from None
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                raise ProvisioningUnavailable(
+                    "database login registry could not release its session"
+                ) from None
+
+
 def _require_uuid(value: object) -> UUID:
     try:
         return value if isinstance(value, UUID) else UUID(str(value))
@@ -543,4 +717,10 @@ def _require_uuid(value: object) -> UUID:
 def _required_identity_value(name: str, value: object) -> str:
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError(f"{name} must be a non-empty string without NUL")
+    return value
+
+
+def _require_database_login_name(value: str) -> str:
+    if not isinstance(value, str) or not _DATABASE_LOGIN_NAME.fullmatch(value):
+        raise ValueError("database login name must be a lowercase PostgreSQL role identifier")
     return value
