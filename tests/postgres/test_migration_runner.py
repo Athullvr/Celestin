@@ -119,7 +119,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6]
+    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6, 7]
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -148,6 +148,10 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     assert "captured_at           TIMESTAMPTZ NOT NULL" in migrations[4].sql
     assert "CREATE UNIQUE INDEX idx_celestin_knowledge_one_successor" in migrations[4].sql
     assert migrations[5].name == "0006_candidate_revision_store.sql"
+    assert migrations[6].name == "0007_memory_request_rls.sql"
+    assert "ALTER TABLE chat_messages FORCE ROW LEVEL SECURITY" in migrations[6].sql
+    assert "ALTER TABLE project_memory FORCE ROW LEVEL SECURITY" in migrations[6].sql
+    assert migrations[6].sql.count("celestin_request_scope_matches(workspace_id, project_id)") == 4
 
 
 def test_candidate_revision_migration_defines_scoped_history_and_ordered_occurrences():

@@ -343,6 +343,16 @@ class PostgresRetrievalData(RetrievalData):
             yield self._request_connection
             return
         with self._connection_factory() as connection:
+            cursor = connection.execute(
+                """
+                SELECT set_config('celestin.workspace_id', %s, true),
+                       set_config('celestin.project_id', %s, true)
+                """,
+                (str(self._scope.workspace_id), str(self._scope.project_id)),
+            )
+            close = getattr(cursor, "close", None)
+            if callable(close):
+                close()
             yield connection
 
 

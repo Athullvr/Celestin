@@ -50,8 +50,24 @@ class _FixedWorkspaceBinding:
     def __init__(self, workspace_id: UUID) -> None:
         self._workspace_id = workspace_id
 
-    def workspace_for(self, _principal: VerifiedPrincipal) -> UUID:
+    def workspace_for(
+        self, _principal: VerifiedPrincipal, requested_workspace_id: UUID | None = None
+    ) -> UUID | None:
+        if requested_workspace_id is not None and requested_workspace_id != self._workspace_id:
+            return None
         return self._workspace_id
+
+
+class _ExplicitTestBoundary(HostedRequestBoundary):
+    """Supply the test tenant's explicit HTTP workspace selector."""
+
+    def __init__(self, workspace_id: UUID, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._test_workspace_selector = str(workspace_id)
+
+    def execute_authorized_request(self, *args, **kwargs):
+        kwargs.setdefault("workspace_selector", self._test_workspace_selector)
+        return super().execute_authorized_request(*args, **kwargs)
 
 
 class _ActiveStatusProvider:
@@ -73,7 +89,8 @@ class _EvidenceTenant:
 
     def boundary(self, pg) -> HostedRequestBoundary:
         principal = VerifiedPrincipal(self.issuer, self.subject, "human")
-        return HostedRequestBoundary(
+        return _ExplicitTestBoundary(
+            self.workspace_id,
             authenticator=_TestAuthenticator(principal),
             workspace_binding=_FixedWorkspaceBinding(self.workspace_id),
             principal_status=_ActiveStatusProvider(),

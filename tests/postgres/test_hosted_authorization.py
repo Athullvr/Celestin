@@ -54,6 +54,8 @@ class FakeConnection:
         self.queries.append((normalized, params))
         if self.fail_query and self.fail_query in normalized:
             raise RuntimeError("secret database detail")
+        if normalized.startswith("SELECT set_config('celestin.workspace_id'"):
+            return Result((params[0], params[1]))
         if normalized.startswith("SELECT id FROM celestin_workspaces"):
             return Result(None if self.workspace_missing else (WORKSPACE,))
         if normalized.startswith("SELECT id, status FROM celestin_users"):
@@ -116,8 +118,8 @@ class Result:
 
 
 class WorkspaceBinding:
-    def workspace_for(self, principal):
-        return WORKSPACE
+    def workspace_for(self, principal, requested_workspace_id=None):
+        return requested_workspace_id or WORKSPACE
 
 
 class StatusFallback:

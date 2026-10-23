@@ -30,7 +30,11 @@ class FixedWorkspaceBinding:
     def __init__(self, workspace_id: UUID) -> None:
         self.workspace_id = workspace_id
 
-    def workspace_for(self, _principal: VerifiedPrincipal) -> UUID:
+    def workspace_for(
+        self, _principal: VerifiedPrincipal, requested_workspace_id: UUID | None = None
+    ) -> UUID | None:
+        if requested_workspace_id is not None and requested_workspace_id != self.workspace_id:
+            return None
         return self.workspace_id
 
 
@@ -76,6 +80,7 @@ class TenantFixture:
 
 
 def _insert_message(connection, workspace_id: UUID, project_id: UUID, conversation: str) -> int:
+    _set_content_scope(connection, workspace_id, project_id)
     row = connection.execute(
         """
         INSERT INTO chat_messages
@@ -86,6 +91,17 @@ def _insert_message(connection, workspace_id: UUID, project_id: UUID, conversati
         (workspace_id, project_id, conversation, f"synthetic live fixture {conversation}"),
     ).fetchone()
     return int(row[0])
+
+
+def _set_content_scope(connection, workspace_id: UUID, project_id: UUID) -> None:
+    connection.execute(
+        "SELECT set_config('celestin.workspace_id', %s, true)",
+        (str(workspace_id),),
+    ).close()
+    connection.execute(
+        "SELECT set_config('celestin.project_id', %s, true)",
+        (str(project_id),),
+    ).close()
 
 
 @pytest.fixture
@@ -196,6 +212,7 @@ def tenant_fixture(postgres_connections):
             connection, ids["workspace_a"], ids["project_other"], f"other-{suffix}"
         )
         message_b = _insert_message(connection, ids["workspace_b"], ids["project_b"], f"b-{suffix}")
+        _set_content_scope(connection, ids["workspace_a"], ids["project_a"])
         memory_a = connection.execute(
             """INSERT INTO project_memory
                    (workspace_id, project_id, key, value, status, source_message_id,
@@ -225,10 +242,17 @@ def tenant_fixture(postgres_connections):
     finally:
         with pg.connection() as connection, connection.transaction():
             project_ids = [ids["project_a"], ids["project_other"], ids["project_b"]]
+            scoped_projects = (
+                (ids["workspace_a"], ids["project_a"]),
+                (ids["workspace_a"], ids["project_other"]),
+                (ids["workspace_b"], ids["project_b"]),
+            )
             workspace_ids = [ids["workspace_a"], ids["workspace_b"]]
             user_ids = [ids["human_id"], ids["default_user_id"], ids["contender_user_id"]]
-            connection.execute("DELETE FROM project_memory WHERE project_id = ANY(%s)", (project_ids,))
-            connection.execute("DELETE FROM chat_messages WHERE project_id = ANY(%s)", (project_ids,))
+            for workspace_id, project_id in scoped_projects:
+                _set_content_scope(connection, workspace_id, project_id)
+                connection.execute("DELETE FROM project_memory WHERE project_id = %s", (project_id,))
+                connection.execute("DELETE FROM chat_messages WHERE project_id = %s", (project_id,))
             connection.execute(
                 "DELETE FROM celestin_service_project_grants WHERE project_id = ANY(%s)",
                 (project_ids,),
@@ -250,8 +274,6 @@ def tenant_fixture(postgres_connections):
 
         with pg.connection() as verification:
             cleanup_checks = (
-                ("SELECT count(*) FROM project_memory WHERE project_id = ANY(%s)", (project_ids,)),
-                ("SELECT count(*) FROM chat_messages WHERE project_id = ANY(%s)", (project_ids,)),
                 (
                     "SELECT count(*) FROM celestin_service_project_grants WHERE project_id = ANY(%s)",
                     (project_ids,),
@@ -276,19 +298,32 @@ def tenant_fixture(postgres_connections):
                 assert verification.execute(statement, params).fetchone()[0] == 0, (
                     "synthetic PostgreSQL fixture cleanup left rows in a scoped table"
                 )
+            for workspace_id, project_id in scoped_projects:
+                _set_content_scope(verification, workspace_id, project_id)
+                for table in ("project_memory", "chat_messages"):
+                    assert verification.execute(
+                        f"SELECT count(*) FROM {table} WHERE project_id = %s",
+                        (project_id,),
+                    ).fetchone()[0] == 0, "synthetic PostgreSQL fixture cleanup left tenant data"
 
 
 def _factory(pg) -> PostgresHostedAuthorizationSessionFactory:
     return PostgresHostedAuthorizationSessionFactory(pg.connect)
 
 
-def _fetchone(pg, query: str, params=()):
+def _fetchone(pg, query: str, params=(), *, workspace_id=None, project_id=None):
     with pg.connection() as connection:
+        if workspace_id is not None and project_id is not None:
+            _set_content_scope(connection, workspace_id, project_id)
         return connection.execute(query, params).fetchone()
 
 
-def _expect_sqlstate(pg, statement: str, params, expected: str) -> None:
+def _expect_sqlstate(
+    pg, statement: str, params, expected: str, *, workspace_id=None, project_id=None
+) -> None:
     with pg.connection() as connection, connection.transaction():
+        if workspace_id is not None and project_id is not None:
+            _set_content_scope(connection, workspace_id, project_id)
         with pytest.raises(pg.psycopg.Error) as raised:
             with connection.transaction():  # savepoint: keep this fixture transaction usable
                 connection.execute(statement, params)
@@ -566,6 +601,8 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
            VALUES (%s, %s, %s, 'synthetic invalid reference', 'draft', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
         (fixture.workspace_a, fixture.project_a, f"cross-project-{fixture.suffix}", fixture.message_other),
         "23503",
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )
     _expect_sqlstate(
         pg,
@@ -574,6 +611,8 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
            VALUES (%s, %s, %s, 'synthetic invalid reference', 'draft', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
         (fixture.workspace_a, fixture.project_a, f"missing-source-{fixture.suffix}", missing_message_id),
         "23503",
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )
     _expect_sqlstate(
         pg,
@@ -582,6 +621,8 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
            VALUES (%s, %s, %s, 'synthetic invalid reference', 'draft', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
         (fixture.workspace_a, fixture.project_a, f"missing-source-{fixture.suffix}", 987654321),
         "23503",
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )
     _expect_sqlstate(
         pg,
@@ -590,7 +631,59 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
            VALUES (%s, %s, %s, 'synthetic invalid reference', 'draft', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
         (fixture.workspace_a, fixture.project_a, f"cross-workspace-{fixture.suffix}", fixture.message_b),
         "23503",
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )
+
+
+def test_content_rls_requires_matching_workspace_and_project(
+    postgres_connections, tenant_fixture
+):
+    pg, fixture = postgres_connections, tenant_fixture
+    with pg.connection() as connection, connection.transaction():
+        # Missing request context must reveal no tenant rows.
+        assert connection.execute(
+            "SELECT count(*) FROM chat_messages"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT count(*) FROM project_memory"
+        ).fetchone()[0] == 0
+
+        _set_content_scope(connection, fixture.workspace_a, fixture.project_a)
+        assert connection.execute(
+            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+            (fixture.project_a,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+            (fixture.project_other,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+            (fixture.project_b,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT count(*) FROM project_memory WHERE project_id = %s",
+            (fixture.project_a,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM project_memory WHERE project_id <> %s",
+            (fixture.project_a,),
+        ).fetchone()[0] == 0
+
+        # A valid row for another project still fails the policy's WITH CHECK.
+        with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+            with connection.transaction():  # savepoint: preserve the outer test transaction
+                connection.execute(
+                    """INSERT INTO chat_messages
+                           (workspace_id, project_id, conversation_id, role, content, created_at)
+                           VALUES (%s, %s, %s, 'assistant', 'scope probe', CURRENT_TIMESTAMP)""",
+                    (
+                        fixture.workspace_a,
+                        fixture.project_other,
+                        f"rls-denied-{fixture.suffix}",
+                    ),
+                )
 
 
 def test_constraints_reject_cross_workspace_membership_and_duplicate_grants(
@@ -684,11 +777,15 @@ def test_restrictive_deletion_preserves_source_provenance(postgres_connections, 
         "DELETE FROM chat_messages WHERE id = %s AND project_id = %s",
         (fixture.message_a, fixture.project_a),
         "23001",
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )
     assert _fetchone(
         pg,
         "SELECT source_message_id FROM project_memory WHERE id = %s AND project_id = %s",
         (fixture.memory_a, fixture.project_a),
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )[0] == fixture.message_a
 
     _expect_sqlstate(
@@ -727,7 +824,17 @@ def test_archive_and_purge_checks_reject_invalid_timestamps(postgres_connections
         ),
     )
     for statement, params in cases:
-        _expect_sqlstate(pg, statement, params, "23514")
+        if "chat_messages" in statement or "project_memory" in statement:
+            _expect_sqlstate(
+                pg,
+                statement,
+                params,
+                "23514",
+                workspace_id=fixture.workspace_a,
+                project_id=fixture.project_a,
+            )
+        else:
+            _expect_sqlstate(pg, statement, params, "23514")
 
 
 def test_workspace_can_be_created_without_an_active_owner(postgres_connections, tenant_fixture):
@@ -782,7 +889,11 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
         source_message_id=str(fixture.message_a),
     )
     assert _fetchone(
-        pg, "SELECT id FROM project_memory WHERE id = %s", (committed_id,)
+        pg,
+        "SELECT id FROM project_memory WHERE id = %s",
+        (committed_id,),
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )[0] == committed_id
     assert opened[-1].closed
     assert all(cursor.closed for cursor in opened[-1].cursors)
@@ -809,6 +920,8 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
         pg,
         "SELECT count(*) FROM chat_messages WHERE project_id = %s AND conversation_id = %s",
         (fixture.project_a, rolled_back_conversation),
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
     )[0] == 0
     assert backend_pid is not None and transaction_id is not None
     assert opened[-1].closed

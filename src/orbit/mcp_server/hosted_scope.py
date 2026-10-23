@@ -221,9 +221,16 @@ class PrincipalStatusProvider(Protocol):
 
 
 class WorkspaceBinding(Protocol):
-    """Returns a server/credential-bound workspace, never one from tool input."""
+    """Resolve an untrusted transport selector for database authorization.
 
-    def workspace_for(self, principal: VerifiedPrincipal) -> UUID | None: ...
+    The selector is not an authorization claim. Implementations return a
+    workspace candidate; the authorization session must still verify the
+    principal's active binding and project grant in the request transaction.
+    """
+
+    def workspace_for(
+        self, principal: VerifiedPrincipal, requested_workspace_id: UUID | None = None
+    ) -> UUID | None: ...
 
 
 class HostedAuthorizationSession(Protocol):
@@ -264,6 +271,8 @@ class HostedScopeResolver:
         principal: VerifiedPrincipal,
         project_key: str,
         action: ProjectAction,
+        *,
+        requested_workspace_id: UUID | None = None,
     ) -> ResolvedProjectScope:
         """Return a scope only when all identity, lifecycle, and grant checks pass."""
         if not isinstance(principal, VerifiedPrincipal):
@@ -274,7 +283,9 @@ class HostedScopeResolver:
             raise HostedAccessDenied("access denied")
 
         try:
-            workspace_id = self._workspace_binding.workspace_for(principal)
+            workspace_id = self._workspace_binding.workspace_for(
+                principal, requested_workspace_id
+            )
             if not isinstance(workspace_id, UUID):
                 raise HostedAccessDenied("access denied")
             # A database-backed session owns the authoritative identity lookup
@@ -394,6 +405,7 @@ class HostedScopeResolver:
         operation: Callable[[SessionT, ResolvedProjectScope], ResultT],
         *,
         source_message_id: str | None = None,
+        requested_workspace_id: UUID | None = None,
     ) -> ResultT:
         """Authorize first, then call the operation with the same request session.
 
@@ -401,7 +413,20 @@ class HostedScopeResolver:
         must share it so a PostgreSQL implementation can lock/recheck grants and
         serialize revocation against data access.
         """
-        scope = self.resolve(session, principal, project_key, action)
+        scope = self.resolve(
+            session,
+            principal,
+            project_key,
+            action,
+            requested_workspace_id=requested_workspace_id,
+        )
+        # PostgreSQL request sessions set transaction-local RLS context only
+        # after authorization, but before any source/data query. This matters
+        # for source-message validation because chat_messages itself is RLS-
+        # protected in the hosted schema.
+        bind_scope = getattr(session, "bind_scope", None)
+        if callable(bind_scope):
+            bind_scope(scope)
         if source_message_id is not None:
             self.require_source_message(session, scope, source_message_id)
         return operation(session, scope)

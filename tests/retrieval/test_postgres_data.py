@@ -78,6 +78,10 @@ def adapter(database, scope):
     return PostgresRetrievalData(database.connect, scope=scope)
 
 
+def data_calls(database):
+    return [call for call in database.calls if "set_config('celestin.workspace_id'" not in call[0]]
+
+
 def assert_query_is_scoped(query, params):
     normalized = " ".join(query.split())
     assert "record.workspace_id = %s::uuid" in normalized
@@ -116,7 +120,7 @@ def test_message_search_maps_postgres_types_scopes_and_closes_resources(scope):
     ]
     assert page.matches[0].timestamp == "2026-10-17T03:30:00.000000Z"
     assert page.matches[0].project == "celestin"
-    query, params, _ = database.calls[0]
+    query, params, _ = data_calls(database)[0]
     assert_query_is_scoped(query, params)
     assert "@@" in query and "ts_rank_cd" in query and "ORDER BY score DESC" in query
     assert "ORDER BY score DESC, record.created_at DESC, record.id ASC" in query
@@ -139,7 +143,7 @@ def test_quoted_phrase_is_a_parameterized_adjacency_query(scope):
     adapter(database, scope).search_messages(
         "celestin", '"release notes"', 10, relax=False
     )
-    query, params, _ = database.calls[0]
+    query, params, _ = data_calls(database)[0]
     assert params[0] == "(release <-> notes)"
     assert '"release notes"' not in query
 
@@ -169,8 +173,8 @@ def test_stopword_relaxation_uses_bounded_tiers_and_parameterized_query(scope):
     )
     assert page.tier == "no_stopwords"
     assert [hit.record_id for hit in page.matches] == ["7"]
-    assert len(database.calls) == 2
-    assert all(call[1][1:3] == (WORKSPACE, PROJECT) for call in database.calls)
+    assert len(data_calls(database)) == 2
+    assert all(call[1][1:3] == (WORKSPACE, PROJECT) for call in data_calls(database))
 
 
 def test_relaxed_or_tier_preserves_identifier_terms_and_pool_bound(scope):
@@ -187,14 +191,17 @@ def test_relaxed_or_tier_preserves_identifier_terms_and_pool_bound(scope):
     )
     assert page.tier == "relaxed_or"
     assert [hit.record_id for hit in page.matches] == ["8"]
-    assert database.calls[-1][1][-1] == 15
+    assert data_calls(database)[-1][1][-1] == 15
 
     identifier_db = Database()
     identifier_page = adapter(identifier_db, scope).search_messages(
         "celestin", "what failed with ERR_PAYMENT_9999 nightly gateway", 5, relax=True
     )
     assert identifier_page.matches == ()
-    assert all("ERR" in call[1][0] and "9999" in call[1][0] for call in identifier_db.calls)
+    assert all(
+        "ERR" in call[1][0] and "9999" in call[1][0]
+        for call in data_calls(identifier_db)
+    )
 
 
 def test_decision_search_reloads_authoritative_rows_and_filters_archived(scope):
@@ -222,8 +229,8 @@ def test_decision_search_reloads_authoritative_rows_and_filters_archived(scope):
     assert page.matches[0].score == -0.9
     assert page.matches[1].source_id is None and page.matches[1].status == "draft"
     assert len(database.connections) == 1
-    assert len(database.calls) == 2
-    for query, params, _ in database.calls:
+    assert len(data_calls(database)) == 2
+    for query, params, _ in data_calls(database):
         assert_query_is_scoped(query, params)
     assert all(cursor.closed for cursor in database.cursors)
 
@@ -244,11 +251,11 @@ def test_authoritative_loads_validate_ids_and_filter_project_workspace_archives(
     assert messages["5"].content == "message"
     assert decisions["6"].status == "deprecated"
     assert decisions["6"].source_message_id == "5"
-    assert len(database.calls) == 2
-    for query, params, _ in database.calls:
+    assert len(data_calls(database)) == 2
+    for query, params, _ in data_calls(database):
         assert_query_is_scoped(query, params)
         assert "ANY(%s::bigint[])" in query
-    assert database.calls[0][1][-1] == [5]
+    assert data_calls(database)[0][1][-1] == [5]
 
 
 def test_shared_retrieval_service_accepts_postgres_adapter_records(scope):

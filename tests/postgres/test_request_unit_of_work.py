@@ -82,6 +82,9 @@ class Connection:
         if sql.startswith("SELECT set_config('celestin.workspace_id'"):
             self.scope_set_transaction_depth = self.transaction_depth
             row, rows = (params[0], params[1]), ()
+        elif sql.startswith("SELECT set_config('statement_timeout'"):
+            self.statement_timeout_transaction_depth = self.transaction_depth
+            row, rows = (params[0],), ()
         elif sql.startswith("SELECT id FROM celestin_workspaces"):
             row = (WORKSPACE,)
             rows = ()
@@ -148,8 +151,8 @@ class Connection:
 
 
 class WorkspaceBinding:
-    def workspace_for(self, principal):
-        return WORKSPACE
+    def workspace_for(self, principal, requested_workspace_id=None):
+        return requested_workspace_id or WORKSPACE
 
 
 class StatusProvider:
@@ -166,6 +169,29 @@ def build_request(connection):
 
     factory = PostgresHostedAuthorizationSessionFactory(connect)
     return factory, connect_calls
+
+
+def test_statement_timeout_is_transaction_local_before_authorization():
+    connection = Connection()
+    factory = PostgresHostedAuthorizationSessionFactory(
+        lambda: connection, statement_timeout_ms=2500
+    )
+
+    with factory._transaction():
+        pass
+
+    assert connection.queries[0] == (
+        "SELECT set_config('statement_timeout', %s, true)", ("2500ms",)
+    )
+    assert connection.statement_timeout_transaction_depth == 1
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1
+
+
+@pytest.mark.parametrize("timeout", [0, -1, True, 1.5])
+def test_statement_timeout_configuration_must_be_positive_integer(timeout):
+    with pytest.raises(ValueError, match="positive integer"):
+        PostgresHostedAuthorizationSessionFactory(lambda: Connection(), statement_timeout_ms=timeout)
 
 
 class Authenticator:
@@ -188,6 +214,7 @@ def execute_request(factory, project, action, operation, *, source_message_id=No
         project,
         action,
         operation,
+        workspace_selector=str(WORKSPACE),
         source_message_id=source_message_id,
     )
 
@@ -397,10 +424,24 @@ def test_archived_scope_or_missing_source_denies_before_operation(connection):
     assert not called
     assert connection.rollbacks == 1 and connection.close_calls == 1
     assert connection.commits == 0
-    assert not any(
-        sql.startswith("SELECT set_config('celestin.workspace_id'")
-        for sql, _ in connection.queries
-    )
+    source_query_indices = [
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT id FROM chat_messages")
+    ]
+    if source_query_indices:
+        scope_query_index = next(
+            i for i, (sql, _params) in enumerate(connection.queries)
+            if sql.startswith("SELECT set_config('celestin.workspace_id'")
+        )
+        assert scope_query_index < source_query_indices[0]
+    else:
+        # Authorization may deny archived resources before any data-scope
+        # binding is needed; no protected source read is made in that case.
+        assert not any(
+            sql.startswith("SELECT set_config('celestin.workspace_id'")
+            for sql, _params in connection.queries
+        )
+    assert not called
 
 
 def test_source_validation_uses_workspace_and_project_ids_before_operation():
@@ -425,6 +466,15 @@ def test_source_validation_uses_workspace_and_project_ids_before_operation():
     )
     assert "workspace_id = %s" in source_query and "project_id = %s" in source_query
     assert params == (WORKSPACE, PROJECT, MESSAGE_ID)
+    scope_query_index = next(
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT set_config('celestin.workspace_id'")
+    )
+    source_query_index = next(
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT id FROM chat_messages")
+    )
+    assert scope_query_index < source_query_index
     assert called
 
 
@@ -463,7 +513,8 @@ def test_request_factory_has_no_public_executor_and_missing_auth_never_connects(
     )
     with pytest.raises(HostedAuthorizationUnavailable, match="authentication is not configured"):
         boundary.execute_authorized_request(
-            object(), "demo", "read", lambda _request: pytest.fail("must not run")
+            object(), "demo", "read", lambda _request: pytest.fail("must not run"),
+            workspace_selector=str(WORKSPACE),
         )
     assert connect_calls == []
     assert connection.queries == []

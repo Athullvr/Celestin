@@ -49,11 +49,13 @@ class FakeWorkspaceBinding:
         self.error = error
         self.calls: list[VerifiedPrincipal] = []
 
-    def workspace_for(self, principal: VerifiedPrincipal) -> UUID | None:
+    def workspace_for(
+        self, principal: VerifiedPrincipal, requested_workspace_id: UUID | None = None
+    ) -> UUID | None:
         self.calls.append(principal)
         if self.error:
             raise self.error
-        return self.workspace_id
+        return requested_workspace_id or self.workspace_id
 
 
 class FakeAuthorizationSession:

@@ -52,11 +52,37 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
     def __init__(self, connection: _Connection) -> None:
         self._connection = connection
         self._identities: dict[tuple[VerifiedPrincipal, UUID], tuple[UUID, str]] = {}
+        self._bound_scope: ResolvedProjectScope | None = None
 
     @property
     def _connection_for_adapters(self) -> _Connection:
         """Connection for trusted request-composition code only."""
         return self._connection
+
+    def bind_scope(self, scope: ResolvedProjectScope) -> None:
+        """Set transaction-local RLS context after authorization and before reads."""
+        if not isinstance(scope, ResolvedProjectScope):
+            raise HostedAuthorizationUnavailable("authorization state is unavailable")
+        if self._bound_scope is not None:
+            if self._bound_scope != scope:
+                raise HostedAuthorizationUnavailable("authorization state is unavailable")
+            return
+        try:
+            cursor = self._connection.execute(
+                """
+                SELECT set_config('celestin.workspace_id', %s, true),
+                       set_config('celestin.project_id', %s, true)
+                """,
+                (str(scope.workspace_id), str(scope.project_id)),
+            )
+            close = getattr(cursor, "close", None)
+            if callable(close):
+                close()
+            self._bound_scope = scope
+        except Exception:
+            raise HostedAuthorizationUnavailable(
+                "authorization state is unavailable"
+            ) from None
 
     def is_principal_active(
         self, principal: VerifiedPrincipal, workspace_id: UUID
@@ -252,10 +278,22 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
 class PostgresHostedAuthorizationSessionFactory:
     """Open one connection/transaction per authorized hosted operation."""
 
-    def __init__(self, connection_factory: ConnectionFactory) -> None:
+    def __init__(
+        self,
+        connection_factory: ConnectionFactory,
+        *,
+        statement_timeout_ms: int | None = None,
+    ) -> None:
         if not callable(connection_factory):
             raise TypeError("connection_factory must be callable")
+        if statement_timeout_ms is not None and (
+            isinstance(statement_timeout_ms, bool)
+            or not isinstance(statement_timeout_ms, int)
+            or statement_timeout_ms < 1
+        ):
+            raise ValueError("statement_timeout_ms must be a positive integer")
         self._connection_factory = connection_factory
+        self._statement_timeout_ms = statement_timeout_ms
 
     @classmethod
     def from_dsn(cls, dsn: str) -> PostgresHostedAuthorizationSessionFactory:
@@ -285,6 +323,14 @@ class PostgresHostedAuthorizationSessionFactory:
             ) from None
         try:
             with connection.transaction():
+                if self._statement_timeout_ms is not None:
+                    cursor = connection.execute(
+                        "SELECT set_config('statement_timeout', %s, true)",
+                        (f"{self._statement_timeout_ms}ms",),
+                    )
+                    close = getattr(cursor, "close", None)
+                    if callable(close):
+                        close()
                 yield PostgresHostedAuthorizationSession(connection)
         except (HostedAccessDenied, HostedSourceMessageNotFound, HostedAuthorizationUnavailable):
             raise
@@ -311,6 +357,7 @@ class PostgresHostedAuthorizationSessionFactory:
         operation: Callable[[PostgresHostedAuthorizationSession, ResolvedProjectScope], Any],
         *,
         source_message_id: str | None = None,
+        requested_workspace_id: UUID | None = None,
     ) -> Any:
         """Return only after the authorized operation's transaction commits.
 
@@ -327,6 +374,7 @@ class PostgresHostedAuthorizationSessionFactory:
                 action,
                 operation,
                 source_message_id=source_message_id,
+                requested_workspace_id=requested_workspace_id,
             )
         return result
 
@@ -339,6 +387,7 @@ class PostgresHostedAuthorizationSessionFactory:
         operation: Callable[[PostgresRequestUnitOfWork], Any],
         *,
         source_message_id: str | None = None,
+        requested_workspace_id: UUID | None = None,
     ) -> Any:
         """Run an operation with adapters bound to its authorized transaction.
 
@@ -361,4 +410,5 @@ class PostgresHostedAuthorizationSessionFactory:
             action,
             invoke,
             source_message_id=source_message_id,
+            requested_workspace_id=requested_workspace_id,
         )
