@@ -17,7 +17,10 @@ from orbit.mcp_server.hosted_scope import (
     HostedSourceMessageNotFound,
     VerifiedPrincipal,
 )
-from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
+from orbit.postgres.authorization import (
+    PostgresHostedAuthorizationSessionFactory,
+    ProjectScopedPostgresHostedAuthorizationSessionFactory,
+)
 
 
 pytestmark = pytest.mark.postgres_integration
@@ -51,14 +54,12 @@ class TenantFixture:
     workspace_a: UUID
     workspace_b: UUID
     project_a: UUID
-    project_other: UUID
     project_b: UUID
     human_id: UUID
     default_user_id: UUID
     contender_user_id: UUID
     service_id: UUID
     message_a: int
-    message_other: int
     message_b: int
     memory_a: int
     project_key: str
@@ -80,7 +81,6 @@ class TenantFixture:
 
 
 def _insert_message(connection, workspace_id: UUID, project_id: UUID, conversation: str) -> int:
-    _set_content_scope(connection, workspace_id, project_id)
     row = connection.execute(
         """
         INSERT INTO chat_messages
@@ -93,27 +93,15 @@ def _insert_message(connection, workspace_id: UUID, project_id: UUID, conversati
     return int(row[0])
 
 
-def _set_content_scope(connection, workspace_id: UUID, project_id: UUID) -> None:
-    connection.execute(
-        "SELECT set_config('celestin.workspace_id', %s, true)",
-        (str(workspace_id),),
-    ).close()
-    connection.execute(
-        "SELECT set_config('celestin.project_id', %s, true)",
-        (str(project_id),),
-    ).close()
-
-
 @pytest.fixture
 def tenant_fixture(postgres_connections):
-    """Create isolated synthetic tenants and remove only their rows afterward."""
+    """Create synthetic tenants; rows stay isolated in the one-shot test DB."""
     pg = postgres_connections
     suffix = uuid4().hex
     ids = {
         "workspace_a": uuid4(),
         "workspace_b": uuid4(),
         "project_a": uuid4(),
-        "project_other": uuid4(),
         "project_b": uuid4(),
         "human_id": uuid4(),
         "default_user_id": uuid4(),
@@ -167,12 +155,6 @@ def tenant_fixture(postgres_connections):
 
         for project_id, workspace_id, slug, legacy_key in (
             (ids["project_a"], ids["workspace_a"], f"project-a-{suffix}", project_key),
-            (
-                ids["project_other"],
-                ids["workspace_a"],
-                f"project-other-{suffix}",
-                f"other-key-{suffix}",
-            ),
             (ids["project_b"], ids["workspace_b"], f"project-b-{suffix}", project_key),
         ):
             connection.execute(
@@ -184,7 +166,6 @@ def tenant_fixture(postgres_connections):
 
         for workspace_id, project_id in (
             (ids["workspace_a"], ids["project_a"]),
-            (ids["workspace_a"], ids["project_other"]),
             (ids["workspace_b"], ids["project_b"]),
         ):
             connection.execute(
@@ -206,13 +187,22 @@ def tenant_fixture(postgres_connections):
                VALUES (%s, %s, %s, TRUE, TRUE)""",
             (ids["workspace_a"], ids["project_a"], ids["service_id"]),
         )
-
-        message_a = _insert_message(connection, ids["workspace_a"], ids["project_a"], f"a-{suffix}")
-        message_other = _insert_message(
-            connection, ids["workspace_a"], ids["project_other"], f"other-{suffix}"
+        connection.execute(
+            """INSERT INTO celestin_private.project_runtime_scopes
+                   (login_role_name, workspace_id, project_id)
+               VALUES (%s, %s, %s), (%s, %s, %s)""",
+            (
+                pg.target.project_a_user, ids["workspace_a"], ids["project_a"],
+                pg.target.project_b_user, ids["workspace_b"], ids["project_b"],
+            ),
         )
-        message_b = _insert_message(connection, ids["workspace_b"], ids["project_b"], f"b-{suffix}")
-        _set_content_scope(connection, ids["workspace_a"], ids["project_a"])
+
+    pg.bind_project_scope(ids["workspace_a"], ids["project_a"], role="project_a")
+    pg.bind_project_scope(ids["workspace_b"], ids["project_b"], role="project_b")
+    with pg.project_connection(ids["workspace_a"], ids["project_a"]) as connection:
+        message_a = _insert_message(
+            connection, ids["workspace_a"], ids["project_a"], f"a-{suffix}"
+        )
         memory_a = connection.execute(
             """INSERT INTO project_memory
                    (workspace_id, project_id, key, value, status, source_message_id,
@@ -224,12 +214,15 @@ def tenant_fixture(postgres_connections):
                 f"synthetic decision {suffix}", message_a,
             ),
         ).fetchone()[0]
+    with pg.project_connection(ids["workspace_b"], ids["project_b"]) as connection:
+        message_b = _insert_message(
+            connection, ids["workspace_b"], ids["project_b"], f"b-{suffix}"
+        )
 
     fixture = TenantFixture(
         suffix=suffix,
         **ids,
         message_a=message_a,
-        message_other=message_other,
         message_b=message_b,
         memory_a=int(memory_a),
         project_key=project_key,
@@ -241,89 +234,64 @@ def tenant_fixture(postgres_connections):
         yield fixture
     finally:
         with pg.connection() as connection, connection.transaction():
-            project_ids = [ids["project_a"], ids["project_other"], ids["project_b"]]
-            scoped_projects = (
-                (ids["workspace_a"], ids["project_a"]),
-                (ids["workspace_a"], ids["project_other"]),
-                (ids["workspace_b"], ids["project_b"]),
-            )
-            workspace_ids = [ids["workspace_a"], ids["workspace_b"]]
-            user_ids = [ids["human_id"], ids["default_user_id"], ids["contender_user_id"]]
-            for workspace_id, project_id in scoped_projects:
-                _set_content_scope(connection, workspace_id, project_id)
-                connection.execute("DELETE FROM project_memory WHERE project_id = %s", (project_id,))
-                connection.execute("DELETE FROM chat_messages WHERE project_id = %s", (project_id,))
             connection.execute(
-                "DELETE FROM celestin_service_project_grants WHERE project_id = ANY(%s)",
-                (project_ids,),
+                "DELETE FROM celestin_private.project_runtime_scopes "
+                "WHERE login_role_name = ANY(%s::name[])",
+                ([pg.target.project_a_user, pg.target.project_b_user],),
             )
-            connection.execute(
-                "DELETE FROM celestin_project_memberships WHERE project_id = ANY(%s)",
-                (project_ids,),
-            )
-            connection.execute(
-                "DELETE FROM celestin_workspace_memberships WHERE workspace_id = ANY(%s)",
-                (workspace_ids,),
-            )
-            connection.execute("DELETE FROM celestin_projects WHERE id = ANY(%s)", (project_ids,))
-            connection.execute(
-                "DELETE FROM celestin_service_identities WHERE id = %s", (ids["service_id"],)
-            )
-            connection.execute("DELETE FROM celestin_users WHERE id = ANY(%s)", (user_ids,))
-            connection.execute("DELETE FROM celestin_workspaces WHERE id = ANY(%s)", (workspace_ids,))
-
-        with pg.connection() as verification:
-            cleanup_checks = (
-                (
-                    "SELECT count(*) FROM celestin_service_project_grants WHERE project_id = ANY(%s)",
-                    (project_ids,),
-                ),
-                (
-                    "SELECT count(*) FROM celestin_project_memberships WHERE project_id = ANY(%s)",
-                    (project_ids,),
-                ),
-                (
-                    "SELECT count(*) FROM celestin_workspace_memberships WHERE workspace_id = ANY(%s)",
-                    (workspace_ids,),
-                ),
-                ("SELECT count(*) FROM celestin_projects WHERE id = ANY(%s)", (project_ids,)),
-                (
-                    "SELECT count(*) FROM celestin_service_identities WHERE id = %s",
-                    (ids["service_id"],),
-                ),
-                ("SELECT count(*) FROM celestin_users WHERE id = ANY(%s)", (user_ids,)),
-                ("SELECT count(*) FROM celestin_workspaces WHERE id = ANY(%s)", (workspace_ids,)),
-            )
-            for statement, params in cleanup_checks:
-                assert verification.execute(statement, params).fetchone()[0] == 0, (
-                    "synthetic PostgreSQL fixture cleanup left rows in a scoped table"
-                )
-            for workspace_id, project_id in scoped_projects:
-                _set_content_scope(verification, workspace_id, project_id)
-                for table in ("project_memory", "chat_messages"):
-                    assert verification.execute(
-                        f"SELECT count(*) FROM {table} WHERE project_id = %s",
-                        (project_id,),
-                    ).fetchone()[0] == 0, "synthetic PostgreSQL fixture cleanup left tenant data"
 
 
-def _factory(pg) -> PostgresHostedAuthorizationSessionFactory:
-    return PostgresHostedAuthorizationSessionFactory(pg.connect)
+class _LiveProjectScopedFactory(ProjectScopedPostgresHostedAuthorizationSessionFactory):
+    """Adapt existing resolver callbacks onto the production request boundary."""
+
+    def _execute_authorized(
+        self,
+        resolver,
+        principal,
+        project_key,
+        action,
+        operation,
+        *,
+        source_message_id=None,
+        requested_workspace_id=None,
+    ):
+        return self._execute_authorized_request(
+            resolver,
+            principal,
+            project_key,
+            action,
+            lambda request: operation(
+                request._authorization_session, request._scope
+            ),
+            source_message_id=source_message_id,
+            requested_workspace_id=requested_workspace_id,
+        )
+
+
+def _factory(pg) -> _LiveProjectScopedFactory:
+    return _LiveProjectScopedFactory(
+        pg.connect_authorization,
+        lambda scope: pg.connect_project_scope(scope.workspace_id, scope.project_id),
+    )
 
 
 def _fetchone(pg, query: str, params=(), *, workspace_id=None, project_id=None):
-    with pg.connection() as connection:
-        if workspace_id is not None and project_id is not None:
-            _set_content_scope(connection, workspace_id, project_id)
+    if workspace_id is not None and project_id is not None:
+        connection_context = pg.project_connection(workspace_id, project_id)
+    else:
+        connection_context = pg.connection()
+    with connection_context as connection:
         return connection.execute(query, params).fetchone()
 
 
 def _expect_sqlstate(
     pg, statement: str, params, expected: str, *, workspace_id=None, project_id=None
 ) -> None:
-    with pg.connection() as connection, connection.transaction():
-        if workspace_id is not None and project_id is not None:
-            _set_content_scope(connection, workspace_id, project_id)
+    if workspace_id is not None and project_id is not None:
+        connection_context = pg.project_connection(workspace_id, project_id)
+    else:
+        connection_context = pg.connection()
+    with connection_context as connection, connection.transaction():
         with pytest.raises(pg.psycopg.Error) as raised:
             with connection.transaction():  # savepoint: keep this fixture transaction usable
                 connection.execute(statement, params)
@@ -585,8 +553,8 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
     )
     assert result == (fixture.project_a, fixture.message_a)
 
-    missing_message_id = max(fixture.message_a, fixture.message_other, fixture.message_b) + 1000
-    for out_of_scope_id in (fixture.message_other, fixture.message_b, missing_message_id):
+    missing_message_id = max(fixture.message_a, fixture.message_b) + 1000
+    for out_of_scope_id in (fixture.message_b, missing_message_id):
         with pytest.raises(HostedSourceMessageNotFound):
             factory._execute_authorized(
                 resolver, principal, fixture.project_key, "write",
@@ -599,7 +567,7 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
         """INSERT INTO project_memory
                (workspace_id, project_id, key, value, status, source_message_id, created_at, updated_at)
            VALUES (%s, %s, %s, 'synthetic invalid reference', 'draft', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
-        (fixture.workspace_a, fixture.project_a, f"cross-project-{fixture.suffix}", fixture.message_other),
+        (fixture.workspace_a, fixture.project_a, f"cross-project-{fixture.suffix}", fixture.message_b),
         "23503",
         workspace_id=fixture.workspace_a,
         project_id=fixture.project_a,
@@ -636,54 +604,87 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
     )
 
 
-def test_content_rls_requires_matching_workspace_and_project(
-    postgres_connections, tenant_fixture
+@pytest.mark.parametrize(
+    "own_workspace_attr,own_project_attr,other_workspace_attr,other_project_attr,role",
+    [
+        ("workspace_a", "project_a", "workspace_b", "project_b", "project_a"),
+        ("workspace_b", "project_b", "workspace_a", "project_a", "project_b"),
+    ],
+)
+def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
+    postgres_connections,
+    tenant_fixture,
+    own_workspace_attr,
+    own_project_attr,
+    other_workspace_attr,
+    other_project_attr,
+    role,
 ):
     pg, fixture = postgres_connections, tenant_fixture
-    with pg.connection() as connection, connection.transaction():
-        # Missing request context must reveal no tenant rows.
-        assert connection.execute(
-            "SELECT count(*) FROM chat_messages"
-        ).fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT count(*) FROM project_memory"
-        ).fetchone()[0] == 0
+    own_workspace = getattr(fixture, own_workspace_attr)
+    own_project = getattr(fixture, own_project_attr)
+    other_workspace = getattr(fixture, other_workspace_attr)
+    other_project = getattr(fixture, other_project_attr)
+    target_login = (
+        pg.target.project_a_user if role == "project_a" else pg.target.project_b_user
+    )
+    other_login = (
+        pg.target.project_b_user if role == "project_a" else pg.target.project_a_user
+    )
 
-        _set_content_scope(connection, fixture.workspace_a, fixture.project_a)
-        assert connection.execute(
-            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
-            (fixture.project_a,),
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
-            (fixture.project_other,),
-        ).fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT count(*) FROM chat_messages WHERE project_id = %s",
-            (fixture.project_b,),
-        ).fetchone()[0] == 0
-        assert connection.execute(
-            "SELECT count(*) FROM project_memory WHERE project_id = %s",
-            (fixture.project_a,),
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT count(*) FROM project_memory WHERE project_id <> %s",
-            (fixture.project_a,),
-        ).fetchone()[0] == 0
+    with pg.project_connection(own_workspace, own_project) as connection:
+        with connection.transaction():
+            assert connection.execute(
+                "SELECT session_user, current_user"
+            ).fetchone() == (target_login, target_login)
+            assert connection.execute("SELECT count(*) FROM chat_messages").fetchone()[0] == 1
+            assert connection.execute(
+                "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+                (other_project,),
+            ).fetchone()[0] == 0
 
-        # A valid row for another project still fails the policy's WITH CHECK.
-        with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
-            with connection.transaction():  # savepoint: preserve the outer test transaction
-                connection.execute(
-                    """INSERT INTO chat_messages
-                           (workspace_id, project_id, conversation_id, role, content, created_at)
+            # The legacy values are attacker-controlled and must not change scope.
+            connection.execute(
+                "SELECT set_config('celestin.workspace_id', %s, true)",
+                (str(other_workspace),),
+            )
+            connection.execute(
+                "SELECT set_config('celestin.project_id', %s, true)",
+                (str(other_project),),
+            )
+            assert connection.execute("SELECT count(*) FROM chat_messages").fetchone()[0] == 1
+            assert connection.execute(
+                "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+                (other_project,),
+            ).fetchone()[0] == 0
+
+            visible_scope_rows = connection.execute(
+                "SELECT login_role_name, workspace_id, project_id "
+                "FROM celestin_private.project_runtime_scopes"
+            ).fetchall()
+            assert visible_scope_rows == [(target_login, own_workspace, own_project)]
+
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        """INSERT INTO chat_messages
+                               (workspace_id, project_id, conversation_id, role, content, created_at)
                            VALUES (%s, %s, %s, 'assistant', 'scope probe', CURRENT_TIMESTAMP)""",
-                    (
-                        fixture.workspace_a,
-                        fixture.project_other,
-                        f"rls-denied-{fixture.suffix}",
-                    ),
-                )
+                        (other_workspace, other_project, f"rls-denied-{fixture.suffix}"),
+                    )
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(f'SET ROLE "{other_login}"')
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(f'SET SESSION AUTHORIZATION "{other_login}"')
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        "UPDATE celestin_private.project_runtime_scopes "
+                        "SET project_id = %s WHERE login_role_name = %s",
+                        (other_project, target_login),
+                    )
 
 
 def test_constraints_reject_cross_workspace_membership_and_duplicate_grants(
@@ -858,12 +859,15 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
     pg, fixture = postgres_connections, tenant_fixture
     opened: list = []
 
-    def open_request_connection():
-        connection = pg.connect()
+    def open_project_connection(scope):
+        connection = pg.connect_project_scope(scope.workspace_id, scope.project_id)
         opened.append(connection)
         return connection
 
-    factory = PostgresHostedAuthorizationSessionFactory(open_request_connection)
+    factory = _LiveProjectScopedFactory(
+        pg.connect_authorization,
+        open_project_connection,
+    )
     resolver, principal = fixture.resolver(), fixture.human()
     committed_key = f"committed-{fixture.suffix}"
     backend_pid = None
@@ -930,7 +934,7 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
 
 def test_sql_errors_are_redacted_and_connections_cursors_close(postgres_connections, tenant_fixture):
     pg, fixture = postgres_connections, tenant_fixture
-    connection = pg.connect()
+    connection = pg.connect_authorization()
     connection.execute("SET search_path TO pg_catalog")
     factory = PostgresHostedAuthorizationSessionFactory(lambda: connection)
     with pytest.raises(HostedAuthorizationUnavailable) as error:
@@ -940,7 +944,7 @@ def test_sql_errors_are_redacted_and_connections_cursors_close(postgres_connecti
         )
     assert str(error.value) == "authorization state is unavailable"
     assert "relation" not in str(error.value).lower()
-    assert pg.target.dsn not in str(error.value)
+    assert pg.target.authorization_dsn not in str(error.value)
     assert connection.closed
     assert connection.cursors and all(cursor.closed for cursor in connection.cursors)
 
@@ -963,7 +967,7 @@ def _wait_for_lock(postgres_connections, pid: int) -> bool:
 def test_inflight_authorized_operation_serializes_before_revocation(
     postgres_connections, tenant_fixture, revocation
 ):
-    """An operation holding FOR SHARE may finish; later requests see the revocation."""
+    """An operation holding the authorization advisory lock may finish; later requests deny."""
     pg, fixture = postgres_connections, tenant_fixture
     if revocation == "service":
         principal = fixture.service()

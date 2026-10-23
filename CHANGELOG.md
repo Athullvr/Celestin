@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T20:51:32+05:30 — Guard project-role PostgreSQL integration tests
+
+- Changed: Extended the existing live PostgreSQL fixture to require an explicit disposable-target acknowledgement and distinct pre-provisioned authorization/project logins. Added direct-SQL tests for forged GUCs, cross-project access, role switching, and scope-map protection; clarified the live-test setup requirements.
+- Why: The RLS isolation claim requires tests to exercise actual project login identities and must not run against an unknown database target.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_live_support.py tests/postgres/test_live_authorization.py` — 71 passed, 20 live PostgreSQL tests skipped. Changed test modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: The live cases were skipped because no approved disposable PostgreSQL target was configured. SQL, RLS, role, and advisory-lock behavior remains unverified against a server.
+
 ## 2026-10-23T20:50:53+05:30 — Route hosted requests through project PostgreSQL pools
 
 - Changed: Updated the hosted runtime to use a read-only authorization pool first, then select only the configured project-specific pool for the resolved scope. Added final in-transaction authorization and startup role checks; documented the configuration and trust boundary while preserving local stdio/SQLite behavior.
