@@ -30,6 +30,23 @@ def lock_request_authorization(
     )
 
 
+def lock_project_request_authorization(
+    connection: _Connection, workspace_id: UUID
+) -> None:
+    """Lock only the workspace mapped to this project login.
+
+    PostgreSQL checks the protected ``session_user`` mapping before acquiring
+    the advisory lock. Project credentials do not receive a principal-key
+    lock API because a shared project login cannot prove a request principal
+    to arbitrary SQL callers.
+    """
+    _execute(
+        connection,
+        "SELECT public.celestin_lock_project_authorization_request(%s)",
+        (workspace_id,),
+    )
+
+
 def lock_authorization_write(
     connection: _Connection,
     workspace_id: UUID,

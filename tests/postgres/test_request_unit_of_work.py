@@ -83,7 +83,10 @@ class Connection:
         if self.fail_on and self.fail_on in sql:
             raise RuntimeError("private database detail")
 
-        if sql.startswith("SELECT public.celestin_lock_authorization_request"):
+        if sql.startswith((
+            "SELECT public.celestin_lock_authorization_request",
+            "SELECT public.celestin_lock_project_authorization_request",
+        )):
             row, rows = None, ()
         elif sql.startswith("SELECT public.celestin_request_scope_matches"):
             self.scope_check_transaction_depth = self.transaction_depth
@@ -326,6 +329,22 @@ def test_project_scoped_factory_authorizes_before_pool_selection_and_rechecks_on
     assert any(
         sql.startswith("SELECT public.celestin_request_scope_matches")
         for sql, _ in project.queries
+    )
+    project_lock_queries = [
+        (sql, params) for sql, params in project.queries
+        if sql.startswith("SELECT public.celestin_lock_project_authorization_request")
+    ]
+    assert project_lock_queries == [
+        ("SELECT public.celestin_lock_project_authorization_request(%s)", (WORKSPACE,))
+    ]
+    assert not any(
+        sql.startswith("SELECT public.celestin_lock_authorization_request")
+        for sql, _ in project.queries
+    )
+    assert any(
+        sql.startswith("SELECT public.celestin_lock_authorization_request")
+        and params == (WORKSPACE, PRINCIPAL.kind, PRINCIPAL.issuer, PRINCIPAL.subject)
+        for sql, params in control.queries
     )
 
 

@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T21:58:56+05:30 — Harden hosted PostgreSQL tenant readiness and locking
+
+- Changed: Replaced substring-based readiness checks with fail-closed catalog comparisons for expected RLS policies and authorization helpers; expanded effective-privilege and role-membership checks; added migration 0009 and request routing so project logins can lock only their mapped workspace while the authorization reader retains broad locks.
+- Why: Hosted startup must reject policy/helper drift and escalation, and a project credential must not be able to hold arbitrary authorization locks against another tenant.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests\test_hosted_server.py` — 100 passed. The final combined offline suite also passed (226 passed, 28 live skipped); Python compilation and diff checks passed.
+- Limitations: Catalog expectations and migration 0009 have not been checked against a live PostgreSQL server. No database connection, SQL execution, migration, Auth0 request, or external operation was performed.
+
 ## 2026-10-23T20:51:32+05:30 — Guard project-role PostgreSQL integration tests
 
 - Changed: Extended the existing live PostgreSQL fixture to require an explicit disposable-target acknowledgement and distinct pre-provisioned authorization/project logins. Added direct-SQL tests for forged GUCs, cross-project access, role switching, and scope-map protection; clarified the live-test setup requirements.

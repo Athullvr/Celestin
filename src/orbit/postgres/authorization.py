@@ -23,7 +23,10 @@ from orbit.mcp_server.hosted_scope import (
     ResolvedProjectScope,
     VerifiedPrincipal,
 )
-from orbit.postgres.authorization_locking import lock_request_authorization
+from orbit.postgres.authorization_locking import (
+    lock_project_request_authorization,
+    lock_request_authorization,
+)
 
 if TYPE_CHECKING:
     from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
@@ -48,8 +51,11 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
     a membership, grant, lifecycle, or principal-status change can commit.
     """
 
-    def __init__(self, connection: _Connection) -> None:
+    def __init__(
+        self, connection: _Connection, *, project_scoped_lock: bool = False
+    ) -> None:
         self._connection = connection
+        self._project_scoped_lock = project_scoped_lock
         self._identities: dict[tuple[VerifiedPrincipal, UUID], tuple[UUID, str]] = {}
         self._bound_scope: ResolvedProjectScope | None = None
 
@@ -92,13 +98,16 @@ class PostgresHostedAuthorizationSession(HostedAuthorizationSession):
     ) -> bool:
         """Map trusted issuer/subject/kind to an active internal identity."""
         try:
-            lock_request_authorization(
-                self._connection,
-                workspace_id,
-                principal.kind,
-                principal.issuer,
-                principal.subject,
-            )
+            if self._project_scoped_lock:
+                lock_project_request_authorization(self._connection, workspace_id)
+            else:
+                lock_request_authorization(
+                    self._connection,
+                    workspace_id,
+                    principal.kind,
+                    principal.issuer,
+                    principal.subject,
+                )
             workspace = self._connection.execute(
                 """SELECT id FROM celestin_workspaces
                      WHERE id = %s""",
@@ -320,7 +329,10 @@ class PostgresHostedAuthorizationSessionFactory:
 
     @contextmanager
     def _transaction(
-        self, connection_factory: ConnectionFactory | None = None
+        self,
+        connection_factory: ConnectionFactory | None = None,
+        *,
+        project_scoped_lock: bool = False,
     ) -> Iterator[PostgresHostedAuthorizationSession]:
         """Internal transaction owner; commit, rollback, and always close."""
         try:
@@ -339,7 +351,9 @@ class PostgresHostedAuthorizationSessionFactory:
                     close = getattr(cursor, "close", None)
                     if callable(close):
                         close()
-                yield PostgresHostedAuthorizationSession(connection)
+                yield PostgresHostedAuthorizationSession(
+                    connection, project_scoped_lock=project_scoped_lock
+                )
         except (HostedAccessDenied, HostedSourceMessageNotFound, HostedAuthorizationUnavailable):
             raise
         except Exception:
@@ -490,7 +504,9 @@ class ProjectScopedPostgresHostedAuthorizationSessionFactory(
                     "project database is unavailable"
                 ) from None
 
-        with self._transaction(connect_to_project) as project_session:
+        with self._transaction(
+            connect_to_project, project_scoped_lock=True
+        ) as project_session:
             result = resolver.execute(
                 project_session,
                 principal,

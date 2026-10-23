@@ -119,7 +119,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -208,6 +208,22 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
         "celestin_conversion_request_scope",
     ):
         assert legacy_name in migration_eight
+
+    migration_nine = migrations[8]
+    assert migration_nine.name == "0009_project_request_lock_scope.sql"
+    normalized_nine = " ".join(migration_nine.sql.split())
+    assert "CREATE FUNCTION public.celestin_lock_project_authorization_request" in normalized_nine
+    assert "scope.login_role_name = session_user::name" in normalized_nine
+    assert "scope.workspace_id = target_workspace" in normalized_nine
+    assert "celestin_lock_authorization_request(UUID, TEXT, TEXT, TEXT)" in normalized_nine
+    assert "TO celestin_authorization_reader" in normalized_nine
+    assert "TO celestin_project_runtime" in normalized_nine
+    assert "FROM PUBLIC, celestin_project_runtime" in normalized_nine
+    assert "OLD.issuer" in migration_nine.sql and "NEW.issuer" in migration_nine.sql
+    assert "public.celestin_project_memberships" in migration_nine.sql
+    assert "public.celestin_workspace_memberships" in migration_nine.sql
+    assert "pg_advisory_xact_lock_shared" in migration_nine.sql
+    assert "pg_advisory_xact_lock(" in migration_nine.sql
 
 
 def test_candidate_revision_migration_defines_scoped_history_and_ordered_occurrences():

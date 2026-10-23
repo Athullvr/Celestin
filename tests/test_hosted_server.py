@@ -25,6 +25,10 @@ from orbit.mcp_server.hosted_server import (
     create_hosted_mcp_server,
     AUTHORIZATION_TABLES,
     HostedRuntimeConfigurationError,
+    _expected_policy_catalog,
+    _function_specs,
+    _validate_function_catalog,
+    _validate_policy_catalog,
 )
 from orbit.mcp_server.hosted_scope import (
     HostedAuthorizationUnavailable,
@@ -41,24 +45,55 @@ PROJECT_SCOPE = (
     UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
 )
 GOOD_CONTROL_ROLE_ROW = (
-    False, False, False, False, False,
-    True, True, True, True, False,
-    True, True, True,
+    (False,) * 5 + (True,) * 5 + (False,) + (True,) * 10
 )
 GOOD_PROJECT_ROLE_ROW = (
-    False, False, False, False, False,
-    True, True, True, True, False,
-    True, True, True, True, True, False,
-    True, True, True, True, True, True, True, True, True, True, True,
+    (False,) * 5 + (True,) * 6 + (False,) + (True,) * 26
 )
+
+
+def expected_policy_rows():
+    relations, policies = _expected_policy_catalog()
+    rows = []
+    for (schema, table), (relkind, row_security, force_row_security) in relations.items():
+        specs = policies[(schema, table)]
+        for name, command, permissive, roles, using, check in specs:
+            rows.append((
+                schema, table, relkind, row_security, force_row_security,
+                name, command, permissive, roles, using, check,
+            ))
+    return rows
+
+
+def expected_function_rows(*, project_runtime):
+    rows = []
+    for signature, (language, volatility, security_definer, config, source) in _function_specs(project_runtime).items():
+        rows.append((
+            signature, "celestin_migration_owner", True,
+            False, False, False, False, False, True, language, volatility,
+            security_definer, config, source, False, True, False,
+        ))
+    return rows
 
 
 class FakePool:
     def __init__(
         self,
         row=GOOD_PROJECT_ROLE_ROW,
+        *,
+        project_runtime=None,
+        policy_rows=None,
+        function_rows=None,
     ):
         self.row = row
+        self.project_runtime = (
+            row == GOOD_PROJECT_ROLE_ROW if project_runtime is None else project_runtime
+        )
+        self.policy_rows = expected_policy_rows() if policy_rows is None else policy_rows
+        self.function_rows = (
+            expected_function_rows(project_runtime=self.project_runtime)
+            if function_rows is None else function_rows
+        )
         self.open_calls = 0
         self.open_timeouts = []
         self.close_calls = 0
@@ -86,18 +121,28 @@ class FakePool:
         class Connection:
             def execute(self, query, params):
                 pool.queries.append((query, params))
+                if query.count("%s") != len(params):
+                    raise AssertionError("probe placeholder count does not match bound parameters")
+                if "pg_catalog.pg_policy AS policy" in query:
+                    return Cursor(rows=pool.policy_rows)
+                if "procedure.oid::regprocedure::text" in query:
+                    return Cursor(rows=pool.function_rows)
                 return Cursor(pool.row)
 
         yield Connection()
 
 
 class Cursor:
-    def __init__(self, row):
+    def __init__(self, row=None, rows=()):
         self.row = row
+        self.rows = list(rows)
         self.closed = False
 
     def fetchone(self):
         return self.row
+
+    def fetchall(self):
+        return self.rows
 
     def close(self):
         self.closed = True
@@ -132,8 +177,8 @@ def settings(tmp_path):
 
 def fake_pools():
     return HostedDatabasePools(
-        FakePool(GOOD_CONTROL_ROLE_ROW),
-        {PROJECT_SCOPE: FakePool(GOOD_PROJECT_ROLE_ROW)},
+        FakePool(GOOD_CONTROL_ROLE_ROW, project_runtime=False),
+        {PROJECT_SCOPE: FakePool(GOOD_PROJECT_ROLE_ROW, project_runtime=True)},
         timeout=1,
     )
 
@@ -208,7 +253,7 @@ def test_workspace_context_is_request_local_and_preserves_duplicate_headers():
     assert _workspace_selector.get() is None
 
 
-@pytest.mark.parametrize("index", range(13))
+@pytest.mark.parametrize("index", range(len(GOOD_CONTROL_ROLE_ROW)))
 def test_runtime_refuses_unsafe_authorization_reader(index):
     row = list(GOOD_CONTROL_ROLE_ROW)
     row[index] = not row[index]
@@ -216,7 +261,7 @@ def test_runtime_refuses_unsafe_authorization_reader(index):
         _assert_safe_authorization_reader(FakePool(row), timeout=1)
 
 
-@pytest.mark.parametrize("index", range(27))
+@pytest.mark.parametrize("index", range(len(GOOD_PROJECT_ROLE_ROW)))
 def test_runtime_refuses_unsafe_project_role(index):
     row = list(GOOD_PROJECT_ROLE_ROW)
     row[index] = not row[index]
@@ -227,29 +272,167 @@ def test_runtime_refuses_unsafe_project_role(index):
 def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
     pool = FakePool(GOOD_PROJECT_ROLE_ROW)
     _assert_safe_project_runtime(pool, timeout=1, scope=PROJECT_SCOPE)
-    assert len(pool.queries) == 1
-    assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][2])
+    assert len(pool.queries) == 3
+    assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) + (
+        "project_runtime_scopes", "celestin_schema_migrations",
+    ) == tuple(pool.queries[0][1][2])
     assert tuple(PROTECTED_TABLES) == tuple(pool.queries[0][1][3])
-    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][12])
+    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][15])
+    assert tuple(PROTECTED_TABLES[2:]) + ("celestin_schema_migrations",) == tuple(
+        pool.queries[0][1][16]
+    )
     assert "relrowsecurity" in pool.queries[0][0]
     assert "relforcerowsecurity" in pool.queries[0][0]
     assert "pg_has_role" in pool.queries[0][0]
     assert "authorization_read_only" in pool.queries[0][0]
+    assert "is_grantable" in pool.queries[0][0]
     assert "rolreplication" in pool.queries[0][0]
     assert "exact_project_login_mapping" in pool.queries[0][0]
     assert "current_tool_grants" in pool.queries[0][0]
     assert "current_tool_sequence_grants" in pool.queries[0][0]
     assert "no_unexposed_content_grants" in pool.queries[0][0]
     assert "has_any_column_privilege" in pool.queries[0][0]
-    assert "safe_scope_mapping_policy" in pool.queries[0][0]
+    assert "celestin_request_scope_matches" in pool.queries[0][0]
+    assert "pg_policy" in pool.queries[1][0]
+    assert "pg_get_expr" in pool.queries[1][0]
+    assert "pg_proc" in pool.queries[2][0]
+    assert "aclexplode" in pool.queries[2][0]
+    assert "is_grantable" in pool.queries[2][0]
+    assert pool.queries[2][1][0] == "celestin_project_runtime"
+    assert len(pool.queries[2][1]) == 4
 
 
 def test_authorization_reader_role_has_no_tenant_content_access():
     pool = FakePool(GOOD_CONTROL_ROLE_ROW)
     _assert_safe_authorization_reader(pool, timeout=1)
+    assert len(pool.queries) == 2
     assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][2])
     assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][3])
     assert tuple(PROTECTED_TABLES) == tuple(pool.queries[0][1][4])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "unconditional",
+        "permissive_or",
+        "missing_check",
+        "unexpected_role",
+        "restrictive",
+        "wrong_command",
+        "unexpected_policy",
+        "missing_policy",
+        "disabled_rls",
+        "not_forced",
+    ],
+)
+def test_policy_catalog_rejects_widened_missing_or_unexpected_policies(mutation):
+    rows = expected_policy_rows()
+    target = next(i for i, row in enumerate(rows) if row[5] == "celestin_project_request_scope")
+    changed = list(rows[target])
+    if mutation == "unconditional":
+        changed[9] = "true"
+    elif mutation == "permissive_or":
+        changed[9] = "public.celestin_request_scope_matches(workspace_id, project_id) OR true"
+    elif mutation == "missing_check":
+        changed[10] = None
+    elif mutation == "unexpected_role":
+        changed[8] = ("PUBLIC",)
+    elif mutation == "restrictive":
+        changed[7] = False
+    elif mutation == "wrong_command":
+        changed[6] = "r"
+    elif mutation == "unexpected_policy":
+        rows.append((*rows[target][:5], "celestin_extra", "r", True, ("PUBLIC",), "true", None))
+    elif mutation == "missing_policy":
+        rows.pop(target)
+    elif mutation == "disabled_rls":
+        changed[3] = False
+    elif mutation == "not_forced":
+        changed[4] = False
+    if mutation not in {"unexpected_policy", "missing_policy"}:
+        rows[target] = tuple(changed)
+
+    with pytest.raises(RuntimeError, match="RLS catalog"):
+        _validate_policy_catalog(rows)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "scope_returns_true",
+        "workspace_returns_true",
+        "lock_namespace_changed",
+        "not_database_owner",
+        "owner_is_runtime",
+        "owner_bypassrls",
+        "owner_replication",
+        "owner_membership",
+        "security_definer",
+        "unsafe_search_path",
+        "public_execute",
+        "not_executable_by_runtime",
+        "unexpected_execute_grant",
+        "missing_helper",
+    ],
+)
+def test_function_catalog_rejects_altered_or_overprivileged_helpers(mutation):
+    rows = expected_function_rows(project_runtime=True)
+    index = 0
+    if mutation == "workspace_returns_true":
+        index = 1
+    elif mutation == "lock_namespace_changed":
+        index = 2
+    changed = list(rows[index])
+    if mutation in {"scope_returns_true", "workspace_returns_true"}:
+        changed[13] = "SELECT session_user IS NOT NULL OR true"
+    elif mutation == "lock_namespace_changed":
+        changed[13] = changed[13].replace("celestin-auth-v1:", "attacker-lock:")
+    elif mutation in {"not_database_owner", "owner_is_runtime"}:
+        changed[1] = "celestin_project_runtime_login"
+        changed[2] = False
+    elif mutation == "owner_bypassrls":
+        changed[4] = True
+    elif mutation == "owner_replication":
+        changed[7] = True
+    elif mutation == "owner_membership":
+        changed[8] = False
+    elif mutation == "security_definer":
+        changed[11] = True
+    elif mutation == "unsafe_search_path":
+        changed[12] = ("search_path=public",)
+    elif mutation == "public_execute":
+        changed[14] = True
+    elif mutation == "not_executable_by_runtime":
+        changed[15] = False
+    elif mutation == "unexpected_execute_grant":
+        changed[16] = True
+    elif mutation == "missing_helper":
+        rows.pop(index)
+    if mutation != "missing_helper":
+        rows[index] = tuple(changed)
+
+    with pytest.raises(RuntimeError, match="authorization helper"):
+        _validate_function_catalog(rows, project_runtime=True)
+
+
+def test_sql_normalization_preserves_string_literal_semantics():
+    from orbit.mcp_server.hosted_server import _canonical_sql_expression
+
+    assert _canonical_sql_expression("public.fn ( row_id )") == "fn(row_id)"
+    assert _canonical_sql_expression("SELECT 'Tenant-A'") != _canonical_sql_expression(
+        "select 'tenant-a'"
+    )
+
+
+@pytest.mark.parametrize("index", [15, 16, 18])
+def test_project_readiness_rejects_negative_scope_probe(index):
+    row = list(GOOD_PROJECT_ROLE_ROW)
+    row[index] = False
+    with pytest.raises(RuntimeError, match="project-isolation"):
+        _assert_safe_project_runtime(
+            FakePool(tuple(row)), timeout=1, scope=PROJECT_SCOPE
+        )
 
 
 def test_project_pool_selection_requires_exact_resolver_scope_and_never_falls_back():

@@ -672,6 +672,7 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                            VALUES (%s, %s, %s, 'assistant', 'scope probe', CURRENT_TIMESTAMP)""",
                         (other_workspace, other_project, f"rls-denied-{fixture.suffix}"),
                     )
+
             with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
                 with connection.transaction():
                     connection.execute(f'SET ROLE "{other_login}"')
@@ -685,6 +686,35 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                         "SET project_id = %s WHERE login_role_name = %s",
                         (other_project, target_login),
                     )
+
+
+def test_project_login_cannot_lock_an_unmapped_workspace(postgres_connections, tenant_fixture):
+    """A project credential may request only its mapped workspace lock.
+
+    This is a live adversarial case for migration 0009. It remains opt-in and
+    was not exercised by ordinary offline test runs.
+    """
+    pg, fixture = postgres_connections, tenant_fixture
+    with pg.project_connection(fixture.workspace_a, fixture.project_a) as connection:
+        with connection.transaction():
+            connection.execute(
+                "SELECT public.celestin_lock_project_authorization_request(%s)",
+                (fixture.workspace_a,),
+            )
+
+        with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+            with connection.transaction():
+                connection.execute(
+                    "SELECT public.celestin_lock_project_authorization_request(%s)",
+                    (fixture.workspace_b,),
+                )
+
+        with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+            with connection.transaction():
+                connection.execute(
+                    "SELECT public.celestin_lock_authorization_request(%s, %s, %s, %s)",
+                    (fixture.workspace_b, "human", fixture.issuer, fixture.human_subject),
+                )
 
 
 def test_constraints_reject_cross_workspace_membership_and_duplicate_grants(
