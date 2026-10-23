@@ -283,3 +283,13 @@ non-owner application role has only the intended grants. The hosted startup
 catalog guard has offline fake-based tests; live validation under a separately
 provisioned runtime role and role-specific grant set remains required before
 hosted release. Do not reuse the migration-test DSN as the runtime DSN.
+
+The current content policies derive scope from the transaction-local custom
+settings `celestin.workspace_id` and `celestin.project_id`. These two-part
+settings are caller-settable by an ordinary PostgreSQL role, so direct SQL
+under the shared application-role credential can choose another tenant's
+values. The current live tests set scope explicitly as the migration/database
+owner and prove the policy predicate, not resistance to a direct-SQL caller
+that forges the custom settings. The offline startup-role probe also does not
+prove otherwise. Treat direct-SQL isolation under the application role as a
+known blocker, not a passed test; see the [RLS inventory and trust boundary](postgres-migrations.md#rls-policy-inventory-and-trust-boundary).

@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T19:35:21+05:30 — Document PostgreSQL RLS trust boundary
+
+- Changed: Added a source-derived inventory for all twelve content tables protected by migrations 0006–0007, listed the authorization/control tables without RLS, and documented that the current custom-GUC scope can be set by the shared runtime role. Clarified that existing live-owner tests do not prove direct-SQL isolation under the application role.
+- Why: Prevent the current scope predicates and migration-owner tests from being mistaken for a defense against direct SQL using the hosted runtime credential.
+- Validation: Focused offline PostgreSQL/Auth0/UoW/runtime suite — 142 passed, 26 skipped. Full repository suite — 704 passed, 46 skipped after installing the already-declared `rfc8785>=0.1.4,<0.2` only into a temporary validation venv outside the repository. `git diff --check` run after documentation updates.
+- Limitations: No database was connected to, inspected, or migrated. No app-role catalog or direct-SQL test ran. A reviewed unforgeable RLS request-context design and explicitly approved fresh local PostgreSQL target/runtime role remain required.
+
 ## 2026-10-23T18:53:08+05:30 — Add opt-in hosted Auth0/PostgreSQL runtime
 
 - Changed: Added a separate `celestin-hosted` Streamable HTTP entry point with Auth0 access-token verification, a fixed approved-client allowlist and scopes, explicit workspace context, the existing authorized request UoW for current memory tools, bounded PostgreSQL pool/HTTP settings, TLS requirements, sanitized errors, health/readiness checks, and loopback-by-default binding. Added internal workspace-admin-authorized human/service provisioning and revocation operations. Added migration `0007_memory_request_rls.sql` to apply forced request-scope RLS to `chat_messages` and `project_memory`. Added a runtime-role catalog check for forced RLS, current tool privileges, and absence of excessive/unexposed table privileges. Updated README and PostgreSQL operations documentation.
