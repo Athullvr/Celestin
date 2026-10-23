@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T22:00:35+05:30 — Separate Evidence adapter tests from the hosted RLS gate
+
+- Changed: Assigned the adapter-level Evidence suite its own pytest marker and documented its exact opt-in command separately from project-login authorization/RLS acceptance. Clarified that these tests currently use a control-plane connection and do not prove project-runtime Evidence access.
+- Why: The existing Evidence adapter tests do not exercise the project's restricted login identity and must not be counted as hosted tenant-isolation evidence.
+- Validation: The focused combined offline PostgreSQL/readiness suite completed with 226 passed and 28 opt-in live tests skipped; the suite was run without the PostgreSQL opt-in flag. Documentation and staged-diff whitespace checks passed.
+- Limitations: No live PostgreSQL target was configured or used. Hosted project-runtime Evidence grants and request composition remain unsupported and require a reviewed contract.
+
 ## 2026-10-23T22:00:08+05:30 — Require safe PostgreSQL test-role ownership and memberships
 
 - Changed: The guarded live-test preflight now requires the migration login to own the target database and rejects runtime-role membership with `ADMIN OPTION`; added regression coverage for both checks.

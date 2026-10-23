@@ -1,8 +1,10 @@
-"""Real-server tests for the request-bound PostgreSQL Evidence store.
+"""Separate, opt-in tests for the PostgreSQL Evidence store.
 
-These cases use the shared opt-in live_postgres fixture. They never create,
-drop, or reset a database; migration initialization remains in that guarded
-fixture.
+These cases are not part of the project-login authorization/RLS gate: migration
+0008 intentionally withholds Evidence/Capture table grants from project runtime
+identities, and no hosted Evidence request composition is currently supported.
+They are retained for adapter-level investigation with the guarded one-run
+fixture, not as evidence of project-scoped hosted Evidence access.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from orbit.mcp_server.hosted_scope import (
 from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
 
 
-pytestmark = pytest.mark.postgres_integration
+pytestmark = pytest.mark.postgres_evidence_integration
 _NOW = "2026-10-19T09:00:00.000000Z"
 _LATER = "2026-10-19T09:01:00.000000Z"
 

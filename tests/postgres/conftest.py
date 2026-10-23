@@ -32,6 +32,10 @@ def pytest_configure(config):
         "markers",
         "postgres_integration: requires explicit opt-in and a disposable PostgreSQL database",
     )
+    config.addinivalue_line(
+        "markers",
+        "postgres_evidence_integration: separate Evidence adapter suite; not part of the hosted project-runtime RLS gate",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
