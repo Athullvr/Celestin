@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T21:30:00+05:30 — Add typed knowledge read result boundary
+
+- Changed: Added `orbit.project_state.knowledge_read` (`KnowledgeReadResult`, outcome/coverage/failure/record-issue enums and types) and `tests/project_state/test_knowledge_read.py`. Outcome (succeeded, failed, scope mismatch), coverage (unknown, partial, reported complete), record-level issues, and limitations are separate fields; empty success differs from failure; there is no "verified complete" status.
+- Why: Give the future knowledge reader a boundary that cannot present an unestablished or source-claimed coverage as proven completeness.
+- Validation: focused new tests only, system Python with `PYTHONPATH=src`; no full suite, database, or network checks.
+- Limitations: Internal model only. No reader implements it, no enumeration API is assumed, and coverage semantics and failure kinds need teammate approval before any producer uses them. Not wired to the reconstructor or resolver.
+
 ## 2026-10-24T21:00:00+05:30 — Add trusted local project resolver
 
 - Changed: Added `orbit.project_state.local_projects` (`LocalProjectResolver`, `LocalProjectBinding`, typed `ProjectResolutionError` subclasses) and `tests/project_state/test_local_projects.py`. The resolver maps an exact local project ID to a configured absolute root and checks that root is the Git worktree root, using a `GIT_*`-scrubbed environment with lazy fetch disabled.
