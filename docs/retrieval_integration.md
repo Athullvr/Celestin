@@ -32,16 +32,17 @@ Search returns a list of objects shaped like:
   "project": "my-project",
   "source_message_id": "17",
   "conversation_id": "conversation-1",
-  "role": null,
+  "role": "user",
   "content": "SQLite stores the project data.",
   "created_at": "2026-10-11T12:34:56.789012Z",
   "score": -0.000001
 }
 ```
 
-The matched message ID is the source ID. `conversation_id` comes from the
-production FTS metadata. `role` is `null` because the current FTS mapping does
-not store it. BM25 `score` is a relevance value, not a probability.
+The matched message ID is the source ID. `conversation_id` and `role` come from
+the authoritative project-scoped message row; role is not inferred from content
+or stored in the FTS index. BM25 `score` is a relevance value, not a
+probability.
 
 Context returns an object with `project`, `query`, `items`, `excluded`,
 `excluded_counts`, `rendered_context`, `token_count`, `token_budget`,

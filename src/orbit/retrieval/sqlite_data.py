@@ -51,17 +51,20 @@ class SQLiteRetrievalData(RetrievalData):
         results = self._message_search.search(
             query, project_id=project, limit=limit, relax=relax
         )
+        records = self.load_messages(project, [result.message_id for result in results])
         return SearchPage(
             tuple(
                 SearchMatch(
                     record_id=result.message_id,
-                    project=result.project_id,
-                    content=result.content,
-                    timestamp=result.timestamp,
-                    source_id=result.source_id,
+                    project=records[result.message_id].project,
+                    content=records[result.message_id].content,
+                    timestamp=records[result.message_id].created_at,
+                    source_id=records[result.message_id].conversation_id,
                     score=result.relevance_score,
+                    role=records[result.message_id].role,
                 )
                 for result in results
+                if result.message_id in records
             ),
             self._message_search.last_tier,
         )
@@ -97,7 +100,7 @@ class SQLiteRetrievalData(RetrievalData):
             return {}
         marks = ",".join("?" for _ in ids)
         rows = self._connection.execute(
-            f"SELECT id, project, conversation_id, content, created_at "
+            f"SELECT id, project, conversation_id, content, created_at, role "
             f"FROM chat_messages WHERE project = ? AND id IN ({marks})",
             (project, *ids),
         )
@@ -108,6 +111,7 @@ class SQLiteRetrievalData(RetrievalData):
                 conversation_id=row["conversation_id"],
                 content=row["content"],
                 created_at=row["created_at"],
+                role=row["role"],
             )
             for row in rows
         }

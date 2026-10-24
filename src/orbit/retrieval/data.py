@@ -17,6 +17,7 @@ class SearchMatch:
     source_id: str | None
     score: float
     status: str | None = None
+    role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,7 @@ class MessageRecord:
     conversation_id: str
     content: str
     created_at: str | None
+    role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T16:12:51+05:30 — Preserve speaker role in memory retrieval
+
+- Changed: Retrieval now rehydrates search hits from authoritative project-scoped message rows and returns the persisted speaker role through the existing nullable `role` result field. Updated retrieval contract documentation and added SQLite, scripted PostgreSQL/UoW, semantic-only, MCP, and stdio regression coverage.
+- Why: Search results already exposed a `role` field, but it was always `null`, losing available source context and traceability.
+- Validation: Relevant offline retrieval/MCP/UoW suite: 242 passed, 6 skipped because optional `pageindex` and `sqlite_vec` packages are unavailable. Changed Python files compiled; `git diff --check` and `git diff --cached --check` checked.
+- Limitations: Synthetic adapter tests do not validate live PostgreSQL. Hosted PostgreSQL runtime wiring, authorization behavior, public MCP keys, and request arguments were not changed.
+
 ## 2026-10-24T15:58:20+05:30 — Compare hosted isolation architectures
 
 - Changed: Added `docs/hosted-isolation-architecture-decision-matrix.md`, comparing scope-mapped advisory wrappers, database-mediated authorization, row locks, per-project databases, and a provider change against shared threats and operational dimensions.

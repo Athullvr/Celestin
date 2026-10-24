@@ -78,7 +78,7 @@ class RetrievalServices:
                     "project": result.project_id,
                     "source_message_id": result.message_id,
                     "conversation_id": result.source_id,
-                    "role": None,
+                    "role": result.role,
                     "content": result.content,
                     "created_at": result.timestamp,
                     "score": result.relevance_score,

@@ -112,7 +112,7 @@ Result:
 }
 ```
 
-`source_message_id` is the ID of the matched message itself, allowing direct linking to `save_decision`; `message_id` is an equivalent explicit result identifier. `score` is the retrieval relevance value (FTS5 BM25 may be negative; smaller/more negative ranks first under the current implementation), not a probability. Results are ordered by retrieval rank and capped at `limit`. The adapter maps the retrieval result's message ID to `message_id` and `source_message_id`, its `source_id` (the conversation ID in chat search) to `conversation_id`, `content` to `content`, `timestamp` to `created_at`, and `relevance_score` to `score`. The current retrieval schema does not include message role, so `role` is `null`.
+`source_message_id` is the ID of the matched message itself, allowing direct linking to `save_decision`; `message_id` is an equivalent explicit result identifier. `score` is the retrieval relevance value (FTS5 BM25 may be negative; smaller/more negative ranks first under the current implementation), not a probability. Results are ordered by retrieval rank and capped at `limit`. The adapter maps the retrieval result's message ID to `message_id` and `source_message_id`, its `source_id` (the conversation ID in chat search) to `conversation_id`, the persisted speaker role to `role`, `content` to `content`, `timestamp` to `created_at`, and `relevance_score` to `score`. The role is read from the authoritative project-scoped message record; it is not inferred from message content. It remains nullable for adapters that cannot supply it.
 
 Errors: `INVALID_ARGUMENT`, `PROJECT_NOT_FOUND` (if applicable), `RETRIEVAL_UNAVAILABLE`, `INTERNAL_ERROR`.
 
