@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T12:27:34+05:30 — Clarify advisory-lock security design gates
+
+- Changed: Added a proposal-only addendum to `docs/postgres-advisory-lock-privilege-boundary-proposal.md` comparing migration and readiness profiles, trusted lock scope, threat impacts, role separation, request versus privileged readiness, and forward-migration recovery gates.
+- Why: Make source-level mismatches and unresolved Neon/provider prerequisites explicit before designing migration 0010.
+- Validation: Reviewed the full documentation diff; `git diff --check` passed. No tests were run for this documentation-only change.
+- Limitations: This is a proposal, not an approved design or live catalog validation. No database, migration, external service, role, ACL, or hosted runtime was changed; tenant isolation remains not ready.
+
 ## 2026-10-24T12:15:05+05:30 — Separate request readiness from privileged preflight
 
 - Changed: Added an offline regression in `tests/test_hosted_server.py` proving request-pool readiness checks the authorization-reader and configured project pools without invoking privileged authorization-admin readiness.
