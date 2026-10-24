@@ -496,3 +496,11 @@ def test_reader_rejects_a_bundle_from_another_project(tmp_path):
     with pytest.raises(KnowledgeStateScopeError, match="requested project"):
         service.retrieve_context("alpha", "retrieval-marker", 10_000)
     connection.close()
+
+
+def test_knowledge_state_rejects_foreign_project_evidence_reference():
+    bundle = knowledge_bundle("alpha")
+    foreign_evidence = replace(bundle.evidence[0], project="beta")
+
+    with pytest.raises(KnowledgeStateScopeError, match="evidence project"):
+        KnowledgeStateEnvelope.from_bundle(KnowledgeBundle(bundle.record, (foreign_evidence,)))

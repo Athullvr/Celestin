@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,6 +53,51 @@ def target_environment(**changes):
     }
     values.update(changes)
     return values
+
+
+def test_live_fixture_without_opt_in_skips_before_configuration_or_database_connection(monkeypatch):
+    from tests.postgres import conftest as postgres_conftest
+
+    class _DisabledOptIn:
+        def getoption(self, name):
+            assert name == "--run-postgres-integration"
+            return False
+
+    class _ForbiddenEnvironment:
+        def get(self, *_args, **_kwargs):
+            pytest.fail("live fixture read PostgreSQL configuration without opt-in")
+
+    class _ForbiddenDriver:
+        def __init__(self):
+            self.connect_calls = []
+
+        def connect(self, *_args, **_kwargs):
+            self.connect_calls.append("connect")
+            pytest.fail("live fixture connected to PostgreSQL without opt-in")
+
+    driver = _ForbiddenDriver()
+    migration_calls = []
+    monkeypatch.setitem(sys.modules, "psycopg", driver)
+    monkeypatch.setattr(
+        postgres_conftest, "os", SimpleNamespace(environ=_ForbiddenEnvironment())
+    )
+    monkeypatch.setattr(
+        postgres_conftest,
+        "initialize_fresh_database",
+        lambda *_args, **_kwargs: migration_calls.append("initialize"),
+    )
+    monkeypatch.setattr(
+        postgres_conftest,
+        "apply_migrations",
+        lambda *_args, **_kwargs: migration_calls.append("migrate"),
+    )
+    request = SimpleNamespace(config=_DisabledOptIn())
+
+    with pytest.raises(pytest.skip.Exception, match="pass --run-postgres-integration"):
+        postgres_conftest.live_postgres.__wrapped__(request)
+
+    assert driver.connect_calls == []
+    assert migration_calls == []
 
 
 def test_accepts_only_explicit_matching_loopback_target_and_hides_dsn():

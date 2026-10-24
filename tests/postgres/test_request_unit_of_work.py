@@ -128,7 +128,11 @@ class Connection:
         elif sql.startswith("SELECT knowledge_id, knowledge_type"):
             row, rows = None, ()
         elif "FROM chat_messages AS record" in sql:
-            row, rows = None, [(81, "synthetic memory", NOW, "conversation", 0.7)]
+            if "record.id = ANY" in sql:
+                rows = [(81, "conversation", "synthetic memory", NOW, "user")]
+            else:
+                rows = [(81, "synthetic memory", NOW, "conversation", 0.7)]
+            row = None
         else:
             raise AssertionError(f"unexpected SQL: {sql}")
 
@@ -283,6 +287,7 @@ def test_authorized_memory_and_retrieval_share_one_connection_and_commit_once():
         assert message.message_id == "81"
         assert decision.decision_id == "91"
         assert results[0].message_id == "81"
+        assert results[0].role == "user"
         assert not connection.commits and not connection.rollbacks
         assert not connection.closed and connection.close_calls == 0
         return "complete"

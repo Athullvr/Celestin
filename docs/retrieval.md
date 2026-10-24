@@ -41,10 +41,11 @@ in `retrieval.service`.
 - A missing or incompatible configured FTS table raises
   `SearchIndexUnavailable`. Invalid Python input raises `TypeError` or
   `ValueError` as appropriate. Other SQLite operational errors propagate.
-- `RetrievalService` searches messages and decisions separately, then loads
-  authoritative decision rows through `DecisionRepository.list_for_project`
-  and maps results to retrieval candidates. Decision scores are BM25 scores
-  from the decision-value FTS index; SQLite status and provenance fields remain
+- `RetrievalService` searches messages and decisions separately, then reloads
+  authoritative project-scoped message rows (including speaker role) and
+  decision rows through `DecisionRepository.list_for_project` before mapping
+  results to retrieval candidates. Decision scores are BM25 scores from the
+  decision-value FTS index; SQLite status and provenance fields remain
   authoritative.
 
 ## Candidate ranking policy
@@ -128,10 +129,12 @@ token_budget=2000)` returns a JSON-serializable context dictionary. Both use
 
 There is no project registry, so an unknown project is indistinguishable from
 an empty project; both return empty results. Search includes the conversation
-ID but not role because production FTS metadata does not store role. Missing
-FTS raises `SearchIndexUnavailable`; other SQLite/repository failures
-propagate. The model-specific tokenizer remains unknown; counts are estimates
-unless a compatible `TokenCounter` is injected into `build_context_bundle`.
+ID and persisted speaker role. The role is loaded from the authoritative
+project-scoped message row rather than FTS metadata, and is never inferred from
+content. Missing FTS raises `SearchIndexUnavailable`; other SQLite/repository
+failures propagate. The model-specific tokenizer remains unknown; counts are
+estimates unless a compatible `TokenCounter` is injected into
+`build_context_bundle`.
 
 ## Tests and dependencies
 

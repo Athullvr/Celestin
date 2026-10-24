@@ -278,8 +278,8 @@ class RetrievalService:
         if count:
             self.last_retrieval = RetrievalInfo(
                 "hybrid",
-                (f"ignored {count} vector hit(s) with no matching SQLite record; "
-                 "run: celestin-index sync",),
+                (f"ignored {count} vector hit(s) with no matching authoritative project-scoped record; "
+                 "check semantic-index synchronization",),
             )
 
     def _fuse_messages(
@@ -306,13 +306,13 @@ class RetrievalService:
                 base = by_id[str(record_id)]
                 results.append(SearchResult(
                     base.message_id, base.project_id, base.source_id,
-                    base.content, base.timestamp, -score,
+                    base.content, base.timestamp, -score, base.role,
                 ))
             else:
                 row = rows[str(record_id)]
                 results.append(SearchResult(
                     row.message_id, row.project, row.conversation_id,
-                    row.content, row.created_at, -score,
+                    row.content, row.created_at, -score, row.role,
                 ))
         return results, stale
 
@@ -322,7 +322,7 @@ class RetrievalService:
         """Return project-scoped message search matches ordered by BM25.
 
         Each result includes the chat message ID, project, conversation ID in
-        ``source_id``, content, timestamp, and relevance score.
+        ``source_id``, stored speaker role, content, timestamp, and relevance score.
         """
         fts_page = self._data.search_messages(
             project,
@@ -333,7 +333,7 @@ class RetrievalService:
         fts = [
             SearchResult(
                 match.record_id, match.project, match.source_id or "", match.content,
-                match.timestamp, match.score,
+                match.timestamp, match.score, match.role,
             )
             for match in fts_page.matches
         ]
@@ -677,8 +677,8 @@ class RetrievalService:
             if sem.status == "ok":
                 mode = "hybrid"
                 if sem.stale:
-                    warnings.append(f"ignored {sem.stale} vector hit(s) with no matching SQLite record; "
-                                    "run: celestin-index sync")
+                    warnings.append(f"ignored {sem.stale} vector hit(s) with no matching authoritative project-scoped record; "
+                                    "check semantic-index synchronization")
             else:
                 mode = "fts_fallback"
                 warnings.append(f"semantic search unavailable: {sem.detail}")
@@ -726,7 +726,7 @@ def _search_result_dict(result: SearchResult) -> dict[str, Any]:
         "project": result.project_id,
         "source_message_id": result.message_id,
         "conversation_id": result.source_id,
-        "role": None,
+        "role": result.role,
         "content": result.content,
         "created_at": result.timestamp,
         "score": result.relevance_score,

@@ -72,6 +72,7 @@ class SearchResult:
     content: str
     timestamp: str | None
     relevance_score: float
+    role: str | None = None
 
 
 def _fts_terms(query: str) -> str:

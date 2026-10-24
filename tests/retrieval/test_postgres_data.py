@@ -106,6 +106,11 @@ def test_scope_is_required_and_public_project_cannot_select_another_scope(scope)
 def test_message_search_maps_postgres_types_scopes_and_closes_resources(scope):
     def respond(query, params):
         if "FROM chat_messages AS record" in query:
+            if "record.id = ANY" in query:
+                return [
+                    (42, "chat-1", "release notes", NOW, "assistant"),
+                    (41, "chat-2", "release notes earlier", NOW, "user"),
+                ]
             return [
                 (42, "release notes", NOW, "chat-1", 0.75),
                 (41, "release notes earlier", NOW, "chat-2", 0.75),
@@ -120,12 +125,45 @@ def test_message_search_maps_postgres_types_scopes_and_closes_resources(scope):
     ]
     assert page.matches[0].timestamp == "2026-10-17T03:30:00.000000Z"
     assert page.matches[0].project == "celestin"
-    query, params, _ = data_calls(database)[0]
+    assert [hit.role for hit in page.matches] == ["assistant", "user"]
+    query, params, _ = next(
+        call for call in data_calls(database) if "record.id = ANY" not in call[0]
+    )
     assert_query_is_scoped(query, params)
     assert "@@" in query and "ts_rank_cd" in query and "ORDER BY score DESC" in query
     assert "ORDER BY score DESC, record.created_at DESC, record.id ASC" in query
     assert "release notes" not in query
     assert params == ("release & notes", WORKSPACE, PROJECT, "release & notes", 5)
+    assert all(cursor.closed for cursor in database.cursors)
+    assert all(connection.closed for connection in database.connections)
+
+
+def test_message_search_reloads_authoritative_rows_and_omits_stale_or_archived_candidates(scope):
+    def respond(query, _params):
+        if "record.id = ANY" in query:
+            # The second candidate is absent from the visible, authoritative reload,
+            # as it would be for a deleted, archived, or otherwise ineligible row.
+            return [
+                (42, "conversation-current", "persisted message content", NOW, "assistant")
+            ]
+        return [
+            (42, "stale candidate content", NOW, "stale conversation", 0.75),
+            (43, "archived or deleted candidate", NOW, "ineligible", 0.5),
+        ]
+
+    database = Database(respond)
+    page = adapter(database, scope).search_messages(
+        "celestin", "persisted message", 5, relax=False
+    )
+
+    assert len(page.matches) == 1
+    match = page.matches[0]
+    assert match.record_id == "42"
+    assert match.project == "celestin"
+    assert match.content == "persisted message content"
+    assert match.source_id == "conversation-current"
+    assert match.role == "assistant"
+    assert match.timestamp == "2026-10-17T03:30:00.000000Z"
     assert all(cursor.closed for cursor in database.cursors)
     assert all(connection.closed for connection in database.connections)
 
@@ -163,6 +201,8 @@ def test_stopword_relaxation_uses_bounded_tiers_and_parameterized_query(scope):
     def respond(query, params):
         if "FROM chat_messages AS record" not in query:
             return []
+        if "record.id = ANY" in query:
+            return [(7, "chat", "Priya owns the release notes", NOW, "assistant")]
         if params[0] == "owns & release & notes":
             return [(7, "Priya owns the release notes", NOW, "chat", 0.5)]
         return []
@@ -173,14 +213,19 @@ def test_stopword_relaxation_uses_bounded_tiers_and_parameterized_query(scope):
     )
     assert page.tier == "no_stopwords"
     assert [hit.record_id for hit in page.matches] == ["7"]
-    assert len(data_calls(database)) == 2
-    assert all(call[1][1:3] == (WORKSPACE, PROJECT) for call in data_calls(database))
+    search_calls = [call for call in data_calls(database) if "record.id = ANY" not in call[0]]
+    assert len(search_calls) == 2
+    assert all(call[1][1:3] == (WORKSPACE, PROJECT) for call in search_calls)
+    load_call = next(call for call in data_calls(database) if "record.id = ANY" in call[0])
+    assert load_call[1][:2] == (WORKSPACE, PROJECT)
 
 
 def test_relaxed_or_tier_preserves_identifier_terms_and_pool_bound(scope):
     def respond(query, params):
         if "FROM chat_messages AS record" not in query:
             return []
+        if "record.id = ANY" in query:
+            return [(8, "chat", "hosted deployment uses a simple service", NOW, "user")]
         if params[0] == "(hosted | deployment | simple | pizza)":
             return [(8, "hosted deployment uses a simple service", NOW, "chat", 0.2)]
         return []
@@ -191,7 +236,8 @@ def test_relaxed_or_tier_preserves_identifier_terms_and_pool_bound(scope):
     )
     assert page.tier == "relaxed_or"
     assert [hit.record_id for hit in page.matches] == ["8"]
-    assert data_calls(database)[-1][1][-1] == 15
+    search_calls = [call for call in data_calls(database) if "record.id = ANY" not in call[0]]
+    assert search_calls[-1][1][-1] == 15
 
     identifier_db = Database()
     identifier_page = adapter(identifier_db, scope).search_messages(
@@ -238,7 +284,7 @@ def test_decision_search_reloads_authoritative_rows_and_filters_archived(scope):
 def test_authoritative_loads_validate_ids_and_filter_project_workspace_archives(scope):
     def respond(query, params):
         if "FROM chat_messages AS record" in query:
-            return [(5, "thread", "message", NOW)]
+            return [(5, "thread", "message", NOW, "user")]
         if "FROM project_memory AS record" in query:
             return [(6, "decision", NOW, 5, "deprecated")]
         return []
@@ -249,6 +295,7 @@ def test_authoritative_loads_validate_ids_and_filter_project_workspace_archives(
     decisions = data.load_decisions("celestin", ["6"])
     assert messages["5"].conversation_id == "thread"
     assert messages["5"].content == "message"
+    assert messages["5"].role == "user"
     assert decisions["6"].status == "deprecated"
     assert decisions["6"].source_message_id == "5"
     assert len(data_calls(database)) == 2
@@ -261,6 +308,10 @@ def test_authoritative_loads_validate_ids_and_filter_project_workspace_archives(
 def test_shared_retrieval_service_accepts_postgres_adapter_records(scope):
     def respond(query, params):
         if "FROM chat_messages AS record" in query:
+            if "record.id = ANY" in query:
+                return [
+                    (21, "conversation", "The hosted adapter keeps tenant scope explicit.", NOW, "assistant")
+                ]
             return [(21, "The hosted adapter keeps tenant scope explicit.", NOW, "conversation", 0.2)]
         return []
 
@@ -270,6 +321,7 @@ def test_shared_retrieval_service_accepts_postgres_adapter_records(scope):
     bundle = service.retrieve_context("celestin", "tenant scope", 1000)
 
     assert [item.message_id for item in result] == ["21"]
+    assert result[0].role == "assistant"
     assert [item.record_id for item in bundle.items] == ["21"]
     assert bundle.items[0].content.startswith("The hosted adapter")
 

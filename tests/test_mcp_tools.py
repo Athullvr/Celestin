@@ -119,13 +119,15 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(item["message_id"], message["message_id"])
         self.assertEqual(item["source_message_id"], message["message_id"])
         self.assertEqual(item["conversation_id"], "conv-1")
-        self.assertIsNone(item["role"])
+        self.assertEqual(item["role"], "user")
         self.assertEqual(item["created_at"], message["created_at"])
 
     def test_search_is_project_scoped_and_empty_results_are_successful(self) -> None:
-        self.handlers.ingest_chat_message("alpha", "conv-a", "user", "private telescope results")
-        self.handlers.ingest_chat_message("beta", "conv-b", "user", "private telescope results")
-        self.assertEqual(len(self.handlers.search_chat_history("alpha", "telescope")["results"]), 1)
+        self.handlers.ingest_chat_message("alpha", "conv-a", "assistant", "private telescope results")
+        self.handlers.ingest_chat_message("beta", "conv-b", "system", "private telescope results")
+        results = self.handlers.search_chat_history("alpha", "telescope")["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["role"], "assistant")
         self.assertEqual(self.handlers.search_chat_history("missing", "telescope")["results"], [])
 
     def test_source_message_must_belong_to_requested_project(self) -> None:

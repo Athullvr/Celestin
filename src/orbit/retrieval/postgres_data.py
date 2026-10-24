@@ -4,7 +4,7 @@ This adapter is deliberately not selected by the MCP runtime. Callers must
 provide a scope resolved by a trusted hosted request boundary; the public
 project argument is only checked against that scope and never selects a tenant.
 Each operation opens and closes one connection through the injected factory.
-Candidate search and decision authoritative reload share one connection.
+Candidate search and authoritative message/decision reload share one connection.
 """
 
 from __future__ import annotations
@@ -167,20 +167,26 @@ class PostgresRetrievalData(RetrievalData):
                 limit,
                 relax,
             )
-        return SearchPage(
-            tuple(
+            records = self._load_messages(
+                connection, [_positive_id(row[0]) for row in rows]
+            )
+        matches = []
+        for row in rows:
+            record = records.get(str(_positive_id(row[0])))
+            if record is None:
+                continue  # An archived/stale candidate was not authoritatively visible.
+            matches.append(
                 SearchMatch(
-                    record_id=str(row[0]),
-                    project=self._scope.project_key,
-                    content=str(row[1]),
-                    timestamp=_utc_iso(row[2]),
-                    source_id=str(row[3]),
+                    record_id=record.message_id,
+                    project=record.project,
+                    content=record.content,
+                    timestamp=record.created_at,
+                    source_id=record.conversation_id,
                     score=-float(row[4]),
+                    role=record.role,
                 )
-                for row in rows
-            ),
-            tier,
-        )
+            )
+        return SearchPage(tuple(matches), tier)
 
     def search_decisions(
         self, project: str, query: str, limit: int, *, relax: bool
@@ -225,11 +231,18 @@ class PostgresRetrievalData(RetrievalData):
         if not ids:
             return {}
         with self._connection() as connection:
-            rows = _fetchall(
-                connection,
-                _MESSAGE_LOAD_SQL,
-                self._scope_params() + (ids,),
-            )
+            return self._load_messages(connection, ids)
+
+    def _load_messages(
+        self, connection: _Connection, message_ids: Sequence[int]
+    ) -> dict[str, MessageRecord]:
+        if not message_ids:
+            return {}
+        rows = _fetchall(
+            connection,
+            _MESSAGE_LOAD_SQL,
+            self._scope_params() + (list(message_ids),),
+        )
         return {
             str(row[0]): MessageRecord(
                 message_id=str(row[0]),
@@ -237,6 +250,7 @@ class PostgresRetrievalData(RetrievalData):
                 conversation_id=str(row[1]),
                 content=str(row[2]),
                 created_at=_utc_iso(row[3]),
+                role=str(row[4]),
             )
             for row in rows
         }
@@ -379,7 +393,7 @@ def _search_sql(
 
 
 _MESSAGE_LOAD_SQL = """
-    SELECT record.id, record.conversation_id, record.content, record.created_at
+    SELECT record.id, record.conversation_id, record.content, record.created_at, record.role
       FROM chat_messages AS record
       JOIN celestin_projects AS project
         ON project.id = record.project_id AND project.workspace_id = record.workspace_id
