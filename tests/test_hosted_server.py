@@ -5,6 +5,10 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
+import re
+import sys
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -27,6 +31,16 @@ from orbit.mcp_server.hosted_server import (
     HostedRuntimeConfigurationError,
     _expected_policy_catalog,
     _function_specs,
+    _trigger_specs,
+    _trigger_function_specs,
+    _ADVISORY_LOCK_ALLOWED_SIGNATURES,
+    _ADVISORY_LOCK_SIGNATURES,
+    _advisory_lock_privilege_query,
+    _create_pool,
+    _reset_postgres_pool_connection,
+    _validate_advisory_lock_privilege_catalog,
+    _validate_trigger_catalog,
+    _assert_expected_trigger_catalog,
     _validate_function_catalog,
     _validate_policy_catalog,
 )
@@ -76,6 +90,29 @@ def expected_function_rows(*, project_runtime):
     return rows
 
 
+def expected_trigger_rows():
+    rows = []
+    specs = _trigger_specs()
+    functions = _trigger_function_specs()
+    for (schema, table, name), (tgtype, attributes, function_name) in specs.items():
+        config, source = functions[function_name]
+        rows.append((
+            schema, table, name, "O", tgtype, attributes, False, False, 0, False,
+            "public", function_name, "", "celestin_migration_owner", True,
+            False, False, False, False, False, True, "plpgsql", "v", True,
+            config, source, False, False, False,
+        ))
+    return rows
+
+
+_ADVISORY_SIGNATURES = tuple(sorted(_ADVISORY_LOCK_SIGNATURES))
+
+
+def expected_advisory_rows(role_profile):
+    allowed = _ADVISORY_LOCK_ALLOWED_SIGNATURES[role_profile]
+    return [(signature, signature in allowed) for signature in _ADVISORY_SIGNATURES]
+
+
 class FakePool:
     def __init__(
         self,
@@ -84,6 +121,8 @@ class FakePool:
         project_runtime=None,
         policy_rows=None,
         function_rows=None,
+        trigger_rows=None,
+        advisory_rows=None,
     ):
         self.row = row
         self.project_runtime = (
@@ -93,6 +132,13 @@ class FakePool:
         self.function_rows = (
             expected_function_rows(project_runtime=self.project_runtime)
             if function_rows is None else function_rows
+        )
+        profile = "project_runtime" if self.project_runtime else "authorization_reader"
+        self.trigger_rows = (
+            expected_trigger_rows() if trigger_rows is None else trigger_rows
+        )
+        self.advisory_rows = (
+            expected_advisory_rows(profile) if advisory_rows is None else advisory_rows
         )
         self.open_calls = 0
         self.open_timeouts = []
@@ -123,6 +169,10 @@ class FakePool:
                 pool.queries.append((query, params))
                 if query.count("%s") != len(params):
                     raise AssertionError("probe placeholder count does not match bound parameters")
+                if "pg_catalog.pg_trigger AS catalog_trigger" in query:
+                    return Cursor(rows=pool.trigger_rows)
+                if "left(procedure.proname, 12) = 'pg_advisory_'" in query:
+                    return Cursor(rows=pool.advisory_rows)
                 if "pg_catalog.pg_policy AS policy" in query:
                     return Cursor(rows=pool.policy_rows)
                 if "procedure.oid::regprocedure::text" in query:
@@ -272,7 +322,9 @@ def test_runtime_refuses_unsafe_project_role(index):
 def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
     pool = FakePool(GOOD_PROJECT_ROLE_ROW)
     _assert_safe_project_runtime(pool, timeout=1, scope=PROJECT_SCOPE)
-    assert len(pool.queries) == 3
+    assert len(pool.queries) == 5
+    assert "left(procedure.proname, 12) = 'pg_advisory_'" in pool.queries[1][0]
+    assert "has_function_privilege" in pool.queries[1][0]
     assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) + (
         "project_runtime_scopes", "celestin_schema_migrations",
     ) == tuple(pool.queries[0][1][2])
@@ -293,22 +345,31 @@ def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
     assert "no_unexposed_content_grants" in pool.queries[0][0]
     assert "has_any_column_privilege" in pool.queries[0][0]
     assert "celestin_request_scope_matches" in pool.queries[0][0]
-    assert "pg_policy" in pool.queries[1][0]
-    assert "pg_get_expr" in pool.queries[1][0]
-    assert "pg_proc" in pool.queries[2][0]
-    assert "aclexplode" in pool.queries[2][0]
-    assert "is_grantable" in pool.queries[2][0]
-    assert pool.queries[2][1][0] == "celestin_project_runtime"
-    assert len(pool.queries[2][1]) == 4
+    assert "pg_policy" in pool.queries[2][0]
+    assert "pg_get_expr" in pool.queries[2][0]
+    assert "pg_proc" in pool.queries[3][0]
+    assert "aclexplode" in pool.queries[3][0]
+    assert "is_grantable" in pool.queries[3][0]
+    assert pool.queries[3][1][0] == "celestin_project_runtime"
+    assert len(pool.queries[3][1]) == 4
+    assert "pg_trigger" in pool.queries[4][0]
+    assert "tgenabled" in pool.queries[4][0]
+    assert "tgtype" in pool.queries[4][0]
+    assert "prosrc" in pool.queries[4][0]
+    assert pool.queries[4][1] == (sorted({
+        table for schema, table, _ in _trigger_specs() if schema == "public"
+    }),)
 
 
 def test_authorization_reader_role_has_no_tenant_content_access():
     pool = FakePool(GOOD_CONTROL_ROLE_ROW)
     _assert_safe_authorization_reader(pool, timeout=1)
-    assert len(pool.queries) == 2
+    assert len(pool.queries) == 3
     assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][2])
     assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][3])
     assert tuple(PROTECTED_TABLES) == tuple(pool.queries[0][1][4])
+    assert "left(procedure.proname, 12) = 'pg_advisory_'" in pool.queries[1][0]
+    assert "pg_catalog.pg_proc" in pool.queries[2][0]
 
 
 @pytest.mark.parametrize(
@@ -368,7 +429,8 @@ def test_policy_catalog_rejects_widened_missing_or_unexpected_policies(mutation)
         "owner_bypassrls",
         "owner_replication",
         "owner_membership",
-        "security_definer",
+        "not_security_definer",
+        "unexpected_security_definer",
         "unsafe_search_path",
         "public_execute",
         "not_executable_by_runtime",
@@ -382,6 +444,8 @@ def test_function_catalog_rejects_altered_or_overprivileged_helpers(mutation):
     if mutation == "workspace_returns_true":
         index = 1
     elif mutation == "lock_namespace_changed":
+        index = 2
+    elif mutation == "not_security_definer":
         index = 2
     changed = list(rows[index])
     if mutation in {"scope_returns_true", "workspace_returns_true"}:
@@ -397,7 +461,9 @@ def test_function_catalog_rejects_altered_or_overprivileged_helpers(mutation):
         changed[7] = True
     elif mutation == "owner_membership":
         changed[8] = False
-    elif mutation == "security_definer":
+    elif mutation == "not_security_definer":
+        changed[11] = False
+    elif mutation == "unexpected_security_definer":
         changed[11] = True
     elif mutation == "unsafe_search_path":
         changed[12] = ("search_path=public",)
@@ -414,6 +480,277 @@ def test_function_catalog_rejects_altered_or_overprivileged_helpers(mutation):
 
     with pytest.raises(RuntimeError, match="authorization helper"):
         _validate_function_catalog(rows, project_runtime=True)
+
+
+@pytest.mark.parametrize("role_profile", tuple(_ADVISORY_LOCK_ALLOWED_SIGNATURES))
+def test_advisory_lock_privilege_profiles_allow_only_required_locks(role_profile):
+    _validate_advisory_lock_privilege_catalog(
+        expected_advisory_rows(role_profile), role_profile=role_profile
+    )
+
+
+@pytest.mark.parametrize("role_profile", tuple(_ADVISORY_LOCK_ALLOWED_SIGNATURES))
+@pytest.mark.parametrize("signature", _ADVISORY_SIGNATURES)
+def test_advisory_lock_privilege_profiles_reject_unexpected_effective_access(
+    role_profile, signature
+):
+    rows = expected_advisory_rows(role_profile)
+    index = _ADVISORY_SIGNATURES.index(signature)
+    rows[index] = (signature, not rows[index][1])
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile=role_profile)
+
+
+def test_advisory_lock_catalog_rejects_missing_core_functions_duplicate_rows_and_unknown_roles():
+    rows = expected_advisory_rows("project_runtime")
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(
+            [row for row in rows if row[0] != "pg_advisory_xact_lock(bigint)"],
+            role_profile="project_runtime",
+        )
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(
+            rows + [rows[0]], role_profile="project_runtime"
+        )
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(
+            [row for row in rows if row[0] != "pg_try_advisory_xact_lock_shared(integer,integer)"],
+            role_profile="project_runtime",
+        )
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(
+            rows + [("pg_advisory_unreviewed(bigint)", False)],
+            role_profile="project_runtime",
+        )
+    with pytest.raises(RuntimeError, match="role profile"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile="unknown")
+
+
+def test_advisory_lock_readiness_query_checks_effective_catalog_privileges():
+    query = _advisory_lock_privilege_query()
+    assert "pg_catalog.pg_proc" in query
+    assert "namespace.nspname = 'pg_catalog'" in query
+    assert "pg_catalog.left(procedure.proname, 12) = 'pg_advisory_'" in query
+    assert "has_function_privilege" in query
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "disabled",
+        "retargeted_relation",
+        "unexpected",
+        "wrong_events",
+        "wrong_update_columns",
+        "internal",
+        "when_condition",
+        "arguments",
+        "constraint",
+        "wrong_function_schema",
+        "wrong_function_identity",
+        "wrong_function_arguments",
+        "function_owner",
+        "owner_bypassrls",
+        "owner_membership",
+        "wrong_language",
+        "wrong_volatility",
+        "not_security_definer",
+        "unsafe_search_path",
+        "altered_function_body",
+        "public_execute",
+        "runtime_execute",
+        "unexpected_execute_grant",
+    ],
+)
+def test_trigger_catalog_rejects_missing_disabled_or_altered_authorization_triggers(mutation):
+    rows = expected_trigger_rows()
+    index = 0
+    changed = list(rows[index])
+    if mutation == "missing":
+        rows.pop(index)
+    elif mutation == "disabled":
+        changed[3] = "D"
+    elif mutation == "retargeted_relation":
+        changed[1] = "other_relation"
+    elif mutation == "unexpected":
+        changed[2] = "celestin_unexpected_lock"
+    elif mutation == "wrong_events":
+        changed[4] ^= 4
+    elif mutation == "wrong_update_columns":
+        index = next(i for i, row in enumerate(rows) if row[2] == "celestin_user_identity_auth_lock")
+        changed = list(rows[index])
+        changed[5] = ("issuer", "subject")
+    elif mutation == "internal":
+        changed[6] = True
+    elif mutation == "when_condition":
+        changed[7] = True
+    elif mutation == "arguments":
+        changed[8] = 1
+    elif mutation == "constraint":
+        changed[9] = True
+    elif mutation == "wrong_function_schema":
+        changed[10] = "celestin_private"
+    elif mutation == "wrong_function_identity":
+        changed[11] = "celestin_other_lock"
+    elif mutation == "wrong_function_arguments":
+        changed[12] = "target_workspace uuid"
+    elif mutation == "function_owner":
+        changed[14] = False
+    elif mutation == "owner_bypassrls":
+        changed[16] = True
+    elif mutation == "owner_membership":
+        changed[20] = False
+    elif mutation == "wrong_language":
+        changed[21] = "sql"
+    elif mutation == "wrong_volatility":
+        changed[22] = "s"
+    elif mutation == "not_security_definer":
+        changed[23] = False
+    elif mutation == "unsafe_search_path":
+        changed[24] = ("search_path=public",)
+    elif mutation == "altered_function_body":
+        changed[25] = changed[25].replace("RETURN NEW;", "RETURN OLD;")
+    elif mutation == "public_execute":
+        changed[26] = True
+    elif mutation == "runtime_execute":
+        changed[27] = True
+    elif mutation == "unexpected_execute_grant":
+        changed[28] = True
+    if mutation not in {"missing", "unexpected"}:
+        rows[index] = tuple(changed)
+    elif mutation == "unexpected":
+        rows.append(tuple(changed))
+
+    with pytest.raises(RuntimeError, match="authorization trigger catalog"):
+        _validate_trigger_catalog(rows)
+
+
+def test_trigger_catalog_accepts_expected_attachments_and_checks_all_auth_relations():
+    pool = FakePool()
+    _assert_expected_trigger_catalog(pool, timeout=1)
+    query, params = pool.queries[-1]
+    assert "pg_catalog.pg_trigger AS catalog_trigger" in query
+    assert "catalog_trigger.tgenabled" in query
+    assert "catalog_trigger.tgtype" in query
+    assert "catalog_trigger.tgqual IS NOT NULL" in query
+    assert "procedure.prosecdef" in query
+    assert "pg_catalog.aclexplode" in query
+    assert params == (sorted({
+        table for schema, table, _ in _trigger_specs() if schema == "public"
+    }),)
+
+
+def test_trigger_column_catalog_order_does_not_change_update_of_meaning():
+    rows = expected_trigger_rows()
+    index = next(
+        i for i, row in enumerate(rows)
+        if row[2] == "celestin_user_identity_auth_lock"
+    )
+    row = list(rows[index])
+    row[5] = tuple(reversed(row[5]))
+    rows[index] = tuple(row)
+    _validate_trigger_catalog(rows)
+
+
+def test_trigger_expectations_match_checked_in_0008_and_0009_migrations():
+    migration_dir = Path(__file__).parents[1] / "src" / "orbit" / "postgres" / "migrations"
+    migration_sql = "\n".join(
+        (migration_dir / name).read_text(encoding="utf-8")
+        for name in (
+            "0008_project_scoped_runtime_roles.sql",
+            "0009_project_request_lock_scope.sql",
+        )
+    )
+    for function_name, (_config, expected_body) in _trigger_function_specs().items():
+        matches = list(re.finditer(
+            rf"CREATE(?: OR REPLACE)? FUNCTION public\.{re.escape(function_name)}\s*\(\)"
+            rf".*?AS \$\$(.*?)\$\$;",
+            migration_sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        ))
+        assert matches, f"missing migration body for {function_name}"
+        match = matches[-1]
+        from orbit.mcp_server.hosted_server import _canonical_sql_expression
+
+        assert _canonical_sql_expression(match.group(1)) == _canonical_sql_expression(
+            expected_body
+        )
+
+    event_clauses = {
+        "celestin_workspace_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_workspaces",
+        "celestin_project_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_projects",
+        "celestin_workspace_membership_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_workspace_memberships",
+        "celestin_project_membership_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_project_memberships",
+        "celestin_service_identity_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_service_identities",
+        "celestin_service_grant_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON public.celestin_service_project_grants",
+        "celestin_project_scope_auth_lock": "BEFORE INSERT OR UPDATE OR DELETE ON celestin_private.project_runtime_scopes",
+        "celestin_user_identity_auth_lock": "BEFORE UPDATE OF status, issuer, subject ON public.celestin_users",
+    }
+    assert set(event_clauses) == {key[2] for key in _trigger_specs()}
+    for trigger_name, clause in event_clauses.items():
+        match = re.search(
+            rf"CREATE TRIGGER {re.escape(trigger_name)}\b(.*?);",
+            migration_sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        assert match is not None, f"missing migration trigger {trigger_name}"
+        assert clause.casefold() in " ".join(match.group(1).split()).casefold()
+
+
+def test_postgres_pool_reset_clears_session_state_and_disables_prepare_cache(monkeypatch):
+    captured = {}
+
+    class FakePool:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psycopg_pool",
+        SimpleNamespace(ConnectionPool=FakePool),
+    )
+    pool = _create_pool(
+        "host=localhost dbname=unit_test",
+        SimpleNamespace(connection_timeout=3, pool_timeout=4),
+        min_size=0,
+        max_size=1,
+    )
+    assert isinstance(pool, FakePool)
+    assert captured["kwargs"] == {
+        "connect_timeout": 3,
+        "prepare_threshold": None,
+    }
+    assert captured["reset"] is _reset_postgres_pool_connection
+    assert captured["open"] is False
+
+    class Cursor:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class Connection:
+        autocommit = False
+
+        def __init__(self):
+            self.rollback_calls = 0
+            self.queries = []
+            self.cursor = Cursor()
+
+        def rollback(self):
+            self.rollback_calls += 1
+
+        def execute(self, query):
+            self.queries.append(query)
+            return self.cursor
+
+    connection = Connection()
+    _reset_postgres_pool_connection(connection)
+    assert connection.rollback_calls == 1
+    assert connection.queries == ["DISCARD ALL"]
+    assert connection.cursor.closed
+    assert connection.autocommit is False
 
 
 def test_sql_normalization_preserves_string_literal_semantics():

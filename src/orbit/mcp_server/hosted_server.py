@@ -151,6 +151,163 @@ BEGIN
 END;
 """
 
+# Request pools must not acquire arbitrary PostgreSQL advisory locks directly.
+# The lock wrappers must be SECURITY DEFINER in a reviewed forward migration;
+# the trusted database-owner identity keeps only the runner pair plus the two
+# transaction-lock primitives needed by its owned security-definer wrappers.
+_ADVISORY_LOCK_ALLOWED_SIGNATURES = {
+    "project_runtime": frozenset(),
+    "authorization_reader": frozenset(),
+    "authorization_admin": frozenset(),
+    "migration": frozenset({
+        "pg_advisory_lock(bigint)",
+        "pg_advisory_unlock(bigint)",
+        # The database-owner role owns the reviewed SECURITY DEFINER lock
+        # wrappers and therefore needs only the two transaction-lock primitives
+        # used by those wrappers, in addition to the migration runner pair.
+        "pg_advisory_xact_lock(bigint)",
+        "pg_advisory_xact_lock_shared(bigint)",
+    }),
+}
+_ADVISORY_LOCK_SIGNATURES = frozenset({
+    "pg_advisory_lock(bigint)",
+    "pg_advisory_lock(integer,integer)",
+    "pg_advisory_lock_shared(bigint)",
+    "pg_advisory_lock_shared(integer,integer)",
+    "pg_advisory_unlock(bigint)",
+    "pg_advisory_unlock(integer,integer)",
+    "pg_advisory_unlock_shared(bigint)",
+    "pg_advisory_unlock_shared(integer,integer)",
+    "pg_advisory_unlock_all()",
+    "pg_advisory_xact_lock(bigint)",
+    "pg_advisory_xact_lock(integer,integer)",
+    "pg_advisory_xact_lock_shared(bigint)",
+    "pg_advisory_xact_lock_shared(integer,integer)",
+    "pg_try_advisory_lock(bigint)",
+    "pg_try_advisory_lock(integer,integer)",
+    "pg_try_advisory_lock_shared(bigint)",
+    "pg_try_advisory_lock_shared(integer,integer)",
+    "pg_try_advisory_xact_lock(bigint)",
+    "pg_try_advisory_xact_lock(integer,integer)",
+    "pg_try_advisory_xact_lock_shared(bigint)",
+    "pg_try_advisory_xact_lock_shared(integer,integer)",
+})
+
+_WORKSPACE_AUTH_TRIGGER_FUNCTION_BODY = """
+DECLARE
+    old_workspace UUID;
+    new_workspace UUID;
+    target_workspace UUID;
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        IF TG_TABLE_NAME = 'celestin_workspaces' THEN
+            old_workspace := (to_jsonb(OLD)->>'id')::uuid;
+        ELSE
+            old_workspace := (to_jsonb(OLD)->>'workspace_id')::uuid;
+        END IF;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        IF TG_TABLE_NAME = 'celestin_workspaces' THEN
+            new_workspace := (to_jsonb(NEW)->>'id')::uuid;
+        ELSE
+            new_workspace := (to_jsonb(NEW)->>'workspace_id')::uuid;
+        END IF;
+    END IF;
+    FOR target_workspace IN
+        SELECT DISTINCT workspace_id
+          FROM unnest(ARRAY[old_workspace, new_workspace]) AS ids(workspace_id)
+         WHERE workspace_id IS NOT NULL
+         ORDER BY workspace_id::text
+    LOOP
+        PERFORM public.celestin_lock_workspace_authorization_write(target_workspace);
+    END LOOP;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+"""
+_HUMAN_AUTH_TRIGGER_FUNCTION_BODY = """
+DECLARE
+    lock_key TEXT;
+BEGIN
+    FOR lock_key IN
+        SELECT DISTINCT key_value
+          FROM (
+              SELECT pg_catalog.jsonb_build_array(
+                         'principal', 'human', OLD.issuer, OLD.subject
+                     )::text AS key_value
+               WHERE OLD.issuer IS NOT NULL AND OLD.subject IS NOT NULL
+              UNION ALL
+              SELECT pg_catalog.jsonb_build_array(
+                         'principal', 'human', NEW.issuer, NEW.subject
+                     )::text
+               WHERE NEW.issuer IS NOT NULL AND NEW.subject IS NOT NULL
+              UNION ALL
+              SELECT pg_catalog.jsonb_build_array(
+                         'workspace', affected.workspace_id
+                     )::text
+                FROM (
+                    SELECT membership.workspace_id
+                      FROM public.celestin_workspace_memberships AS membership
+                     WHERE membership.user_id IN (OLD.id, NEW.id)
+                    UNION
+                    SELECT membership.workspace_id
+                      FROM public.celestin_project_memberships AS membership
+                     WHERE membership.user_id IN (OLD.id, NEW.id)
+                ) AS affected
+          ) AS lock_keys
+         ORDER BY key_value
+    LOOP
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('celestin-auth-v1:' || lock_key, 0)
+        );
+    END LOOP;
+    RETURN NEW;
+END;
+"""
+
+
+def _trigger_specs():
+    """Exact authorization lock-trigger attachments accepted by readiness."""
+    row_before_insert_update_delete = 1 | 2 | 4 | 8 | 16
+    row_before_update = 1 | 2 | 16
+    specs = {}
+    for table, trigger in (
+        ("celestin_workspaces", "celestin_workspace_auth_lock"),
+        ("celestin_projects", "celestin_project_auth_lock"),
+        ("celestin_workspace_memberships", "celestin_workspace_membership_auth_lock"),
+        ("celestin_project_memberships", "celestin_project_membership_auth_lock"),
+        ("celestin_service_identities", "celestin_service_identity_auth_lock"),
+        ("celestin_service_project_grants", "celestin_service_grant_auth_lock"),
+    ):
+        specs[("public", table, trigger)] = (
+            row_before_insert_update_delete, (), "celestin_lock_workspace_auth_row",
+        )
+    specs[(
+        "celestin_private", "project_runtime_scopes", "celestin_project_scope_auth_lock",
+    )] = (
+        row_before_insert_update_delete, (), "celestin_lock_workspace_auth_row",
+    )
+    specs[("public", "celestin_users", "celestin_user_identity_auth_lock")] = (
+        row_before_update, tuple(sorted(("status", "issuer", "subject"))),
+        "celestin_lock_human_identity_auth_row",
+    )
+    return specs
+
+
+def _trigger_function_specs():
+    return {
+        "celestin_lock_workspace_auth_row": (
+            ("search_path=pg_catalog, public",),
+            _WORKSPACE_AUTH_TRIGGER_FUNCTION_BODY,
+        ),
+        "celestin_lock_human_identity_auth_row": (
+            ("search_path=pg_catalog, public",),
+            _HUMAN_AUTH_TRIGGER_FUNCTION_BODY,
+        ),
+    }
+
 
 class HostedRuntimeConfigurationError(ValueError):
     """Hosted mode is missing a required non-secret configuration value."""
@@ -751,6 +908,27 @@ def create_hosted_mcp_server(
     return mcp
 
 
+def _reset_postgres_pool_connection(connection) -> None:
+    """Clear session state before a pooled PostgreSQL connection is reused.
+
+    A failed reset must propagate so psycopg-pool discards the connection. The
+    runtime deliberately disables automatic server-side preparation because
+    ``DISCARD ALL`` deallocates PostgreSQL prepared statements.
+    """
+    connection.rollback()
+    previous_autocommit = connection.autocommit
+    cursor = None
+    try:
+        connection.autocommit = True
+        cursor = connection.execute("DISCARD ALL")
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            connection.autocommit = previous_autocommit
+
+
 def _create_pool(
     conninfo: str,
     settings: HostedRuntimeSettings,
@@ -766,10 +944,14 @@ def _create_pool(
         ) from exc
     return ConnectionPool(
         conninfo=conninfo,
-        kwargs={"connect_timeout": settings.connection_timeout},
+        kwargs={
+            "connect_timeout": settings.connection_timeout,
+            "prepare_threshold": None,
+        },
         min_size=min_size,
         max_size=max_size,
         timeout=settings.pool_timeout,
+        reset=_reset_postgres_pool_connection,
         open=False,
     )
 
@@ -1072,14 +1254,14 @@ def _function_specs(project_runtime: bool):
                 _PROJECT_WORKSPACE_FUNCTION_BODY,
             ),
             "celestin_lock_project_authorization_request(uuid)": (
-                "plpgsql", "v", False,
+                "plpgsql", "v", True,
                 ("search_path=pg_catalog, celestin_private",),
                 _PROJECT_LOCK_FUNCTION_BODY,
             ),
         }
     return {
         "celestin_lock_authorization_request(uuid,text,text,text)": (
-            "plpgsql", "v", False, ("search_path=pg_catalog",),
+            "plpgsql", "v", True, ("search_path=pg_catalog",),
             _READER_LOCK_FUNCTION_BODY,
         ),
     }
@@ -1216,6 +1398,255 @@ def _assert_authorization_function_catalog(pool, timeout: float, *, project_runt
             except Exception:
                 raise RuntimeError("PostgreSQL authorization helper cursor could not be closed") from None
     _validate_function_catalog(rows, project_runtime=project_runtime)
+
+
+def _advisory_lock_privilege_query() -> str:
+    """Return every pg_catalog advisory lock/unlock overload and its effective ACL."""
+    return """
+        SELECT procedure.oid::regprocedure::text,
+               pg_catalog.has_function_privilege(
+                   current_user, procedure.oid, 'EXECUTE'
+               ) AS current_role_execute
+          FROM pg_catalog.pg_proc AS procedure
+          JOIN pg_catalog.pg_namespace AS namespace
+            ON namespace.oid = procedure.pronamespace
+         WHERE namespace.nspname = 'pg_catalog'
+           AND pg_catalog.left(procedure.proname, 12) = 'pg_advisory_'
+         ORDER BY procedure.oid::regprocedure::text
+    """
+
+
+def _normalize_function_signature(signature: str) -> str:
+    normalized = _canonical_sql_expression(signature) or ""
+    if normalized.startswith("pg_catalog."):
+        normalized = normalized[len("pg_catalog."):]
+    return normalized
+
+
+def _validate_advisory_lock_privilege_catalog(rows, *, role_profile: str) -> None:
+    """Require an exact effective advisory-function profile for the DB login.
+
+    PostgreSQL grants function EXECUTE to PUBLIC by default. Since ACLs are
+    additive, a role-specific GRANT/REVOKE cannot deny that inherited access.
+    The request identities therefore get no direct advisory functions; reviewed
+    SECURITY DEFINER wrappers own the lock operation. The migration/database
+    owner gets only the runner's session lock/unlock pair and the exclusive and
+    shared transaction-lock primitives needed by its owned wrappers.
+    """
+    allowed = _ADVISORY_LOCK_ALLOWED_SIGNATURES.get(role_profile)
+    if allowed is None:
+        raise RuntimeError("PostgreSQL advisory-lock role profile is unknown")
+    actual = {}
+    try:
+        for signature, can_execute in rows:
+            normalized = _normalize_function_signature(str(signature))
+            if not normalized or normalized in actual:
+                raise ValueError("duplicate advisory function")
+            actual[normalized] = bool(can_execute)
+    except (TypeError, ValueError):
+        raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe") from None
+    if (
+        set(actual) != _ADVISORY_LOCK_SIGNATURES
+        or any(can_execute != (signature in allowed) for signature, can_execute in actual.items())
+    ):
+        raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe")
+
+
+def _assert_advisory_lock_privileges(
+    pool, timeout: float, *, role_profile: str
+) -> None:
+    cursor = None
+    try:
+        with pool.connection(timeout=timeout) as connection:
+            cursor = connection.execute(_advisory_lock_privilege_query(), ())
+            rows = cursor.fetchall()
+    except Exception:
+        raise RuntimeError("PostgreSQL advisory-lock privileges could not be verified") from None
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                raise RuntimeError("PostgreSQL advisory-lock privilege cursor could not be closed") from None
+    _validate_advisory_lock_privilege_catalog(rows, role_profile=role_profile)
+
+
+def _trigger_catalog_query() -> str:
+    return """
+        SELECT relation_namespace.nspname,
+               relation.relname,
+               catalog_trigger.tgname,
+               catalog_trigger.tgenabled,
+               catalog_trigger.tgtype,
+               ARRAY(
+                   SELECT attribute.attname::text
+                     FROM unnest(catalog_trigger.tgattr::smallint[])
+                          WITH ORDINALITY AS trigger_column(attnum, ordinal)
+                     JOIN pg_catalog.pg_attribute AS attribute
+                       ON attribute.attrelid = relation.oid
+                      AND attribute.attnum = trigger_column.attnum
+                    ORDER BY trigger_column.ordinal
+               ) AS update_columns,
+               catalog_trigger.tgisinternal,
+               catalog_trigger.tgqual IS NOT NULL AS has_when_condition,
+               catalog_trigger.tgnargs,
+               catalog_trigger.tgconstraint <> 0 AS is_constraint_trigger,
+               function_namespace.nspname,
+               procedure.proname,
+               pg_catalog.pg_get_function_identity_arguments(procedure.oid),
+               owner.rolname,
+               owner.oid = (
+                   SELECT database.datdba FROM pg_catalog.pg_database AS database
+                    WHERE database.datname = current_database()
+               ) AS owner_is_database_owner,
+               owner.rolsuper, owner.rolbypassrls,
+               owner.rolcreaterole, owner.rolcreatedb, owner.rolreplication,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_roles AS inherited
+                    WHERE inherited.oid <> owner.oid
+                      AND inherited.rolname <> 'pg_database_owner'
+                      AND pg_catalog.pg_has_role(owner.oid, inherited.oid, 'MEMBER')
+               ) AS owner_has_no_other_memberships,
+               language.lanname,
+               procedure.provolatile,
+               procedure.prosecdef,
+               procedure.proconfig,
+               procedure.prosrc,
+               EXISTS (
+                   SELECT 1
+                     FROM pg_catalog.aclexplode(
+                         COALESCE(procedure.proacl,
+                                  pg_catalog.acldefault('f', procedure.proowner))
+                     ) AS acl
+                    WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+               ) AS public_execute,
+               pg_catalog.has_function_privilege(
+                   current_user, procedure.oid, 'EXECUTE'
+               ) AS current_role_execute,
+               EXISTS (
+                   SELECT 1 FROM pg_catalog.aclexplode(
+                       COALESCE(procedure.proacl,
+                                pg_catalog.acldefault('f', procedure.proowner))
+                   ) AS acl
+                    WHERE acl.privilege_type = 'EXECUTE'
+                      AND acl.grantee <> procedure.proowner
+               ) AS unexpected_execute_grants
+          FROM pg_catalog.pg_trigger AS catalog_trigger
+          JOIN pg_catalog.pg_class AS relation
+            ON relation.oid = catalog_trigger.tgrelid
+          JOIN pg_catalog.pg_namespace AS relation_namespace
+            ON relation_namespace.oid = relation.relnamespace
+          JOIN pg_catalog.pg_proc AS procedure
+            ON procedure.oid = catalog_trigger.tgfoid
+          JOIN pg_catalog.pg_namespace AS function_namespace
+            ON function_namespace.oid = procedure.pronamespace
+          JOIN pg_catalog.pg_roles AS owner
+            ON owner.oid = procedure.proowner
+          JOIN pg_catalog.pg_language AS language
+            ON language.oid = procedure.prolang
+         WHERE NOT catalog_trigger.tgisinternal
+           AND (
+               (relation_namespace.nspname = 'public'
+                AND relation.relname = ANY(%s::text[]))
+               OR (relation_namespace.nspname = 'celestin_private'
+                   AND relation.relname = 'project_runtime_scopes')
+           )
+         ORDER BY relation_namespace.nspname, relation.relname, trigger.tgname
+    """
+
+
+def _validate_trigger_catalog(rows) -> None:
+    expected_triggers = _trigger_specs()
+    expected_functions = _trigger_function_specs()
+    actual_triggers = {}
+    actual_functions = {}
+    try:
+        for row in rows:
+            (
+                relation_schema, table, trigger_name, enabled, tgtype, attributes,
+                is_internal, has_when, argument_count, is_constraint,
+                function_schema, function_name, identity_arguments,
+                owner, owner_is_database_owner, owner_superuser, owner_bypassrls,
+                owner_createrole, owner_createdb, owner_replication,
+                owner_has_no_other_memberships, language, volatility,
+                security_definer, config, source, public_execute, current_execute,
+                unexpected_execute_grants,
+            ) = row
+            key = (str(relation_schema), str(table), str(trigger_name))
+            if key in actual_triggers:
+                raise ValueError("duplicate trigger")
+            actual_triggers[key] = (
+               str(enabled), int(tgtype), tuple(sorted(attributes or ())),
+                bool(is_internal), bool(has_when), int(argument_count),
+                bool(is_constraint), str(function_schema), str(function_name),
+                str(identity_arguments or ""),
+            )
+            function_key = str(function_name)
+            function_properties = (
+                str(owner), bool(owner_is_database_owner), bool(owner_superuser),
+                bool(owner_bypassrls), bool(owner_createrole), bool(owner_createdb),
+                bool(owner_replication), bool(owner_has_no_other_memberships),
+                str(language), str(volatility), bool(security_definer),
+                tuple(config or ()), _canonical_sql_expression(str(source)),
+                bool(public_execute), bool(current_execute),
+                bool(unexpected_execute_grants),
+            )
+            previous = actual_functions.setdefault(function_key, function_properties)
+            if previous != function_properties:
+                raise ValueError("inconsistent trigger function")
+    except (TypeError, ValueError):
+        raise RuntimeError("PostgreSQL authorization trigger catalog is unsafe") from None
+
+    if set(actual_triggers) != set(expected_triggers):
+        raise RuntimeError("PostgreSQL authorization trigger catalog is unsafe")
+    if set(actual_functions) != set(expected_functions):
+        raise RuntimeError("PostgreSQL authorization trigger catalog is unsafe")
+
+    for key, (tgtype, attributes, function_name) in expected_triggers.items():
+        expected = (
+            "O", tgtype, attributes, False, False, 0, False,
+            "public", function_name, "",
+        )
+        if actual_triggers[key] != expected:
+            raise RuntimeError("PostgreSQL authorization trigger catalog is unsafe")
+
+    for function_name, (config, source) in expected_functions.items():
+        (
+            _owner, owner_is_database_owner, superuser, bypassrls, createrole,
+            createdb, replication, no_other_memberships, language, volatility,
+            security_definer, actual_config, actual_source,
+            public_execute, current_execute, unexpected_execute_grants,
+        ) = actual_functions[function_name]
+        if (
+            not owner_is_database_owner
+            or superuser or bypassrls or createrole or createdb or replication
+            or not no_other_memberships
+            or language != "plpgsql"
+            or volatility != "v"
+            or not security_definer
+            or actual_config != config
+            or actual_source != _canonical_sql_expression(source)
+            or public_execute or current_execute or unexpected_execute_grants
+        ):
+            raise RuntimeError("PostgreSQL authorization trigger catalog is unsafe")
+
+
+def _assert_expected_trigger_catalog(pool, timeout: float) -> None:
+    cursor = None
+    try:
+        relation_names = sorted({table for schema, table, _ in _trigger_specs() if schema == "public"})
+        with pool.connection(timeout=timeout) as connection:
+            cursor = connection.execute(_trigger_catalog_query(), (relation_names,))
+            rows = cursor.fetchall()
+    except Exception:
+        raise RuntimeError("PostgreSQL authorization trigger catalog could not be verified") from None
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                raise RuntimeError("PostgreSQL authorization trigger cursor could not be closed") from None
+    _validate_trigger_catalog(rows)
 
 
 def _assert_safe_authorization_reader(pool, timeout: float) -> None:
@@ -1452,6 +1883,9 @@ def _assert_safe_authorization_reader(pool, timeout: float) -> None:
         or not all(bool(value) for value in row[11:21])
     ):
         raise RuntimeError("PostgreSQL authorization-reader role violates its least-privilege requirements")
+    _assert_advisory_lock_privileges(
+        pool, timeout, role_profile="authorization_reader"
+    )
     _assert_authorization_function_catalog(pool, timeout, project_runtime=False)
 
 
@@ -1819,8 +2253,12 @@ def _assert_safe_project_runtime(
         or not all(bool(value) for value in row[31:38])
     ):
         raise RuntimeError("PostgreSQL project role violates its project-isolation requirements")
+    _assert_advisory_lock_privileges(
+        pool, timeout, role_profile="project_runtime"
+    )
     _assert_expected_policy_catalog(pool, timeout)
     _assert_authorization_function_catalog(pool, timeout, project_runtime=True)
+    _assert_expected_trigger_catalog(pool, timeout)
 
 
 def _run_pool_probe(pool, timeout: float, query: str, params: tuple[Any, ...]):

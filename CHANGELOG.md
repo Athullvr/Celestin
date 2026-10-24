@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T07:18:52+05:30 — Fail closed on advisory-lock and trigger catalog drift
+
+- Changed: Hosted readiness now checks effective `pg_advisory_*` execution across all supported overloads, expects the request lock wrappers to be security-definer functions, and validates the exact authorization-trigger roster, event metadata, function body, ownership, search path, and grants. PostgreSQL pool return now clears session state with `DISCARD ALL` and disables automatic server-side preparation. Added adversarial offline catalog tests.
+- Why: PostgreSQL built-in advisory privileges are inherited through `PUBLIC`; revoking Celestin's wrapper grants alone does not remove direct lock access from a project login. Authorization ordering and RLS readiness must fail closed until the built-in ACL and secure-wrapper prerequisites are satisfied.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py tests/postgres/test_live_authorization.py tests/postgres/test_live_support.py tests/postgres/test_migration_runner.py` — 306 passed, 35 opt-in PostgreSQL tests skipped. Python compilation passed. No PostgreSQL opt-in flag, database, migration, Auth0 request, or external operation was used.
+- Limitations: No forward migration was added or applied. The checked-in 0008–0009 setup remains incompatible with the strengthened direct-lock/readiness gate. Live PostgreSQL behavior was not tested; tenant isolation is not declared passed.
+
 ## 2026-10-23T22:00:35+05:30 — Separate Evidence adapter tests from the hosted RLS gate
 
 - Changed: Assigned the adapter-level Evidence suite its own pytest marker and documented its exact opt-in command separately from project-login authorization/RLS acceptance. Clarified that these tests currently use a control-plane connection and do not prove project-runtime Evidence access.
