@@ -4,6 +4,14 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T21:00:00+05:30 — Add trusted local project resolver
+
+- Changed: Added `orbit.project_state.local_projects` (`LocalProjectResolver`, `LocalProjectBinding`, typed `ProjectResolutionError` subclasses) and `tests/project_state/test_local_projects.py`. The resolver maps an exact local project ID to a configured absolute root and checks that root is the Git worktree root, using a `GIT_*`-scrubbed environment with lazy fetch disabled.
+- Configuration: supplied by the caller as a mapping or via `LocalProjectResolver.from_json('{"id": "/abs/root"}')`. No registry file, environment variable, or hosted source is read; IDs are not inferred from the cwd or path names, and are not equated with hosted or retrieval project keys.
+- Why: Resurrection needs a trusted project-to-repository binding before reconstruction (see `docs/RESURRECTION_INTERFACE_BOUNDARY_REVIEW.md`).
+- Validation: new test file only (19 tests passed, run with the system Python and `PYTHONPATH=src`); no full suite, database, or network checks.
+- Limitations: Not wired into `ProjectStateReconstructor`, MCP, or any runtime; no production configuration source exists yet.
+
 ## 2026-10-24T17:00:27+05:30 — Propose ACL-independent hosted storage architecture
 
 - Changed: Added `docs/hosted-control-plane-data-plane-architecture.md` with current source facts, a threat comparison of shared row locking, per-project databases, isolated per-project workers, and provider alternatives; proposed routing and revocation/drain semantics; migration, provisioning, recovery, provider-decision, and live-test requirements. No application source or tests changed.

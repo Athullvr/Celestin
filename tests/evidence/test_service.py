@@ -28,7 +28,13 @@ from orbit.evidence.service import (
     EvidenceValidationError,
     KnowledgeNotFound,
 )
-from orbit.mcp_server.authorization import READ, WRITE, AuthorizedProject, ProjectAccessPolicy
+from orbit.mcp_server.authorization import (
+    READ,
+    WRITE,
+    AuthorizedProject,
+    ProjectAccessDenied,
+    ProjectAccessPolicy,
+)
 from tests.evidence.store_contract import EvidenceLinkedMemoryStoreContract
 
 
@@ -203,6 +209,65 @@ def test_create_record_with_multiple_evidence_sources_and_retrieve_provenance():
     assert all(item.verification_status is VerificationStatus.UNVERIFIED for item in loaded.evidence)
     assert loaded.evidence[0].project == "project-a"
     assert loaded.evidence[0].captured_at == "2026-10-14T12:30:00.000000Z"
+
+
+def test_one_source_can_be_linked_to_multiple_capture_candidates():
+    store = FakeEvidenceStore()
+    service = make_service(store=store)
+    source_reference = CaptureSourceProvenance(
+        source_type="conversation_summary",
+        source_id="conversation-7",
+        occurred_at="2026-10-14T23:10:00Z",
+        revision="rev-3",
+        locator="summary:decision-1",
+    )
+    source = EvidenceSource(
+        EvidenceType.OTHER,
+        source_reference.source_id,
+        "conversation_summary: summary:decision-1",
+        revision="rev-3",
+        content_hash="sha256:source",
+    )
+
+    def provenance(candidate_id):
+        return CaptureKnowledgeProvenance(
+            candidate_id=candidate_id,
+            project_id="p",
+            category="decision",
+            certainty="high",
+            review_status="approved",
+            candidate_verification_status=VerificationStatus.UNVERIFIED.value,
+            source_references=(source_reference,),
+            candidate_created_at="2026-10-14T23:00:00Z",
+            candidate_updated_at="2026-10-14T23:20:00Z",
+            reviewed_by="reviewer-label",
+            reviewed_at="2026-10-14T23:20:00Z",
+        )
+
+    first = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "First claim from the shared source.",
+        (source,),
+        capture_provenance=provenance("candidate-1"),
+    )
+    second = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DECISION,
+        "Second claim from the shared source.",
+        (source,),
+        capture_provenance=provenance("candidate-2"),
+    )
+
+    first_loaded = service.get_knowledge(authorized("p", READ), first.record.knowledge_id)
+    second_loaded = service.get_knowledge(authorized("p", READ), second.record.knowledge_id)
+
+    assert first_loaded.record.capture_provenance.candidate_id == "candidate-1"
+    assert second_loaded.record.capture_provenance.candidate_id == "candidate-2"
+    assert first_loaded.evidence[0].source_id == second_loaded.evidence[0].source_id
+    assert first_loaded.evidence[0].evidence_id != second_loaded.evidence[0].evidence_id
+    assert first_loaded.evidence[0].content_hash == second_loaded.evidence[0].content_hash
+    assert len(store.records) == 2
 
 
 def test_identical_sources_in_one_create_are_deduplicated():
@@ -599,6 +664,57 @@ def test_authorized_action_is_required_for_each_operation():
         )
     with pytest.raises(PermissionError, match="read selector"):
         service.get_knowledge(authorized("p", WRITE), "missing")
+
+
+def test_read_revocation_between_successive_reads_denies_before_store_access():
+    class RevocableAuthorizer:
+        def __init__(self):
+            self.actions = {READ, WRITE}
+
+        def authorize(self, principal, project, action):
+            if action not in self.actions:
+                raise ProjectAccessDenied("project access denied")
+            return AuthorizedProject(project, action, principal)
+
+    class CountingStore(FakeEvidenceStore):
+        def __init__(self):
+            super().__init__()
+            self.reads = []
+
+        def get_knowledge(self, project, knowledge_id):
+            self.reads.append(("get", project, knowledge_id))
+            return super().get_knowledge(project, knowledge_id)
+
+        def list_evidence(self, project, knowledge_id):
+            self.reads.append(("list", project, knowledge_id))
+            return super().list_evidence(project, knowledge_id)
+
+    store = CountingStore()
+    authorizer = RevocableAuthorizer()
+    service = EvidenceLinkedMemoryService(
+        store,
+        Resolver(),
+        authorizer=authorizer,
+        id_factory=lambda: "knowledge-revocation",
+        clock=lambda: NOW,
+    )
+    created = service.create_knowledge(
+        authorized("p"),
+        KnowledgeType.DISCOVERY,
+        "Protected claim.",
+        (EvidenceSource(EvidenceType.MESSAGE, "message-1"),),
+    )
+
+    first_read = service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+    assert first_read.record.claim == "Protected claim."
+    assert [operation for operation, _, _ in store.reads] == ["get", "list"]
+
+    authorizer.actions.remove(READ)
+    reads_before_revoked_call = tuple(store.reads)
+    with pytest.raises(PermissionError, match="project access denied"):
+        service.get_knowledge(authorized("p", READ), created.record.knowledge_id)
+
+    assert tuple(store.reads) == reads_before_revoked_call
 
 
 @pytest.mark.parametrize(
