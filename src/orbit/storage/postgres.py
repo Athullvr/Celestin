@@ -116,6 +116,7 @@ class PostgresMemoryStore(MemoryStore):
         self._check_request_scope(project, "write")
         with self._connection() as connection:
             project_id = self._resolve_project(connection, project)
+            self._bind_standalone_scope(connection, project_id)
             row = connection.execute(
                 """
                 INSERT INTO chat_messages
@@ -161,6 +162,7 @@ class PostgresMemoryStore(MemoryStore):
         self._check_request_scope(project, "write")
         with self._connection() as connection:
             project_id = self._resolve_project(connection, project)
+            self._bind_standalone_scope(connection, project_id)
             source = connection.execute(
                 """
                 SELECT 1
@@ -212,6 +214,7 @@ class PostgresMemoryStore(MemoryStore):
         self._check_request_scope(project, "write")
         with self._connection() as connection:
             project_id = self._resolve_project(connection, project)
+            self._bind_standalone_scope(connection, project_id)
             row = connection.execute(
                 """
                 UPDATE project_memory
@@ -256,6 +259,21 @@ class PostgresMemoryStore(MemoryStore):
             return
         if project != scope.project_key or permission not in scope.permissions:
             raise HostedAccessDenied("access denied")
+
+    def _bind_standalone_scope(self, connection: _PostgresConnection, project_id: str) -> None:
+        """Set RLS context for trusted standalone use inside its owned transaction."""
+        if self._request_scope is not None:
+            return
+        cursor = connection.execute(
+            """
+            SELECT set_config('celestin.workspace_id', %s, true),
+                   set_config('celestin.project_id', %s, true)
+            """,
+            (self._workspace_id, project_id),
+        )
+        close = getattr(cursor, "close", None)
+        if callable(close):
+            close()
 
     @contextmanager
     def _connection(self):

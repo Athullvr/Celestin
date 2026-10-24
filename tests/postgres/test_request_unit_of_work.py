@@ -23,7 +23,10 @@ from orbit.evidence.model import (
     KnowledgeType,
     ReferenceStatus,
 )
-from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
+from orbit.postgres.authorization import (
+    PostgresHostedAuthorizationSessionFactory,
+    ProjectScopedPostgresHostedAuthorizationSessionFactory,
+)
 from orbit.postgres.unit_of_work import PostgresRequestUnitOfWork
 from orbit.retrieval.postgres_data import PostgresRetrievalData
 from orbit.storage.postgres import PostgresMemoryStore
@@ -56,13 +59,14 @@ class Connection:
     def __init__(self, *, project_archived=None, workspace_archived=None,
                  grant=(True, True, None), message_id=MESSAGE_ID,
                  capabilities=(False, False, False, False),
-                 fail_on=None):
+                 fail_on=None, scope_matches=True):
         self.project_archived = project_archived
         self.workspace_archived = workspace_archived
         self.grant = grant
         self.capabilities = capabilities
         self.message_id = message_id
         self.fail_on = fail_on
+        self.scope_matches = scope_matches
         self.queries = []
         self.cursors = []
         self.commits = 0
@@ -70,7 +74,7 @@ class Connection:
         self.close_calls = 0
         self.closed = False
         self.transaction_depth = 0
-        self.scope_set_transaction_depth = None
+        self.scope_check_transaction_depth = None
         self.scope_cursor = None
 
     def execute(self, query, params=()):
@@ -79,9 +83,17 @@ class Connection:
         if self.fail_on and self.fail_on in sql:
             raise RuntimeError("private database detail")
 
-        if sql.startswith("SELECT set_config('celestin.workspace_id'"):
-            self.scope_set_transaction_depth = self.transaction_depth
-            row, rows = (params[0], params[1]), ()
+        if sql.startswith((
+            "SELECT public.celestin_lock_authorization_request",
+            "SELECT public.celestin_lock_project_authorization_request",
+        )):
+            row, rows = None, ()
+        elif sql.startswith("SELECT public.celestin_request_scope_matches"):
+            self.scope_check_transaction_depth = self.transaction_depth
+            row, rows = (self.scope_matches,), ()
+        elif sql.startswith("SELECT set_config('statement_timeout'"):
+            self.statement_timeout_transaction_depth = self.transaction_depth
+            row, rows = (params[0],), ()
         elif sql.startswith("SELECT id FROM celestin_workspaces"):
             row = (WORKSPACE,)
             rows = ()
@@ -122,7 +134,7 @@ class Connection:
 
         cursor = Result(row, rows)
         self.cursors.append(cursor)
-        if sql.startswith("SELECT set_config('celestin.workspace_id'"):
+        if sql.startswith("SELECT public.celestin_request_scope_matches"):
             self.scope_cursor = cursor
         return cursor
 
@@ -148,8 +160,8 @@ class Connection:
 
 
 class WorkspaceBinding:
-    def workspace_for(self, principal):
-        return WORKSPACE
+    def workspace_for(self, principal, requested_workspace_id=None):
+        return requested_workspace_id or WORKSPACE
 
 
 class StatusProvider:
@@ -166,6 +178,49 @@ def build_request(connection):
 
     factory = PostgresHostedAuthorizationSessionFactory(connect)
     return factory, connect_calls
+
+
+def build_project_scoped_request(control_connection, project_connection, events=None):
+    calls = []
+    events = events if events is not None else []
+
+    def connect_control():
+        calls.append("control")
+        events.append("connect-control")
+        return control_connection
+
+    def connect_project(scope):
+        calls.append((scope.workspace_id, scope.project_id))
+        events.append(("connect-project", control_connection.commits))
+        return project_connection
+
+    factory = ProjectScopedPostgresHostedAuthorizationSessionFactory(
+        connect_control, connect_project
+    )
+    return factory, calls
+
+
+def test_statement_timeout_is_transaction_local_before_authorization():
+    connection = Connection()
+    factory = PostgresHostedAuthorizationSessionFactory(
+        lambda: connection, statement_timeout_ms=2500
+    )
+
+    with factory._transaction():
+        pass
+
+    assert connection.queries[0] == (
+        "SELECT set_config('statement_timeout', %s, true)", ("2500ms",)
+    )
+    assert connection.statement_timeout_transaction_depth == 1
+    assert connection.commits == 1 and connection.rollbacks == 0
+    assert connection.close_calls == 1
+
+
+@pytest.mark.parametrize("timeout", [0, -1, True, 1.5])
+def test_statement_timeout_configuration_must_be_positive_integer(timeout):
+    with pytest.raises(ValueError, match="positive integer"):
+        PostgresHostedAuthorizationSessionFactory(lambda: Connection(), statement_timeout_ms=timeout)
 
 
 class Authenticator:
@@ -188,6 +243,7 @@ def execute_request(factory, project, action, operation, *, source_message_id=No
         project,
         action,
         operation,
+        workspace_selector=str(WORKSPACE),
         source_message_id=source_message_id,
     )
 
@@ -202,11 +258,11 @@ def test_authorized_memory_and_retrieval_share_one_connection_and_commit_once():
     def operation(request):
         scope_query, scope_params = next(
             (sql, params) for sql, params in connection.queries
-            if sql.startswith("SELECT set_config('celestin.workspace_id'")
+            if sql.startswith("SELECT public.celestin_request_scope_matches")
         )
         assert scope_params == (str(WORKSPACE), str(PROJECT))
-        assert scope_query.startswith("SELECT set_config('celestin.workspace_id'")
-        assert connection.scope_set_transaction_depth == 1
+        assert scope_query.startswith("SELECT public.celestin_request_scope_matches")
+        assert connection.scope_check_transaction_depth == 1
         assert connection.scope_cursor.closed
         assert request.memory_store._request_connection is connection
         assert request.evidence_store._connection is connection
@@ -247,6 +303,115 @@ def test_authorized_memory_and_retrieval_share_one_connection_and_commit_once():
         for sql, _ in connection.queries
         if "FROM chat_messages AS record" in sql
     )
+
+
+def test_project_scoped_factory_authorizes_before_pool_selection_and_rechecks_on_project_login():
+    control = Connection()
+    project = Connection()
+    events = []
+    factory, calls = build_project_scoped_request(control, project, events)
+
+    result = request_boundary(factory).execute_authorized_request(
+        object(), "demo", "write",
+        lambda request: (
+            request.memory_store._request_connection is project,
+            request.retrieval_data._request_connection is project,
+            request.evidence_store._connection is project,
+        ),
+        workspace_selector=str(WORKSPACE),
+    )
+
+    assert result == (True, True, True)
+    assert calls == ["control", (WORKSPACE, PROJECT)]
+    assert events == ["connect-control", ("connect-project", 1)]
+    assert control.commits == 1 and control.rollbacks == 0 and control.close_calls == 1
+    assert project.commits == 1 and project.rollbacks == 0 and project.close_calls == 1
+    assert any(
+        sql.startswith("SELECT public.celestin_request_scope_matches")
+        for sql, _ in project.queries
+    )
+    project_lock_queries = [
+        (sql, params) for sql, params in project.queries
+        if sql.startswith("SELECT public.celestin_lock_project_authorization_request")
+    ]
+    assert project_lock_queries == [
+        ("SELECT public.celestin_lock_project_authorization_request(%s)", (WORKSPACE,))
+    ]
+    assert not any(
+        sql.startswith("SELECT public.celestin_lock_authorization_request")
+        for sql, _ in project.queries
+    )
+    assert any(
+        sql.startswith("SELECT public.celestin_lock_authorization_request")
+        and params == (WORKSPACE, PRINCIPAL.kind, PRINCIPAL.issuer, PRINCIPAL.subject)
+        for sql, params in control.queries
+    )
+
+
+def test_project_pool_is_never_selected_after_preliminary_denial():
+    control = Connection(grant=(False, False, None))
+    project = Connection()
+    factory, calls = build_project_scoped_request(control, project)
+    called = False
+
+    def operation(_request):
+        nonlocal called
+        called = True
+
+    with pytest.raises(HostedAccessDenied):
+        request_boundary(factory).execute_authorized_request(
+            object(), "demo", "read", operation,
+            workspace_selector=str(WORKSPACE),
+        )
+
+    assert calls == ["control"]
+    assert not called
+    assert control.rollbacks == 1 and control.closed
+    assert not project.queries and not project.close_calls
+
+
+def test_project_transaction_rechecks_revocation_before_operation():
+    control = Connection()
+    project = Connection(grant=(False, False, None))
+    factory, calls = build_project_scoped_request(control, project)
+    called = False
+
+    def operation(_request):
+        nonlocal called
+        called = True
+
+    with pytest.raises(HostedAccessDenied):
+        request_boundary(factory).execute_authorized_request(
+            object(), "demo", "read", operation,
+            workspace_selector=str(WORKSPACE),
+        )
+
+    assert calls == ["control", (WORKSPACE, PROJECT)]
+    assert not called
+    assert control.commits == 1 and control.close_calls == 1
+    assert project.rollbacks == 1 and project.close_calls == 1
+
+
+def test_project_login_scope_mapping_mismatch_denies_before_handler():
+    control = Connection()
+    project = Connection(scope_matches=False)
+    factory, calls = build_project_scoped_request(control, project)
+    called = False
+
+    def operation(_request):
+        nonlocal called
+        called = True
+
+    with pytest.raises(HostedAuthorizationUnavailable, match="database identity"):
+        request_boundary(factory).execute_authorized_request(
+            object(), "demo", "read", operation,
+            workspace_selector=str(WORKSPACE),
+        )
+
+    assert calls == ["control", (WORKSPACE, PROJECT)]
+    assert not called
+    assert control.commits == 1 and project.rollbacks == 1
+    assert project.close_calls == 1
 
 
 def test_evidence_store_is_bound_to_resolver_scope_and_same_authorized_session():
@@ -397,10 +562,24 @@ def test_archived_scope_or_missing_source_denies_before_operation(connection):
     assert not called
     assert connection.rollbacks == 1 and connection.close_calls == 1
     assert connection.commits == 0
-    assert not any(
-        sql.startswith("SELECT set_config('celestin.workspace_id'")
-        for sql, _ in connection.queries
-    )
+    source_query_indices = [
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT id FROM chat_messages")
+    ]
+    if source_query_indices:
+        scope_query_index = next(
+            i for i, (sql, _params) in enumerate(connection.queries)
+            if sql.startswith("SELECT public.celestin_request_scope_matches")
+        )
+        assert scope_query_index < source_query_indices[0]
+    else:
+        # Authorization may deny archived resources before any data-scope
+        # binding is needed; no protected source read is made in that case.
+        assert not any(
+            sql.startswith("SELECT public.celestin_request_scope_matches")
+            for sql, _params in connection.queries
+        )
+    assert not called
 
 
 def test_source_validation_uses_workspace_and_project_ids_before_operation():
@@ -425,6 +604,15 @@ def test_source_validation_uses_workspace_and_project_ids_before_operation():
     )
     assert "workspace_id = %s" in source_query and "project_id = %s" in source_query
     assert params == (WORKSPACE, PROJECT, MESSAGE_ID)
+    scope_query_index = next(
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT public.celestin_request_scope_matches")
+    )
+    source_query_index = next(
+        i for i, (sql, _params) in enumerate(connection.queries)
+        if sql.startswith("SELECT id FROM chat_messages")
+    )
+    assert scope_query_index < source_query_index
     assert called
 
 
@@ -463,7 +651,8 @@ def test_request_factory_has_no_public_executor_and_missing_auth_never_connects(
     )
     with pytest.raises(HostedAuthorizationUnavailable, match="authentication is not configured"):
         boundary.execute_authorized_request(
-            object(), "demo", "read", lambda _request: pytest.fail("must not run")
+            object(), "demo", "read", lambda _request: pytest.fail("must not run"),
+            workspace_selector=str(WORKSPACE),
         )
     assert connect_calls == []
     assert connection.queries == []

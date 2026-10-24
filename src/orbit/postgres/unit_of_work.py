@@ -47,19 +47,6 @@ class PostgresRequestUnitOfWork:
         if not isinstance(scope, ResolvedProjectScope):
             raise TypeError("scope must be issued by HostedScopeResolver")
         connection = session._connection_for_adapters
-        # RLS is fail-closed until the authorized resolver has issued scope.
-        # `true` makes both settings transaction-local; the session factory
-        # still owns the connection and the outer commit/rollback.
-        cursor = connection.execute(
-            """
-            SELECT set_config('celestin.workspace_id', %s, true),
-                   set_config('celestin.project_id', %s, true)
-            """,
-            (str(scope.workspace_id), str(scope.project_id)),
-        )
-        close = getattr(cursor, "close", None)
-        if callable(close):
-            close()
         instance = object.__new__(cls)
         object.__setattr__(instance, "_authorization_session", session)
         object.__setattr__(instance, "_scope", scope)

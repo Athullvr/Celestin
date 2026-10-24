@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from uuid import UUID
 
 from orbit.mcp_server.hosted_scope import (
     HostedAccessDenied,
@@ -56,6 +57,7 @@ class _AuthorizedRequestExecutor(Protocol):
         operation: Callable[[PostgresRequestUnitOfWork], Any],
         *,
         source_message_id: str | None = None,
+        requested_workspace_id: UUID | None = None,
     ) -> Any: ...
 
 
@@ -95,6 +97,7 @@ class HostedRequestBoundary:
         action: ProjectAction,
         operation: Callable[[PostgresRequestUnitOfWork], ResultT],
         *,
+        workspace_selector: object = None,
         source_message_id: str | None = None,
     ) -> ResultT:
         """Authenticate first; the resolver and executor authorize before work.
@@ -136,6 +139,8 @@ class HostedRequestBoundary:
                 "hosted request execution is not configured"
             )
 
+        requested_workspace_id = _parse_workspace_selector(workspace_selector)
+
         # This is the supported hosted application entry point. The executor
         # is an internal dependency and must not be exposed to MCP handlers.
         return self._request_executor._execute_authorized_request(
@@ -144,5 +149,23 @@ class HostedRequestBoundary:
             project_key,
             action,
             operation,
+            requested_workspace_id=requested_workspace_id,
             source_message_id=source_message_id,
         )
+
+
+def _parse_workspace_selector(value: object) -> UUID:
+    """Require exactly one canonical workspace UUID from the HTTP boundary."""
+    if isinstance(value, (tuple, list)):
+        if len(value) != 1:
+            raise HostedAccessDenied("access denied")
+        value = value[0]
+    if not isinstance(value, str) or len(value) != 36 or value != value.strip():
+        raise HostedAccessDenied("access denied")
+    try:
+        parsed = UUID(value)
+    except (ValueError, AttributeError):
+        raise HostedAccessDenied("access denied") from None
+    if str(parsed) != value.lower():
+        raise HostedAccessDenied("access denied")
+    return parsed
