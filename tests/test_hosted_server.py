@@ -15,6 +15,7 @@ from uuid import UUID
 import httpx
 import pytest
 
+import orbit.mcp_server.hosted_server as hosted_server
 from orbit.mcp_server.hosted_auth import Auth0VerifierConfig
 from orbit.mcp_server.hosted_server import (
     HostedRuntimeSettings,
@@ -25,6 +26,7 @@ from orbit.mcp_server.hosted_server import (
     _access_token,
     _assert_safe_authorization_reader,
     _assert_safe_authorization_admin,
+    _assert_safe_hosted_pools,
     _assert_safe_project_runtime,
     _workspace_selector,
     create_hosted_mcp_app,
@@ -479,6 +481,31 @@ def test_authorization_admin_probe_keeps_unscoped_lock_helpers_unready():
         "public." + signature
         for signature in _function_specs(False, authorization_admin=True)
     )
+
+
+def test_request_pool_readiness_does_not_run_privileged_admin_preflight(monkeypatch):
+    pools = fake_pools()
+    checked = []
+
+    def check_reader(pool, timeout):
+        checked.append(("reader", pool, timeout))
+
+    def check_project(pool, timeout, scope):
+        checked.append(("project", scope, pool, timeout))
+
+    def reject_admin_preflight(*_args, **_kwargs):
+        raise AssertionError("request readiness must not run privileged provisioning checks")
+
+    monkeypatch.setattr(hosted_server, "_assert_safe_authorization_reader", check_reader)
+    monkeypatch.setattr(hosted_server, "_assert_safe_project_runtime", check_project)
+    monkeypatch.setattr(hosted_server, "_assert_safe_authorization_admin", reject_admin_preflight)
+
+    _assert_safe_hosted_pools(pools, timeout=2)
+
+    assert checked == [
+        ("reader", pools.control_pool, 2),
+        ("project", PROJECT_SCOPE, pools.project_pools[PROJECT_SCOPE], 2),
+    ]
 
 
 @pytest.mark.parametrize(

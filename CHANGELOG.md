@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T12:15:05+05:30 — Separate request readiness from privileged preflight
+
+- Changed: Added an offline regression in `tests/test_hosted_server.py` proving request-pool readiness checks the authorization-reader and configured project pools without invoking privileged authorization-admin readiness.
+- Why: Keep operator-only provisioning checks outside ordinary hosted request startup.
+- Validation: Hosted readiness suite: 464 passed; selected offline regression suite including the opt-in live authorization module without its opt-in flag: 617 passed, 35 skipped; changed test module compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: The test verifies the application call boundary with fakes; it does not validate live PostgreSQL readiness or provider behavior. Hosted tenant isolation remains not ready.
+
 ## 2026-10-24T11:28:08+05:30 — Harden advisory ACL and wrapper readiness
 
 - Changed: Advisory-lock readiness now validates complete ACL entries, grantor/grantee identities, grantability, owner/login identity consistency, and exact effective/direct/PUBLIC access. Reader and authorization-admin wrapper readiness now fails closed while lock keys remain caller-selected and unbound. Added adversarial catalog fixtures, a SQLite connection-pragma regression, and clarified request versus privileged provisioning readiness in the PostgreSQL test guide. Files: `src/orbit/mcp_server/hosted_server.py`, `tests/test_hosted_server.py`, `tests/database/test_engine.py`, `docs/postgres-integration-tests.md`.
