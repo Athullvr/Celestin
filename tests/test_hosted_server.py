@@ -442,6 +442,10 @@ def test_authorization_admin_probe_checks_role_locks_and_all_write_helpers():
         "wrong_body",
         "wrong_owner",
         "owner_superuser",
+        "owner_bypassrls",
+        "owner_createrole",
+        "owner_createdb",
+        "owner_replication",
         "owner_role_membership",
         "wrong_language",
         "wrong_volatility",
@@ -466,6 +470,14 @@ def test_authorization_admin_function_catalog_fails_closed(mutation):
         changed[2] = False
     elif mutation == "owner_superuser":
         changed[3] = True
+    elif mutation == "owner_bypassrls":
+        changed[4] = True
+    elif mutation == "owner_createrole":
+        changed[5] = True
+    elif mutation == "owner_createdb":
+        changed[6] = True
+    elif mutation == "owner_replication":
+        changed[7] = True
     elif mutation == "owner_role_membership":
         changed[8] = False
     elif mutation == "wrong_language":
@@ -698,12 +710,24 @@ def test_privileged_role_membership_catalog_accepts_exact_no_login_group_roster(
         "missing_member",
         "unexpected_member",
         "group_login",
+        "group_superuser",
         "group_bypassrls",
+        "group_createrole",
+        "group_createdb",
+        "group_replication",
+        "group_no_inherit",
+        "group_parent_membership",
+        "group_missing_metadata",
         "group_admin_option",
         "member_not_login",
         "member_superuser",
         "member_bypassrls",
+        "member_createrole",
+        "member_createdb",
+        "member_replication",
+        "member_no_inherit",
         "member_admin_option",
+        "member_missing_admin_option",
         "member_missing_metadata",
         "duplicate_row",
         "malformed_row",
@@ -726,14 +750,36 @@ def test_privileged_role_membership_catalog_rejects_unsafe_or_incomplete_roster(
     elif mutation == "unexpected_member":
         rows.append((AUTHORIZATION_ADMIN_ROLE, False, False, False, False, False, False, True,
                      True, "unexpected", False, True, False, False, False, False, False, True))
-    elif mutation in {"group_login", "group_bypassrls", "group_admin_option"}:
+    elif mutation in {
+        "group_login", "group_superuser", "group_bypassrls", "group_createrole",
+        "group_createdb", "group_replication", "group_no_inherit",
+        "group_parent_membership", "group_missing_metadata", "group_admin_option",
+    }:
         target = next(i for i, row in enumerate(rows) if row[0] == AUTHORIZATION_ADMIN_ROLE)
         changed = list(rows[target])
-        changed[{"group_login": 1, "group_bypassrls": 3, "group_admin_option": 10}[mutation]] = True
+        group_indices = {
+            "group_login": 1,
+            "group_superuser": 2,
+            "group_bypassrls": 3,
+            "group_createrole": 4,
+            "group_createdb": 5,
+            "group_replication": 6,
+            "group_no_inherit": 7,
+            "group_parent_membership": 8,
+            "group_admin_option": 10,
+        }
+        if mutation == "group_missing_metadata":
+            changed[2] = None
+        else:
+            changed[group_indices[mutation]] = (
+                None if mutation == "group_admin_option" else not changed[group_indices[mutation]]
+            )
         rows[target] = tuple(changed)
     elif mutation in {
         "member_not_login", "member_superuser", "member_bypassrls",
-        "member_admin_option", "member_missing_metadata",
+        "member_createrole", "member_createdb", "member_replication",
+        "member_no_inherit", "member_admin_option", "member_missing_admin_option",
+        "member_missing_metadata",
     }:
         target = next(i for i, row in enumerate(rows) if row[0] == AUTHORIZATION_ADMIN_ROLE)
         changed = list(rows[target])
@@ -741,10 +787,19 @@ def test_privileged_role_membership_catalog_rejects_unsafe_or_incomplete_roster(
             "member_not_login": 11,
             "member_superuser": 12,
             "member_bypassrls": 13,
+            "member_createrole": 14,
+            "member_createdb": 15,
+            "member_replication": 16,
+            "member_no_inherit": 17,
             "member_admin_option": 10,
+            "member_missing_admin_option": 10,
             "member_missing_metadata": 12,
         }[mutation]
-        changed[index] = None if mutation == "member_missing_metadata" else not changed[index]
+        changed[index] = (
+            None
+            if mutation in {"member_missing_metadata", "member_missing_admin_option"}
+            else not changed[index]
+        )
         rows[target] = tuple(changed)
     elif mutation == "duplicate_row":
         rows.append(rows[0])

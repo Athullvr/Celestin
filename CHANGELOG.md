@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T08:56:32+05:30 — Expand advisory role-profile negative tests
+
+- Changed: Added offline negative cases for every privileged group/member flag and all database-owner attributes checked by authorization-admin function readiness.
+- Why: The readiness validator's safety matrix should have direct regression coverage for each privilege-bearing role property and fail closed on incomplete metadata.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 449 passed. Test module compilation and `git diff --check` passed.
+- Limitations: These are fake-catalog tests; no PostgreSQL connection or migration was used.
+
 ## 2026-10-24T08:55:29+05:30 — Propose forward-only advisory ACL boundary
 
 - Changed: Added a proposal documenting the verified privilege gap, lock overload/profile matrix, threat model, least-privilege alternatives, forward-only wrapper/ACL operation, privilege preconditions, rollback limitations, and required offline/live acceptance evidence.
