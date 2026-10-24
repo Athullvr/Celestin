@@ -25,18 +25,35 @@ from orbit.postgres.authorization import (
     ProjectScopedPostgresHostedAuthorizationSessionFactory,
 )
 from orbit.mcp_server.hosted_server import (
+    AUTHORIZATION_ADMIN_ROLE,
+    AUTHORIZATION_READER_ROLE,
+    PRIVILEGED_GROUP_ROLES,
     PROTECTED_TABLES,
     _advisory_lock_privilege_query,
     _assert_expected_policy_catalog,
     _assert_expected_trigger_catalog,
+    _assert_safe_authorization_admin,
     _assert_safe_project_runtime,
     _create_pool,
+    _privileged_role_membership_query,
     _validate_advisory_lock_privilege_catalog,
+    _validate_privileged_role_membership_catalog,
 )
 
 
 pytestmark = pytest.mark.postgres_integration
 _LOCK_WAIT_SECONDS = 8.0
+
+
+class _ExistingConnectionPool:
+    """Adapt a live fixture connection to the read-only readiness probe API."""
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    @contextmanager
+    def connection(self, *, timeout):
+        yield self._connection
 
 
 class FixedWorkspaceBinding:
@@ -922,6 +939,10 @@ def test_live_advisory_function_role_profiles(
         with connect() as connection:
             rows = connection.execute(_advisory_lock_privilege_query()).fetchall()
             _validate_advisory_lock_privilege_catalog(rows, role_profile=role_profile)
+            if role_profile == "authorization_admin":
+                _assert_safe_authorization_admin(
+                    _ExistingConnectionPool(connection), timeout=5
+                )
 
     scopes = (
         (tenant_fixture.workspace_a, tenant_fixture.project_a),
@@ -940,28 +961,18 @@ def test_live_three_authorization_and_runtime_group_membership_roster(
 ):
     pg = postgres_connections
     expected_members = {
-        ("celestin_authorization_admin", pg.target.admin_user, False),
-        ("celestin_authorization_reader", pg.target.authorization_user, False),
-        ("celestin_project_runtime", pg.target.project_a_user, False),
-        ("celestin_project_runtime", pg.target.project_b_user, False),
+        (AUTHORIZATION_ADMIN_ROLE, pg.target.admin_user),
+        (AUTHORIZATION_READER_ROLE, pg.target.authorization_user),
+        ("celestin_project_runtime", pg.target.project_a_user),
+        ("celestin_project_runtime", pg.target.project_b_user),
     }
     with pg.connection() as connection:
         rows = connection.execute(
-            """SELECT granted.rolname, member.rolname, membership.admin_option
-                 FROM pg_catalog.pg_auth_members AS membership
-                 JOIN pg_catalog.pg_roles AS granted
-                   ON granted.oid = membership.roleid
-                 JOIN pg_catalog.pg_roles AS member
-                   ON member.oid = membership.member
-                WHERE granted.rolname = ANY(%s::text[])
-                ORDER BY granted.rolname, member.rolname""",
-            ([
-                "celestin_authorization_admin",
-                "celestin_authorization_reader",
-                "celestin_project_runtime",
-            ],),
+            _privileged_role_membership_query(), (list(PRIVILEGED_GROUP_ROLES),)
         ).fetchall()
-    assert set(rows) == expected_members
+    _validate_privileged_role_membership_catalog(
+        rows, expected_members=expected_members
+    )
 
 
 def test_constraints_reject_cross_workspace_membership_and_duplicate_grants(

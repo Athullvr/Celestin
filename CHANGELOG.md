@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T08:53:52+05:30 — Exercise admin lock readiness in the live suite
+
+- Changed: Extended the opt-in authorization tests to run the admin readiness probe and validate exact NOLOGIN group membership from PostgreSQL catalogs. Updated integration-test documentation to describe the source validator and its not-yet-wired provisioning-host boundary.
+- Why: The admin connection profile and complete role roster need real-catalog acceptance coverage while remaining separate from hosted request pools.
+- Validation: `python -m py_compile tests/postgres/test_live_authorization.py` passed. `python -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_live_authorization.py` collected 35 live tests and skipped all 35 because opt-in was not enabled.
+- Limitations: No PostgreSQL connection or migration was made. These additions are unexecuted against a server; admin provisioning readiness is not wired into a production host.
+
 ## 2026-10-24T08:53:10+05:30 — Complete advisory-lock source readiness profiles
 
 - Changed: Added authorization-admin catalog validation for the four authorization-write wrappers, separate effective/direct/PUBLIC advisory-function ACL checks, exact privileged NOLOGIN group-roster validation, and fail-closed handling for missing catalog booleans. Added adversarial offline tests.
