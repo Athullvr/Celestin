@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T12:37:37+05:30 — Define hosted lock-isolation decision gates
+
+- Changed: Added `docs/hosted-lock-isolation-decision.md` and `docs/hosted-lock-isolation-test-matrix.md` with a source-backed threat model, lock-scope alternatives, revocation ordering, role/readiness separation, provider-dependent blockers, and migration 0010 gates.
+- Why: Resolve the architectural review boundary before any forward migration or database operation, without treating offline fixtures as live PostgreSQL/Neon evidence.
+- Validation: Selected offline hosted readiness, authorization, request UoW, provisioning, and migration-runner suites: 535 passed. `git diff --check` and documentation whitespace inspection passed.
+- Limitations: No source, tests, migrations, database, Neon service, roles, ACLs, or hosted runtime changed. The design remains a proposal; hosted tenant isolation is not ready. No Python modules changed, so compilation was not applicable.
+
 ## 2026-10-24T12:27:34+05:30 — Clarify advisory-lock security design gates
 
 - Changed: Added a proposal-only addendum to `docs/postgres-advisory-lock-privilege-boundary-proposal.md` comparing migration and readiness profiles, trusted lock scope, threat impacts, role separation, request versus privileged readiness, and forward-migration recovery gates.
