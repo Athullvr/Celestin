@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T17:00:27+05:30 — Propose ACL-independent hosted storage architecture
+
+- Changed: Added `docs/hosted-control-plane-data-plane-architecture.md` with current source facts, a threat comparison of shared row locking, per-project databases, isolated per-project workers, and provider alternatives; proposed routing and revocation/drain semantics; migration, provisioning, recovery, provider-decision, and live-test requirements. No application source or tests changed.
+- Why: Evaluate a cross-project data boundary that does not depend on unverified built-in advisory-lock ACL changes, while keeping the current hosted gate closed and preserving local SQLite/stdio.
+- Validation: The hosted server/scope, fake authorization, request-UoW, provisioning, and fake migration-runner suites passed before and after the documentation change (569 passed each run). Eleven relative Markdown links resolved. `git diff --check` and `git diff --cached --check` passed. No Python modules changed.
+- Limitations: The architecture and revocation protocol are proposals awaiting product/security, storage/database, operations, and provider review. No database, SQL, migration, Neon, Auth0, or external-service operation occurred. SQLite persistence tests were not run because this task prohibited database/SQL operations. No live behavior or provider capability is verified.
+
 ## 2026-10-24T16:46:46+05:30 — Prepare guarded PostgreSQL retrieval tests
 
 - Changed: Added an opt-in project-runtime retrieval integration case, an offline regression that proves the live fixture skips before configuration/driver/migration access without explicit opt-in, and a scripted PostgreSQL-adapter test for authoritative row reload and omission of stale/ineligible candidates. Clarified hosted lexical retrieval coverage and limits in the PostgreSQL test guide.
