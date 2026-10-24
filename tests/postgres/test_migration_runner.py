@@ -119,7 +119,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6]
+    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -148,6 +148,82 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     assert "captured_at           TIMESTAMPTZ NOT NULL" in migrations[4].sql
     assert "CREATE UNIQUE INDEX idx_celestin_knowledge_one_successor" in migrations[4].sql
     assert migrations[5].name == "0006_candidate_revision_store.sql"
+    assert migrations[6].name == "0007_memory_request_rls.sql"
+    assert "ALTER TABLE chat_messages FORCE ROW LEVEL SECURITY" in migrations[6].sql
+    assert "ALTER TABLE project_memory FORCE ROW LEVEL SECURITY" in migrations[6].sql
+    assert migrations[6].sql.count("celestin_request_scope_matches(workspace_id, project_id)") == 4
+
+    assert migrations[7].name == "0008_project_scoped_runtime_roles.sql"
+    migration_eight = migrations[7].sql
+    normalized_eight = " ".join(migration_eight.split())
+    assert "CREATE SCHEMA celestin_private" in migration_eight
+    assert "CREATE TABLE celestin_private.project_runtime_scopes" in migration_eight
+    assert "login_role_name NAME PRIMARY KEY" in migration_eight
+    assert "UNIQUE (workspace_id, project_id)" not in normalized_eight
+    assert "CREATE ROLE" not in migration_eight.upper()
+    assert "session_user::name" in migration_eight
+    assert "CREATE OR REPLACE FUNCTION public.celestin_request_scope_matches" in normalized_eight
+    assert "current_setting('celestin.workspace_id'" not in migration_eight
+    assert "celestin_project_scope_admin_all" in migration_eight
+    assert "celestin_authorization_admin" in migration_eight
+    assert "DROP POLICY IF EXISTS" in migration_eight
+    assert "FOR ALL TO celestin_project_runtime" in migration_eight
+    assert "USING (login_role_name = session_user::name)" in normalized_eight
+    assert "WHERE scope.login_role_name = session_user::name" in normalized_eight
+    assert "GRANT SELECT ON celestin_private.project_runtime_scopes TO celestin_project_runtime" in normalized_eight
+    assert "GRANT SELECT, INSERT, DELETE" in normalized_eight
+    assert "GRANT UPDATE ON celestin_private.project_runtime_scopes" not in normalized_eight
+    assert "REVOKE ALL ON FUNCTION public.celestin_request_scope_matches(UUID, UUID) FROM PUBLIC" in normalized_eight
+    assert "GRANT EXECUTE ON FUNCTION public.celestin_request_scope_matches(UUID, UUID)" in normalized_eight
+    for group_role in (
+        "celestin_project_runtime",
+        "celestin_authorization_reader",
+        "celestin_authorization_admin",
+    ):
+        assert group_role in migration_eight
+    for tenant_table in (
+        "chat_messages", "project_memory", "celestin_knowledge_records",
+        "celestin_evidence_records", "celestin_project_producers",
+        "celestin_project_source_namespaces", "celestin_candidates",
+        "celestin_candidate_revisions", "celestin_candidate_review_events",
+        "celestin_candidate_evidence_records", "celestin_candidate_occurrences",
+        "celestin_candidate_conversions",
+    ):
+        assert f"('{tenant_table}'," in migration_eight
+    assert migration_eight.count(
+        "CREATE OR REPLACE FUNCTION public.celestin_request_scope_matches"
+    ) == 1
+    for legacy_name in (
+        "celestin_chat_message_request_scope",
+        "celestin_project_memory_request_scope",
+        "celestin_knowledge_request_scope",
+        "celestin_evidence_request_scope",
+        "celestin_producer_request_scope",
+        "celestin_source_namespace_request_scope",
+        "celestin_candidate_request_scope",
+        "celestin_candidate_revision_request_scope",
+        "celestin_review_request_scope",
+        "celestin_candidate_evidence_request_scope",
+        "celestin_occurrence_request_scope",
+        "celestin_conversion_request_scope",
+    ):
+        assert legacy_name in migration_eight
+
+    migration_nine = migrations[8]
+    assert migration_nine.name == "0009_project_request_lock_scope.sql"
+    normalized_nine = " ".join(migration_nine.sql.split())
+    assert "CREATE FUNCTION public.celestin_lock_project_authorization_request" in normalized_nine
+    assert "scope.login_role_name = session_user::name" in normalized_nine
+    assert "scope.workspace_id = target_workspace" in normalized_nine
+    assert "celestin_lock_authorization_request(UUID, TEXT, TEXT, TEXT)" in normalized_nine
+    assert "TO celestin_authorization_reader" in normalized_nine
+    assert "TO celestin_project_runtime" in normalized_nine
+    assert "FROM PUBLIC, celestin_project_runtime" in normalized_nine
+    assert "OLD.issuer" in migration_nine.sql and "NEW.issuer" in migration_nine.sql
+    assert "public.celestin_project_memberships" in migration_nine.sql
+    assert "public.celestin_workspace_memberships" in migration_nine.sql
+    assert "pg_advisory_xact_lock_shared" in migration_nine.sql
+    assert "pg_advisory_xact_lock(" in migration_nine.sql
 
 
 def test_candidate_revision_migration_defines_scoped_history_and_ordered_occurrences():

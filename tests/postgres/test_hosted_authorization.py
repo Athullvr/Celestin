@@ -54,6 +54,10 @@ class FakeConnection:
         self.queries.append((normalized, params))
         if self.fail_query and self.fail_query in normalized:
             raise RuntimeError("secret database detail")
+        if normalized.startswith("SELECT public.celestin_lock_authorization_request"):
+            return Result(None)
+        if normalized.startswith("SELECT public.celestin_request_scope_matches"):
+            return Result((True,))
         if normalized.startswith("SELECT id FROM celestin_workspaces"):
             return Result(None if self.workspace_missing else (WORKSPACE,))
         if normalized.startswith("SELECT id, status FROM celestin_users"):
@@ -116,8 +120,8 @@ class Result:
 
 
 class WorkspaceBinding:
-    def workspace_for(self, principal):
-        return WORKSPACE
+    def workspace_for(self, principal, requested_workspace_id=None):
+        return requested_workspace_id or WORKSPACE
 
 
 class StatusFallback:
@@ -157,7 +161,8 @@ def test_identity_mapping_is_kind_specific_workspace_scoped_and_locked(kind, exp
         assert session.is_principal_active(principal, WORKSPACE)
         sql, params = connection.queries[-1]
         assert expected_table in sql
-        assert "FOR SHARE" in sql
+        assert "FOR SHARE" not in sql
+        assert any("celestin_lock_authorization_request" in query for query, _ in connection.queries)
         if kind == "service":
             assert "workspace_id = %s" in sql
             assert params == (WORKSPACE, "issuer", "subject")
@@ -213,7 +218,8 @@ def test_explicit_grant_resolves_scope_and_grant_query_is_project_scoped(kind):
     assert len(grant_queries) == 1
     assert "workspace_id = %s" in grant_queries[0][0]
     assert "project_id = %s" in grant_queries[0][0]
-    assert "FOR SHARE" in grant_queries[0][0]
+    assert "FOR SHARE" not in grant_queries[0][0]
+    assert any("celestin_lock_authorization_request" in query for query, _ in connection.queries)
     project_query = next((sql, params) for sql, params in connection.queries if "celestin_projects" in sql)
     assert "workspace_id = %s" in project_query[0]
     assert project_query[1] == (WORKSPACE, "demo")
@@ -271,7 +277,8 @@ def test_v03_capabilities_are_explicit_default_deny_and_scope_bound():
             for sql, params in connection.queries
             if "celestin_project_memberships" in sql
         )
-        assert "FOR SHARE" in grant_query[0]
+        assert "FOR SHARE" not in grant_query[0]
+        assert any("celestin_lock_authorization_request" in query for query, _ in connection.queries)
         assert grant_query[1] == (WORKSPACE, PROJECT, USER)
 
 
@@ -315,7 +322,7 @@ def test_missing_membership_grant_archived_resource_and_write_without_read_deny(
                 build_resolver().resolve(session, principal, "demo", "read")
 
 
-def test_source_message_lookup_constrains_workspace_project_and_locks_reference():
+def test_source_message_lookup_constrains_workspace_project_under_request_lock():
     connection = FakeConnection()
     factory, _ = factory_for(connection)
     principal = VerifiedPrincipal("issuer", "subject", "human")
@@ -326,7 +333,8 @@ def test_source_message_lookup_constrains_workspace_project_and_locks_reference(
         assert reference.message_id == str(MESSAGE)
     sql, params = next((sql, params) for sql, params in connection.queries if "chat_messages" in sql)
     assert "workspace_id = %s" in sql and "project_id = %s" in sql
-    assert "FOR KEY SHARE" in sql
+    assert "FOR KEY SHARE" not in sql
+    assert any("celestin_lock_authorization_request" in query for query, _ in connection.queries)
     assert params == (WORKSPACE, PROJECT, MESSAGE)
 
 

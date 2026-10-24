@@ -4,6 +4,69 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-23T22:00:35+05:30 — Separate Evidence adapter tests from the hosted RLS gate
+
+- Changed: Assigned the adapter-level Evidence suite its own pytest marker and documented its exact opt-in command separately from project-login authorization/RLS acceptance. Clarified that these tests currently use a control-plane connection and do not prove project-runtime Evidence access.
+- Why: The existing Evidence adapter tests do not exercise the project's restricted login identity and must not be counted as hosted tenant-isolation evidence.
+- Validation: The focused combined offline PostgreSQL/readiness suite completed with 226 passed and 28 opt-in live tests skipped; the suite was run without the PostgreSQL opt-in flag. Documentation and staged-diff whitespace checks passed.
+- Limitations: No live PostgreSQL target was configured or used. Hosted project-runtime Evidence grants and request composition remain unsupported and require a reviewed contract.
+
+## 2026-10-23T22:00:08+05:30 — Require safe PostgreSQL test-role ownership and memberships
+
+- Changed: The guarded live-test preflight now requires the migration login to own the target database and rejects runtime-role membership with `ADMIN OPTION`; added regression coverage for both checks.
+- Why: The disposable test harness must not begin migration setup with an unexpected database owner or roles capable of granting themselves further membership.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests\postgres\test_live_support.py` — 73 passed. No PostgreSQL connection or migration was run.
+- Limitations: Database ownership and role catalog results were tested with fakes only; the live target still requires explicit owner approval and PostgreSQL verification.
+
+## 2026-10-23T21:58:56+05:30 — Harden hosted PostgreSQL tenant readiness and locking
+
+- Changed: Replaced substring-based readiness checks with fail-closed catalog comparisons for expected RLS policies and authorization helpers; expanded effective-privilege and role-membership checks; added migration 0009 and request routing so project logins can lock only their mapped workspace while the authorization reader retains broad locks.
+- Why: Hosted startup must reject policy/helper drift and escalation, and a project credential must not be able to hold arbitrary authorization locks against another tenant.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests\test_hosted_server.py` — 100 passed. The final combined offline suite also passed (226 passed, 28 live skipped); Python compilation and diff checks passed.
+- Limitations: Catalog expectations and migration 0009 have not been checked against a live PostgreSQL server. No database connection, SQL execution, migration, Auth0 request, or external operation was performed.
+
+## 2026-10-23T20:51:32+05:30 — Guard project-role PostgreSQL integration tests
+
+- Changed: Extended the existing live PostgreSQL fixture to require an explicit disposable-target acknowledgement and distinct pre-provisioned authorization/project logins. Added direct-SQL tests for forged GUCs, cross-project access, role switching, and scope-map protection; clarified the live-test setup requirements.
+- Why: The RLS isolation claim requires tests to exercise actual project login identities and must not run against an unknown database target.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_live_support.py tests/postgres/test_live_authorization.py` — 71 passed, 20 live PostgreSQL tests skipped. Changed test modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: The live cases were skipped because no approved disposable PostgreSQL target was configured. SQL, RLS, role, and advisory-lock behavior remains unverified against a server.
+
+## 2026-10-23T20:50:53+05:30 — Route hosted requests through project PostgreSQL pools
+
+- Changed: Updated the hosted runtime to use a read-only authorization pool first, then select only the configured project-specific pool for the resolved scope. Added final in-transaction authorization and startup role checks; documented the configuration and trust boundary while preserving local stdio/SQLite behavior.
+- Why: Project-scoped database identities must be selected only after application authorization and checked again in the data transaction.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 53 passed. The hosted module compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: Hosted mode remains disabled by default. No live PostgreSQL target, credentials, Auth0 service, or deployment was used; database role and RLS behavior remains unverified.
+
+## 2026-10-23T20:50:28+05:30 — Bind PostgreSQL RLS to project logins
+
+- Changed: Added migration `0008_project_scoped_runtime_roles.sql`, a protected `session_user`-to-project scope map, and authorization-lock coordination for project login provisioning and revocation.
+- Why: The former shared runtime credential could choose caller-settable tenant GUCs. Project-specific database identities provide the tenant scope used by RLS policies.
+- Validation: `python -B -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_migration_runner.py tests/postgres/test_provisioning.py tests/postgres/test_request_unit_of_work.py tests/postgres/test_hosted_authorization.py` — 71 passed. Changed PostgreSQL modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: Live SQL/RLS behavior remains unverified; the live PostgreSQL environment was not used. Hosted runtime routing and the guarded live-test suite are recorded in subsequent entries.
+
+## 2026-10-23T19:35:21+05:30 — Document PostgreSQL RLS trust boundary
+
+- Changed: Added a source-derived inventory for all twelve content tables protected by migrations 0006–0007, listed the authorization/control tables without RLS, and documented that the current custom-GUC scope can be set by the shared runtime role. Clarified that existing live-owner tests do not prove direct-SQL isolation under the application role.
+- Why: Prevent the current scope predicates and migration-owner tests from being mistaken for a defense against direct SQL using the hosted runtime credential.
+- Validation: Focused offline PostgreSQL/Auth0/UoW/runtime suite — 142 passed, 26 skipped. Full repository suite — 704 passed, 46 skipped after installing the already-declared `rfc8785>=0.1.4,<0.2` only into a temporary validation venv outside the repository. `git diff --check` run after documentation updates.
+- Limitations: No database was connected to, inspected, or migrated. No app-role catalog or direct-SQL test ran. A reviewed unforgeable RLS request-context design and explicitly approved fresh local PostgreSQL target/runtime role remain required.
+
+## 2026-10-23T18:53:08+05:30 — Add opt-in hosted Auth0/PostgreSQL runtime
+
+- Changed: Added a separate `celestin-hosted` Streamable HTTP entry point with Auth0 access-token verification, a fixed approved-client allowlist and scopes, explicit workspace context, the existing authorized request UoW for current memory tools, bounded PostgreSQL pool/HTTP settings, TLS requirements, sanitized errors, health/readiness checks, and loopback-by-default binding. Added internal workspace-admin-authorized human/service provisioning and revocation operations. Added migration `0007_memory_request_rls.sql` to apply forced request-scope RLS to `chat_messages` and `project_memory`. Added a runtime-role catalog check for forced RLS, current tool privileges, and absence of excessive/unexposed table privileges. Updated README and PostgreSQL operations documentation.
+- Why: Provide a separate, explicit hosted request path while keeping local stdio/SQLite commands and public tool schemas unchanged, and ensure hosted database access fails closed when authentication or database role/RLS prerequisites are unsafe.
+- Validation: Python 3.13.9 / pytest 8.4.2: focused hosted/auth/UoW/provisioning/live-test collection command — 127 passed, 26 skipped; broad suite excluding `tests/evidence/test_canonicalization.py` — 663 passed, 46 skipped; changed-Python syntax compilation — 22 files passed; `git diff --check` and `git diff --cached --check` — passed. Unfiltered suite attempted and blocked at collection because the active environment lacks the declared `rfc8785` dependency.
+- Limitations: No Auth0 tenant/configuration, secrets, PostgreSQL driver, approved disposable target, database connection, or migration run is available or claimed. Live PostgreSQL/RLS/runtime-role behavior and Auth0 end-to-end behavior remain unverified. Initial workspace/owner bootstrap, Auth0 account deactivation synchronization, durable administrative audit, rate limits/quotas, production proxy/monitoring/backup/restore procedures, Capture conversion, and D-08 delivery receipts/equality/replay remain outside this change. Human security review is pending.
+
+## 2026-10-20T15:52:41+05:30 — Clarify producer-qualified candidate identity
+
+- Changed: Marked the older `(project, candidate_id)` uniqueness and generic replay wording in `docs/evidence-linked-memory-contract.md` as a superseded prototype assumption, and distinguished v0.3 revision-scoped conversion retry behavior from unresolved D-08 delivery/revision payload equality.
+- Why: Prevent the historical prototype table from appearing to override the authoritative producer-qualified identity contract.
+- Validation: Compared the wording with `docs/SHARED_MEMORY_INTERFACE_CONTRACT_V0.3_DECISIONS.md`; `git diff --check` passed.
+- Limitations: D-08 delivery/revision payload-equality details remain unresolved. No code, schema, migration, or runtime behavior changed.
+
 ## 2026-10-19T18:22:59+05:30 — Add opt-in live PostgreSQL Evidence tests
 
 - Changed: Added seven opt-in PostgreSQL integration cases for migrations 0005–0006, Evidence/Knowledge round-trips, attachment idempotency, verification updates, supersession, project isolation, authorization denial, forced RLS, database constraints, savepoint recovery, and outer rollback. Reused the existing fresh-disposable-target fixture and request-bound authorization/UoW. Clarified skip reasons and corrected stale adapter/schema status documentation.

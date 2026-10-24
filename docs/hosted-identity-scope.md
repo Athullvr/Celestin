@@ -2,168 +2,36 @@
 
 ## Status
 
-The types and resolver in `orbit.mcp_server.hosted_scope` remain an application
-foundation and are not connected to the MCP server. The injectable
-`orbit.postgres.authorization.PostgresHostedAuthorizationSessionFactory` now
-provides a request-scoped database implementation for hosted authorization.
-`execute_authorized_request` now creates a `PostgresRequestUnitOfWork` after the
-resolver grants access. Its memory store, retrieval data adapter, and shared
-retrieval service borrow the authorization session's connection and leave
-transaction finalization to the session factory. This does not authenticate
-tokens, select a backend, connect the flow to MCP, or change local stdio/SQLite
-behavior. Its SQL is covered by scripted unit tests, not a live PostgreSQL run.
+Celestin has two separate execution compositions. The local `celestin`, `orbit`, and `memory-bridge` stdio commands continue to use SQLite. The opt-in `celestin-hosted` command builds a separate Streamable HTTP MCP application and composes the Auth0 token verifier, hosted request boundary, PostgreSQL authorization, request unit of work, and existing project tools. This describes code in the repository, not a configured or released service: no PostgreSQL or non-production Auth0 live validation was performed for this change, and hosted project-role isolation remains disabled by default. Hosted startup fails unless `CELESTIN_HOSTED_PROJECT_ROLE_ISOLATION_ENABLED=true`; that setting is not release approval.
 
-`orbit.mcp_server.hosted_identity` defines the supported hosted application
-entry point: `HostedRequestBoundary.execute_authorized_request`. It orchestrates
-an injected `PrincipalAuthenticator` and delegates to the factory's internal
-request executor only after authentication returns a `VerifiedPrincipal`. The
-boundary requires an explicitly injected workspace binding, principal-status
-provider, and request executor. No concrete authenticator or workspace-binding
-provider exists, and the boundary is not used by MCP handlers. The protocol and
-the freely constructible `VerifiedPrincipal` value do not prove credential
-authenticity; a future transport adapter/provider must validate credentials
-before returning a principal. Missing dependencies and authentication failures
-do not open a database connection or execute the protected callback.
+`orbit.mcp_server.hosted_auth.Auth0TokenVerifier` validates configured Auth0 access tokens before dispatch, and `Auth0AccessTokenAuthenticator` supplies the trusted principal to `HostedRequestBoundary`. Configuration requires an exact issuer, audience, token profile, RS256 signing algorithm, and approved-client allowlist. Issuer/audience values and an Auth0 tenant are not provided by this repository. Offline token-verifier tests do not prove integration against a real tenant or its current JWKS service.
 
-The request executor and its transaction/session entry points are underscored
-internal APIs. The request UoW has no public constructor, does not expose its
-authorization session or resolved scope as public fields, and creates its
-persistence/retrieval adapters only through internal request-bound factories.
-The resolver and low-level authorization-session methods are also trusted
-application primitives, not handler entry points.
-Standalone PostgreSQL adapter constructors remain available for trusted
-single-workspace tooling and adapter tests; they do not authorize a human or
-service principal and must never be injected into hosted MCP handlers. These
-API boundaries prevent accidental composition errors, not hostile Python code
-running in the same process. Same-process code is trusted and can deliberately
-call underscored methods, construct values, or open its own database connection.
-The future hosted application composition must therefore expose only the
-boundary to transport handlers and keep the executor, DSN, and standalone
-adapters out of handler dependencies.
+## Request selection and authorization
 
-## Trust and selection
+The hosted transport requires a single canonical UUID in `X-Celestin-Workspace-ID`. It is an explicit workspace selector, not a grant. The project tool argument is also only a selector. The resolver uses the verified `(issuer, subject, kind)` principal and the selected workspace to check identity status, workspace/project lifecycle, membership or service grant, and action permissions. It resolves only the exact project key in that workspace. A missing or mismatched selector, identity, membership, grant, or permission fails closed before protected work.
 
-`VerifiedPrincipal` is an internal value that a future trusted authenticator
-creates after validating a human or service credential. It contains the trusted
-issuer, subject, and principal kind. It must never be constructed from a caller's
-MCP arguments. The value itself does not perform authentication.
+The hosted request factory first uses a read-only authorization connection to resolve a project for routing. It then selects only the server-configured connection pool for that resolver-issued `(workspace_id, project_id)` pair. Inside the project transaction it repeats authorization and checks that the authenticated PostgreSQL `session_user` is mapped to the resolved scope. There is no shared-runtime or SQLite fallback. The initial routing read does not authorize the protected operation by itself; the in-project check is the final authorization gate.
 
-The `project` string remains a selector, not an access grant. A server-side
-`WorkspaceBinding` supplies the active workspace associated with the verified
-credential/connection. The resolver asks its request-scoped authorization session
-to resolve the exact public project key within that workspace. It does not search
-other workspaces, so identical keys in different workspaces cannot select one
-another. No workspace selector is added to the public MCP contract.
+The request unit of work binds the PostgreSQL memory and retrieval adapters to the same project connection and resolved scope. Those adapters cannot independently acquire a connection or finalize the transaction. The transaction owner commits on success, rolls back on failure, and closes the session. Local SQLite adapter contracts and public MCP tool arguments/responses remain unchanged.
 
-## Authorization rules
+## Database isolation boundary
 
-- The principal status provider must confirm the authenticated identity is
-  active. An inactive identity is denied before workspace or project lookup.
-- Human principals need an active membership in the selected workspace and an
-  explicit, unrevoked project grant.
-- Service principals need an active service identity and an explicit,
-  unrevoked service-project grant. The current schema models these separately
-  from human workspace memberships.
-- Both principal kinds require an unarchived workspace and project. Workspace
-  owner/admin roles do not imply access to project data.
-- Read requires `can_read`; write requires `can_write` and `can_read`.
-- Missing identity, workspace binding, project, membership, or grant denies
-  access. Infrastructure errors return a generic unavailable failure. Neither
-  failure message includes another workspace's project existence or database
-  details.
-- Request-bound storage/retrieval use the resolved UUID scope for every query,
-  including source-message lookups, search candidates, authoritative reloads,
-  and context assembly. The request-bound memory store requires write
-  permission; retrieval requires read permission. A mismatched public project
-  key is denied before adapter SQL.
+Migrations `0006` and `0007` enabled and forced RLS on the tenant tables using transaction settings. Migration `0008_project_scoped_runtime_roles.sql` drops those named GUC-based policies and installs project-runtime policies on all twelve tenant-content tables. The policy helper checks rows against `celestin_private.project_runtime_scopes` keyed by PostgreSQL `session_user`. Setting the old `celestin.workspace_id` or `celestin.project_id` variables does not change that mapping.
 
-The resolver exposes `execute(session, principal, project_key, action, operation)`
-to make the order explicit: it resolves permission first, then invokes the
-operation with the same request session and immutable scope. The PostgreSQL
-factory's `execute_authorized` wraps that call in one connection transaction.
-Its `execute_authorized_request` additionally binds the `PostgresMemoryStore`
-and `PostgresRetrievalData` to that session's connection and resolver-issued
-scope, then exposes a `RetrievalService` over that data adapter. The factory
-commits before returning a successful result, rolls back on failure, and closes
-the connection; bound adapters do none of those operations and cannot acquire
-a replacement connection. Factory construction and module import do not
-connect or migrate.
+The hosted process uses a read-only authorization login and a distinct login for each configured project. Each project login must map to one project and be a member only of the `celestin_project_runtime` group. The authorization reader and administrator use their separate group roles. Migration 0008 expects these `NOLOGIN` group roles to exist and does not create or drop database roles. Individual logins, grants, project mappings, and secret provisioning require a separately controlled operator process. `CELESTIN_HOSTED_PROJECT_DSN_ENV_MAP` is a static mapping from canonical workspace/project UUID pairs to server-side DSN environment-variable names; the runtime bounds this registry to 32 pools and each project pool to at most two connections. An unmapped authorized project is denied.
 
-The PostgreSQL session locks rows in this order: workspace, identity, project,
-membership, grant, then source message. Existing authorization/lifecycle rows
-are selected `FOR SHARE` and remain locked through the protected operation.
-Updates that suspend/revoke/retire those rows therefore serialize behind an
-already-authorized operation; if revocation commits first, a later request
-observes it and is denied. Administrative mutations should follow the same
-leading lock order to reduce deadlocks. These are transaction-ordering
-semantics, not instantaneous revocation or a test of PostgreSQL's live lock
-implementation.
+The trust boundary is limited against query bugs and a leaked single project credential when database roles, grants, ownership, and mappings are configured as intended. The central application process and credential manager remain trusted: a compromised process with access to all configured project DSNs can select another project's pool. Database owners, superusers, `BYPASSRLS` identities, and compromised operator credentials are also outside the protection RLS can provide. Do not claim that this design protects against a compromised central application process.
 
-For source provenance, a hosted operation that references a message should pass
-`source_message_id` to `execute_authorized_request`. After authorization, the
-session's `load_source_message_reference(scope, message_id)` must look up the ID
-with both `scope.workspace_id` and `scope.project_id` in its predicate. The resolver
-rechecks the returned workspace/project metadata and reports missing and
-out-of-scope references as the same not-found condition before invoking the
-write operation. The PostgreSQL authorization session performs this lookup in
-the same request transaction and retains the database composite foreign key as
-the final relational-integrity guard. Request-bound adapters are composed in
-that transaction, but hosted MCP/data adapters are still not wired to tools.
+## Revocation ordering and administration
 
-## Storage integration seam
+Authorization reads acquire transaction-scoped shared advisory locks for the workspace and principal. Database triggers and the trusted authorization provisioning path acquire matching exclusive locks for membership, grant, lifecycle, identity-status, and project-login mapping changes. A protected operation that acquired its locks first may finish; a concurrent revocation waits for it to commit. Requests starting after the revocation commits are expected to observe the new state and deny access. This is serialized in-flight behavior, not instantaneous cancellation.
 
-`MemoryStore` and `RetrievalData` retain their existing public project-string
-contracts for local SQLite. Internal PostgreSQL `_for_request(connection,
-scope)` factories accept only a `ResolvedProjectScope`; project strings are
-checked against that scope and do not select the tenant. Persistence source
-checks and retrieval candidate and authoritative reads use the scope's
-workspace/project UUIDs. The request UoW creates these adapters itself and
-cannot be supplied standalone adapter instances through its supported
-constructor. Standalone `from_dsn` adapters retain their explicit fixed-scope
-behavior and are not hosted authorization paths. No hosted adapter is selected
-in MCP, so the resolver is still not an enforcement point for actual MCP
-requests.
+The provisioning module has internal operations for authorized membership/grant changes and a `ProjectDatabaseLoginRegistry` for registering or revoking the protected mapping of pre-provisioned project logins. It does not create database roles, generate or store their credentials, or expose a public admin API or operator CLI. Initial workspace/owner bootstrap, Auth0 deactivation-event synchronization and reconciliation, durable administrative audit storage, and the last-active-workspace-owner invariant remain separate work. These omissions are not addressed by tenant-content RLS.
 
-## Schema gap and follow-up
+## Tests and verification boundary
 
-The immutable migration baseline's `celestin_users` table has no
-active/suspended status. Additive migration `0002_user_status.sql` adds
-`status TEXT NOT NULL DEFAULT 'suspended'` with an `active|suspended` check;
-backfilled and default-created users remain denied until trusted administration
-explicitly activates them. The PostgreSQL session maps human principals by the
-baseline's globally unique `(issuer, subject)` and service principals by
-`(workspace_id, issuer, subject)`. Principal `kind` selects the identity table.
-Service identity scope is intentionally workspace-local. Provider issuer and
-subject stability, and whether upstream account disablement must also be
-checked, remain decisions for a future authenticator; no identity provider is
-integrated.
+Offline tests in `tests/test_hosted_server.py`, `tests/postgres/test_hosted_authorization.py`, `tests/postgres/test_request_unit_of_work.py`, `tests/postgres/test_provisioning.py`, `tests/postgres/test_migration_runner.py`, `tests/postgres/test_live_support.py`, `tests/storage/test_postgres_memory_store.py`, and `tests/retrieval/test_postgres_data.py` use fakes or scripted connections to exercise configuration, authorization order, project routing, role checks, SQL scoping, transaction ownership, and failure paths. They do not prove PostgreSQL server behavior.
 
-The schema also permits suspended members and revoked service identities to
-retain grant rows, and it does not enforce a last-active-workspace-owner rule.
-The hosted resolver checks retained suspension/revocation state. Owner lifecycle
-remains a separate transactional workspace-administration task.
+`tests/postgres/test_live_authorization.py` and `tests/postgres/test_live_evidence_store.py` contain opt-in cases for separately provisioned project login identities, direct cross-project SQL, forged legacy GUCs, role switching, scope-map access, RLS, transaction behavior, and Evidence persistence. They require an explicitly approved, one-run local disposable database and five separately provisioned logins. No live database command or migration was run while preparing this document. See [PostgreSQL integration tests](postgres-integration-tests.md) for safeguards and prerequisites. Passing those tests would still not establish Auth0 tenant configuration, deployment security, or production readiness.
 
-## Tests and limits
-
-`tests/test_hosted_scope.py` uses synthetic principals and a fake authorization
-session. Offline authentication-boundary tests in
-`tests/postgres/test_hosted_identity_boundary.py` verify unavailable and
-rejected authentication paths, exception redaction, and that raw caller claims
-are not passed as principals. Request-UoW tests enter through the boundary and
-use scripted connections to check that missing authentication cannot connect,
-standalone adapters are not selected, and the handler-facing UoW does not
-expose public session/scope fields. Scripted tests in
-`tests/postgres/test_hosted_authorization.py`,
-`tests/postgres/test_request_unit_of_work.py`,
-`tests/storage/test_postgres_memory_store.py`, and
-`tests/retrieval/test_postgres_data.py` cover SQL scoping, adapter sharing, and
-ownership of the request transaction. They do not prove PostgreSQL execution,
-authentication-provider, transport, pooling, or live concurrent-revocation
-behavior. Those tests are required before hosted mode can be enabled.
-
-The remaining integration seam is a concrete, reviewed transport authenticator
-and trusted workspace-binding source, followed by a hosted MCP composition that
-invokes the boundary with transport evidence rather than tool arguments. This
-resolver/session/UoW is not connected to server tools. Existing stdio MCP tools
-and SQLite adapters remain unchanged until a separate reviewed integration
-task.
+The code path is prepared but not released: Auth0 configuration, PostgreSQL roles and mappings, an approved live security run, operational controls, and release review are prerequisites. D-08 delivery equality/receipts/replay and Capture-to-Evidence conversion remain outside the hosted MCP tool path.

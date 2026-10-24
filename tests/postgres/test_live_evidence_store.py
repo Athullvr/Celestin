@@ -1,8 +1,10 @@
-"""Real-server tests for the request-bound PostgreSQL Evidence store.
+"""Separate, opt-in tests for the PostgreSQL Evidence store.
 
-These cases use the shared opt-in live_postgres fixture. They never create,
-drop, or reset a database; migration initialization remains in that guarded
-fixture.
+These cases are not part of the project-login authorization/RLS gate: migration
+0008 intentionally withholds Evidence/Capture table grants from project runtime
+identities, and no hosted Evidence request composition is currently supported.
+They are retained for adapter-level investigation with the guarded one-run
+fixture, not as evidence of project-scoped hosted Evidence access.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from orbit.mcp_server.hosted_scope import (
 from orbit.postgres.authorization import PostgresHostedAuthorizationSessionFactory
 
 
-pytestmark = pytest.mark.postgres_integration
+pytestmark = pytest.mark.postgres_evidence_integration
 _NOW = "2026-10-19T09:00:00.000000Z"
 _LATER = "2026-10-19T09:01:00.000000Z"
 
@@ -50,8 +52,24 @@ class _FixedWorkspaceBinding:
     def __init__(self, workspace_id: UUID) -> None:
         self._workspace_id = workspace_id
 
-    def workspace_for(self, _principal: VerifiedPrincipal) -> UUID:
+    def workspace_for(
+        self, _principal: VerifiedPrincipal, requested_workspace_id: UUID | None = None
+    ) -> UUID | None:
+        if requested_workspace_id is not None and requested_workspace_id != self._workspace_id:
+            return None
         return self._workspace_id
+
+
+class _ExplicitTestBoundary(HostedRequestBoundary):
+    """Supply the test tenant's explicit HTTP workspace selector."""
+
+    def __init__(self, workspace_id: UUID, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._test_workspace_selector = str(workspace_id)
+
+    def execute_authorized_request(self, *args, **kwargs):
+        kwargs.setdefault("workspace_selector", self._test_workspace_selector)
+        return super().execute_authorized_request(*args, **kwargs)
 
 
 class _ActiveStatusProvider:
@@ -73,7 +91,8 @@ class _EvidenceTenant:
 
     def boundary(self, pg) -> HostedRequestBoundary:
         principal = VerifiedPrincipal(self.issuer, self.subject, "human")
-        return HostedRequestBoundary(
+        return _ExplicitTestBoundary(
+            self.workspace_id,
             authenticator=_TestAuthenticator(principal),
             workspace_binding=_FixedWorkspaceBinding(self.workspace_id),
             principal_status=_ActiveStatusProvider(),

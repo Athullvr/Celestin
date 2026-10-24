@@ -40,9 +40,9 @@ class WorkspaceBinding:
         self.workspace = workspace
         self.principals = []
 
-    def workspace_for(self, principal):
+    def workspace_for(self, principal, requested_workspace_id=None):
         self.principals.append(principal)
-        return self.workspace
+        return requested_workspace_id or self.workspace
 
 
 class PrincipalStatus:
@@ -56,10 +56,12 @@ class RequestExecutor:
         self.calls = []
 
     def _execute_authorized_request(
-        self, resolver, principal, project_key, action, operation, *, source_message_id=None
+        self, resolver, principal, project_key, action, operation, *,
+        source_message_id=None, requested_workspace_id=None
     ):
         self.calls.append(
-            (resolver, principal, project_key, action, operation, source_message_id)
+            (resolver, principal, project_key, action, operation, source_message_id,
+             requested_workspace_id)
         )
         return self.result
 
@@ -144,21 +146,39 @@ def test_authenticator_principal_and_injected_resolver_reach_executor():
         "requested-project",
         "read",
         operation,
+        workspace_selector=str(WORKSPACE),
         source_message_id="message-7",
     )
 
     assert result == "request result"
     assert auth.contexts == [untrusted_context]
-    resolver, principal, project_key, action, callback, source_id = executor.calls[0]
+    resolver, principal, project_key, action, callback, source_id, requested_workspace = executor.calls[0]
     assert principal is PRINCIPAL
     assert project_key == "requested-project"
     assert action == "read"
     assert callback is operation
     assert source_id == "message-7"
+    assert requested_workspace == WORKSPACE
     # The resolver passed to the executor owns only the injected server binding.
     assert resolver._workspace_binding is binding
     assert binding.workspace == WORKSPACE
     assert binding.principals == []  # The fake executor does not run authorization.
+
+
+@pytest.mark.parametrize("selector", [None, "", "not-a-uuid", (str(WORKSPACE), str(WORKSPACE))])
+def test_missing_ambiguous_or_malformed_workspace_fails_before_executor(selector):
+    executor = RequestExecutor()
+    auth = Authenticator()
+    request = boundary(authenticator=auth, binding=WorkspaceBinding(), executor=executor)
+
+    with pytest.raises(HostedAccessDenied, match="^access denied$"):
+        request.execute_authorized_request(
+            object(), "demo", "read", lambda _uow: None,
+            workspace_selector=selector,
+        )
+
+    assert len(auth.contexts) == 1
+    assert executor.calls == []
 
 
 def test_missing_workspace_binding_fails_after_authentication_before_execution():
