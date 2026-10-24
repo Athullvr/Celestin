@@ -6,6 +6,7 @@ import asyncio
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 import sys
@@ -17,6 +18,13 @@ import pytest
 
 import orbit.mcp_server.hosted_server as hosted_server
 from orbit.mcp_server.hosted_auth import Auth0VerifierConfig
+from orbit.mcp_server.hosted_preflight import (
+    HostedCatalogEvidence,
+    HostedOnboardingRequest,
+    HostedProfileCatalogEvidence,
+    HostedProjectConfiguration,
+    assess_hosted_onboarding,
+)
 from orbit.mcp_server.hosted_server import (
     HostedRuntimeSettings,
     HostedMCPServices,
@@ -1264,6 +1272,247 @@ def test_project_pool_selection_requires_exact_resolver_scope_and_never_falls_ba
     )
     with pytest.raises(HostedAuthorizationUnavailable, match="project database is unavailable"):
         pools.project_connection(other_scope)
+
+
+def _good_preflight_inputs():
+    now = datetime(2026, 10, 24, 8, 0, tzinfo=timezone.utc)
+    workspace_id, project_id = map(str, PROJECT_SCOPE)
+    logins = {
+        "project_runtime": "celestin_project_login",
+        "authorization_reader": "celestin_reader_login",
+        "authorization_admin": "celestin_admin_login",
+        "migration": "celestin_migration_login",
+    }
+    members = (
+        ("celestin_project_runtime", logins["project_runtime"]),
+        ("celestin_authorization_reader", logins["authorization_reader"]),
+        ("celestin_authorization_admin", logins["authorization_admin"]),
+    )
+    request = HostedOnboardingRequest(workspace_id, project_id)
+    configuration = HostedProjectConfiguration(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        database_identity="offline-test-db",
+        provider_name="provider-unknown",
+        expected_schema_version=9,
+        profile_logins=logins,
+        expected_group_members=members,
+        max_evidence_age_seconds=300,
+        provider_capability="unknown",
+    )
+    evidence = HostedCatalogEvidence(
+        database_identity="offline-test-db",
+        schema_version=9,
+        observed_at=now - timedelta(seconds=10),
+        profiles=(
+            HostedProfileCatalogEvidence(
+                "project_runtime", logins["project_runtime"],
+                GOOD_PROJECT_ROLE_ROW, tuple(expected_advisory_rows("project_runtime")),
+                workspace_id, project_id,
+            ),
+            HostedProfileCatalogEvidence(
+                "authorization_reader", logins["authorization_reader"],
+                GOOD_CONTROL_ROLE_ROW, tuple(expected_advisory_rows("authorization_reader")),
+            ),
+            HostedProfileCatalogEvidence(
+                "authorization_admin", logins["authorization_admin"],
+                GOOD_AUTHORIZATION_ADMIN_ROLE_ROW,
+                tuple(expected_advisory_rows("authorization_admin")),
+            ),
+            HostedProfileCatalogEvidence(
+                "migration", logins["migration"],
+                advisory_lock_rows=tuple(expected_advisory_rows("migration")),
+            ),
+        ),
+        function_catalog_rows={
+            "project_runtime": tuple(expected_function_rows(project_runtime=True)),
+            "authorization_reader": tuple(expected_function_rows(project_runtime=False)),
+            "authorization_admin": tuple(expected_function_rows(
+                project_runtime=False, authorization_admin=True
+            )),
+        },
+        policy_catalog_rows=tuple(expected_policy_rows()),
+        trigger_catalog_rows=tuple(expected_trigger_rows()),
+        privileged_role_membership_rows=tuple(
+            expected_privileged_role_membership_rows(set(members))
+        ),
+    )
+    return request, configuration, evidence, now
+
+
+def test_offline_preflight_separates_profile_structure_from_security_blockers():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    report = assess_hosted_onboarding(request, configuration, evidence, now=now)
+    assert report.onboarding.status == "STRUCTURAL_PASS"
+    # Catalog shapes match, but the current source intentionally rejects the
+    # unscoped reader/admin lock wrappers; neither assessment is operationally ready.
+    assert report.request_runtime.profile_structure_status == "STRUCTURAL_PASS"
+    assert report.privileged_preflight.profile_structure_status == "STRUCTURAL_PASS"
+    assert report.request_runtime.status == "BLOCKED"
+    assert report.privileged_preflight.status == "BLOCKED"
+    assert "lock_scope_unverified" in report.request_runtime.diagnostics
+    assert "lock_scope_unverified" in report.privileged_preflight.diagnostics
+    serialized = report.as_dict()
+    assert serialized["evidence_level"] == "offline_structural_only"
+    assert serialized["live_database_verified"] is False
+    assert serialized["service_permitted"] is False
+    assert serialized["provisioning_permitted"] is False
+    assert serialized["operational_status"] == "BLOCKED"
+
+
+def test_offline_runtime_structure_is_independent_when_privileged_profiles_are_missing():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    evidence = replace(
+        evidence,
+        profiles=tuple(
+            profile for profile in evidence.profiles
+            if profile.profile not in {"authorization_admin", "migration"}
+        ),
+    )
+    report = assess_hosted_onboarding(request, configuration, evidence, now=now)
+    assert report.request_runtime.profile_structure_status == "STRUCTURAL_PASS"
+    assert report.privileged_preflight.status == "BLOCKED"
+
+
+def test_offline_privileged_structure_is_independent_when_runtime_acl_is_missing():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    profiles = tuple(
+        replace(profile, advisory_lock_rows=None)
+        if profile.profile == "project_runtime" else profile
+        for profile in evidence.profiles
+    )
+    report = assess_hosted_onboarding(
+        request, configuration, replace(evidence, profiles=profiles), now=now
+    )
+    assert report.request_runtime.status == "BLOCKED"
+    assert report.privileged_preflight.profile_structure_status == "STRUCTURAL_PASS"
+    assert "missing_catalog_evidence" in report.request_runtime.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("request_update", "configuration_update", "expected_code"),
+    [
+        ({"workspace_id": None}, {}, "invalid_request"),
+        ({}, {"project_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"},
+         "project_binding_mismatch"),
+        ({}, {"profile_logins": {"project_runtime": "celestin_project_login"}},
+         "invalid_role_inventory"),
+    ],
+)
+def test_offline_onboarding_rejects_missing_conflicting_or_incomplete_inputs(
+    request_update, configuration_update, expected_code
+):
+    request, configuration, evidence, now = _good_preflight_inputs()
+    report = assess_hosted_onboarding(
+        replace(request, **request_update),
+        replace(configuration, **configuration_update),
+        evidence,
+        now=now,
+    )
+    assert report.onboarding.status == "BLOCKED"
+    assert expected_code in report.onboarding.diagnostics
+    assert report.request_runtime.status == "BLOCKED"
+
+
+def test_offline_preflight_rejects_unexpected_advisory_lock_privilege():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    rows = [list(row) for row in expected_advisory_rows("project_runtime")]
+    rows[0][2] = True
+    profiles = tuple(
+        replace(profile, advisory_lock_rows=tuple(tuple(row) for row in rows))
+        if profile.profile == "project_runtime" else profile
+        for profile in evidence.profiles
+    )
+    report = assess_hosted_onboarding(
+        request, configuration, replace(evidence, profiles=profiles), now=now
+    )
+    assert report.request_runtime.status == "BLOCKED"
+    assert "catalog_profile_invalid" in report.request_runtime.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("profile_name", "malformed_probe"),
+    [
+        ("project_runtime", GOOD_PROJECT_ROLE_ROW[:-1]),
+        ("authorization_reader", GOOD_CONTROL_ROLE_ROW[:-1]),
+    ],
+)
+def test_offline_preflight_rejects_incomplete_role_probe_rows(
+    profile_name, malformed_probe
+):
+    request, configuration, evidence, now = _good_preflight_inputs()
+    profiles = tuple(
+        replace(profile, role_probe_row=malformed_probe)
+        if profile.profile == profile_name else profile
+        for profile in evidence.profiles
+    )
+    report = assess_hosted_onboarding(
+        request, configuration, replace(evidence, profiles=profiles), now=now
+    )
+    assert report.request_runtime.status == "BLOCKED"
+    assert "catalog_profile_invalid" in report.request_runtime.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("evidence_update", "expected_code"),
+    [
+        ({"observed_at": datetime(2026, 10, 24, 7, 0, tzinfo=timezone.utc)},
+         "stale_catalog_evidence"),
+        ({"database_identity": "another-db"}, "contradictory_catalog_evidence"),
+        ({"policy_catalog_rows": None}, "policy_catalog_invalid"),
+        ({"trigger_catalog_rows": ()}, "trigger_catalog_invalid"),
+    ],
+)
+def test_offline_preflight_rejects_stale_contradictory_or_incomplete_catalogs(
+    evidence_update, expected_code
+):
+    request, configuration, evidence, now = _good_preflight_inputs()
+    report = assess_hosted_onboarding(
+        request, configuration, replace(evidence, **evidence_update), now=now
+    )
+    assert report.request_runtime.status == "BLOCKED"
+    assert expected_code in report.request_runtime.diagnostics
+
+
+def test_unknown_provider_capability_and_secret_like_values_stay_blocked_and_redacted():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    evidence = replace(
+        evidence,
+        policy_catalog_rows=(("postgres://operator:do-not-print@example.invalid/db",),),
+    )
+    report = assess_hosted_onboarding(request, configuration, evidence, now=now)
+    output = str(report.as_dict())
+    assert report.as_dict()["operational_status"] == "BLOCKED"
+    assert "policy_catalog_invalid" in report.request_runtime.diagnostics
+    assert "do-not-print" not in output
+    assert "example.invalid" not in output
+    assert "provider_capability_unverified" in {
+        diagnostic["code"]
+        for diagnostic in report.as_dict()["operational_diagnostics"]
+    }
+
+
+def test_offline_preflight_rejects_catalog_for_another_project_scope():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    profiles = tuple(
+        replace(profile, project_id="cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+        if profile.profile == "project_runtime" else profile
+        for profile in evidence.profiles
+    )
+    report = assess_hosted_onboarding(
+        request, configuration, replace(evidence, profiles=profiles), now=now
+    )
+    assert report.request_runtime.status == "BLOCKED"
+    assert "contradictory_catalog_evidence" in report.request_runtime.diagnostics
+
+
+def test_offline_preflight_rejects_duplicate_role_evidence():
+    request, configuration, evidence, now = _good_preflight_inputs()
+    evidence = replace(evidence, profiles=evidence.profiles + (evidence.profiles[0],))
+    report = assess_hosted_onboarding(request, configuration, evidence, now=now)
+    assert report.request_runtime.status == "BLOCKED"
+    assert report.privileged_preflight.status == "BLOCKED"
+    assert "contradictory_catalog_evidence" in report.request_runtime.diagnostics
 
 
 def test_hosted_settings_require_explicit_isolation_enablement(settings):

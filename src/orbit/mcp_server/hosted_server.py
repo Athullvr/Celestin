@@ -2174,14 +2174,7 @@ def _assert_safe_authorization_reader(pool, timeout: float) -> None:
             list(PROTECTED_TABLES + AUTHORIZATION_TABLES + ("celestin_schema_migrations",)),
         ),
     )
-    if (
-        row is None
-        or any(bool(value) for value in row[:5])
-        or not all(bool(value) for value in row[5:10])
-        or bool(row[10])
-        or not all(bool(value) for value in row[11:21])
-    ):
-        raise RuntimeError("PostgreSQL authorization-reader role violates its least-privilege requirements")
+    _validate_authorization_reader_probe(row)
     _assert_advisory_lock_privileges(
         pool, timeout, role_profile="authorization_reader"
     )
@@ -2229,16 +2222,7 @@ def _assert_safe_authorization_admin(pool, timeout: float) -> None:
             list(PROTECTED_TABLES + AUTHORIZATION_TABLES + ("project_runtime_scopes",)),
         ),
     )
-    if (
-        row is None
-        or len(row) != 14
-        or any(type(value) is not bool for value in row)
-        or any(row[:5])
-        or not all(row[5:])
-    ):
-        raise RuntimeError(
-            "PostgreSQL authorization-admin role violates its least-privilege requirements"
-        )
+    _validate_authorization_admin_probe(row)
     _assert_advisory_lock_privileges(
         pool, timeout, role_profile="authorization_admin"
     )
@@ -2686,17 +2670,7 @@ def _assert_safe_project_runtime(
             list(PROTECTED_TABLES + AUTHORIZATION_TABLES + ("celestin_schema_migrations",)),
         ),
     )
-    if (
-        row is None
-        or any(bool(value) for value in row[:5])
-        or not all(bool(value) for value in row[5:10])
-        or not bool(row[10])
-        or bool(row[11])
-        or not all(bool(value) for value in row[12:23])
-        or not all(bool(value) for value in row[23:31])
-        or not all(bool(value) for value in row[31:38])
-    ):
-        raise RuntimeError("PostgreSQL project role violates its project-isolation requirements")
+    _validate_project_runtime_probe(row)
     _assert_advisory_lock_privileges(
         pool, timeout, role_profile="project_runtime"
     )
@@ -2712,6 +2686,55 @@ def _run_pool_probe(pool, timeout: float, query: str, params: tuple[Any, ...]):
             return cursor.fetchone()
         finally:
             cursor.close()
+
+
+def _validate_authorization_reader_probe(row) -> None:
+    """Validate the reader-role probe result without opening a connection."""
+    if (
+        row is None
+        or len(row) != 21
+        or any(type(value) is not bool for value in row)
+        or any(row[:5])
+        or not all(row[5:10])
+        or row[10]
+        or not all(row[11:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL authorization-reader role violates its least-privilege requirements"
+        )
+
+
+def _validate_authorization_admin_probe(row) -> None:
+    """Validate the authorization-admin probe result without a database."""
+    if (
+        row is None
+        or len(row) != 14
+        or any(type(value) is not bool for value in row)
+        or any(row[:5])
+        or not all(row[5:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL authorization-admin role violates its least-privilege requirements"
+        )
+
+
+def _validate_project_runtime_probe(row) -> None:
+    """Validate the project-role probe result without opening a connection."""
+    if (
+        row is None
+        or len(row) != 38
+        or any(type(value) is not bool for value in row)
+        or any(row[:5])
+        or not all(row[5:10])
+        or not row[10]
+        or row[11]
+        or not all(row[12:23])
+        or not all(row[23:31])
+        or not all(row[31:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL project role violates its project-isolation requirements"
+        )
 
 def main() -> None:
     """Start the separate hosted runtime with required TLS and explicit config."""
