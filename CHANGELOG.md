@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T08:36:08+05:30 — Expand guarded tenant-isolation acceptance cases
+
+- Changed: Expanded the opt-in PostgreSQL suite with role ACL profiles, direct lock attempts, policy/trigger catalog checks across all protected tables, both exposed content tables, additional revocation races, cancellation cleanup, and pool session-reset coverage. Documented the forward-only ACL/wrapper prerequisite, including that migration 0008's authorization-write helpers remain invoker-security and are not independently readiness-validated.
+- Why: The offline checks cannot prove PostgreSQL ACL, RLS, trigger, transaction, or pooled-session behavior; the live suite needs explicit, least-privileged acceptance cases for a future approved disposable target.
+- Validation: Selected regression run: 472 passed, 35 opt-in tests skipped, and one failure in the existing SQLite process-concurrency test (`database is locked`). An isolated rerun passed (1 passed). Focused hosted suite: 306 passed, 35 skipped. The PostgreSQL opt-in command was not run.
+- Limitations: No database was contacted and no migration was applied. Live ACL, isolation, revocation-race, trigger, cancellation, and pool behavior remain unverified; the tenant-isolation gate remains open.
+
 ## 2026-10-24T07:18:52+05:30 — Fail closed on advisory-lock and trigger catalog drift
 
 - Changed: Hosted readiness now checks effective `pg_advisory_*` execution across all supported overloads, expects the request lock wrappers to be security-definer functions, and validates the exact authorization-trigger roster, event metadata, function body, ownership, search path, and grants. PostgreSQL pool return now clears session state with `DISCARD ALL` and disables automatic server-side preparation. Added adversarial offline catalog tests.

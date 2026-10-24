@@ -425,6 +425,10 @@ class LivePostgres:
         """Open the auth-admin identity for fixture setup and revocation."""
         return self.connect_admin(**kwargs)
 
+    def connect_migration(self, **kwargs) -> TrackedConnection:
+        """Open the disposable database-owner login used by the migration runner."""
+        return self._connect(self.target.dsn, **kwargs)
+
     def connect_admin(self, **kwargs) -> TrackedConnection:
         return self._connect(self.target.admin_dsn, **kwargs)
 
@@ -464,6 +468,12 @@ class LivePostgres:
     def connection(self, **kwargs):
         """Open and reliably close one tracked auth-admin connection."""
         with self._connection(self.connect_admin, **kwargs) as connection:
+            yield connection
+
+    @contextmanager
+    def migration_connection(self, **kwargs):
+        """Open and reliably close the preflighted migration identity."""
+        with self._connection(self.connect_migration, **kwargs) as connection:
             yield connection
 
     @contextmanager

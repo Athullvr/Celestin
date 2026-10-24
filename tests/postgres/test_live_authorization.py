@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
 from time import monotonic, sleep
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +23,15 @@ from orbit.mcp_server.hosted_scope import (
 from orbit.postgres.authorization import (
     PostgresHostedAuthorizationSessionFactory,
     ProjectScopedPostgresHostedAuthorizationSessionFactory,
+)
+from orbit.mcp_server.hosted_server import (
+    PROTECTED_TABLES,
+    _advisory_lock_privilege_query,
+    _assert_expected_policy_catalog,
+    _assert_expected_trigger_catalog,
+    _assert_safe_project_runtime,
+    _create_pool,
+    _validate_advisory_lock_privilege_catalog,
 )
 
 
@@ -62,6 +74,7 @@ class TenantFixture:
     message_a: int
     message_b: int
     memory_a: int
+    memory_b: int
     project_key: str
     issuer: str
     human_subject: str
@@ -218,6 +231,17 @@ def tenant_fixture(postgres_connections):
         message_b = _insert_message(
             connection, ids["workspace_b"], ids["project_b"], f"b-{suffix}"
         )
+        memory_b = connection.execute(
+            """INSERT INTO project_memory
+                   (workspace_id, project_id, key, value, status, source_message_id,
+                    created_at, updated_at)
+               VALUES (%s, %s, %s, %s, 'approved', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               RETURNING id""",
+            (
+                ids["workspace_b"], ids["project_b"], f"memory-b-{suffix}",
+                f"synthetic decision B {suffix}", message_b,
+            ),
+        ).fetchone()[0]
 
     fixture = TenantFixture(
         suffix=suffix,
@@ -225,6 +249,7 @@ def tenant_fixture(postgres_connections):
         message_a=message_a,
         message_b=message_b,
         memory_a=int(memory_a),
+        memory_b=int(memory_b),
         project_key=project_key,
         issuer=issuer,
         human_subject=human_subject,
@@ -273,6 +298,21 @@ def _factory(pg) -> _LiveProjectScopedFactory:
         pg.connect_authorization,
         lambda scope: pg.connect_project_scope(scope.workspace_id, scope.project_id),
     )
+
+
+class _LiveReadinessPool:
+    """Adapt one fixture-bound project login to the hosted readiness probes."""
+
+    def __init__(self, pg, workspace_id: UUID, project_id: UUID) -> None:
+        self.pg = pg
+        self.workspace_id = workspace_id
+        self.project_id = project_id
+
+    @contextmanager
+    def connection(self, *, timeout: float):
+        assert timeout > 0
+        with self.pg.project_connection(self.workspace_id, self.project_id) as connection:
+            yield connection
 
 
 def _fetchone(pg, query: str, params=(), *, workspace_id=None, project_id=None):
@@ -638,9 +678,22 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                 "SELECT session_user, current_user"
             ).fetchone() == (target_login, target_login)
             assert connection.execute("SELECT count(*) FROM chat_messages").fetchone()[0] == 1
+            assert connection.execute("SELECT count(*) FROM project_memory").fetchone()[0] == 1
             assert connection.execute(
                 "SELECT count(*) FROM chat_messages WHERE project_id = %s",
                 (other_project,),
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT count(*) FROM project_memory WHERE project_id = %s",
+                (other_project,),
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT count(*) FROM chat_messages WHERE id = %s",
+                (fixture.message_b if role == "project_a" else fixture.message_a,),
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT count(*) FROM project_memory WHERE id = %s",
+                (fixture.memory_b if role == "project_a" else fixture.memory_a,),
             ).fetchone()[0] == 0
 
             # The legacy values are attacker-controlled and must not change scope.
@@ -653,8 +706,13 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                 (str(other_project),),
             )
             assert connection.execute("SELECT count(*) FROM chat_messages").fetchone()[0] == 1
+            assert connection.execute("SELECT count(*) FROM project_memory").fetchone()[0] == 1
             assert connection.execute(
                 "SELECT count(*) FROM chat_messages WHERE project_id = %s",
+                (other_project,),
+            ).fetchone()[0] == 0
+            assert connection.execute(
+                "SELECT count(*) FROM project_memory WHERE project_id = %s",
                 (other_project,),
             ).fetchone()[0] == 0
 
@@ -673,6 +731,45 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                         (other_workspace, other_project, f"rls-denied-{fixture.suffix}"),
                     )
 
+            forbidden_writes = (
+                (
+                    """INSERT INTO project_memory
+                           (workspace_id, project_id, key, value, status, source_message_id,
+                            created_at, updated_at)
+                       VALUES (%s, %s, %s, 'forged project row', 'draft', %s,
+                               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
+                    (
+                        other_workspace, other_project, f"forged-memory-{fixture.suffix}",
+                        fixture.message_b if role == "project_a" else fixture.message_a,
+                    ),
+                ),
+                (
+                    """UPDATE project_memory
+                          SET workspace_id = %s, project_id = %s
+                        WHERE id = %s""",
+                    (other_workspace, other_project, fixture.memory_a if role == "project_a" else fixture.memory_b),
+                ),
+                (
+                    """UPDATE chat_messages
+                          SET workspace_id = %s, project_id = %s
+                        WHERE id = %s""",
+                    (other_workspace, other_project, fixture.message_a if role == "project_a" else fixture.message_b),
+                ),
+                (
+                    "DELETE FROM project_memory WHERE id = %s",
+                    (fixture.memory_b if role == "project_a" else fixture.memory_a,),
+                ),
+                (
+                    "DELETE FROM chat_messages WHERE id = %s",
+                    (fixture.message_b if role == "project_a" else fixture.message_a,),
+                ),
+            )
+            for statement, params in forbidden_writes:
+                with pytest.raises(pg.psycopg.errors.InsufficientPrivilege) as raised:
+                    with connection.transaction():
+                        connection.execute(statement, params)
+                assert raised.value.sqlstate == "42501"
+
             with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
                 with connection.transaction():
                     connection.execute(f'SET ROLE "{other_login}"')
@@ -685,6 +782,20 @@ def test_project_login_rls_resists_forged_gucs_and_direct_cross_project_sql(
                         "UPDATE celestin_private.project_runtime_scopes "
                         "SET project_id = %s WHERE login_role_name = %s",
                         (other_project, target_login),
+                    )
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        "INSERT INTO celestin_private.project_runtime_scopes "
+                        "(login_role_name, workspace_id, project_id) VALUES (%s, %s, %s)",
+                        (f"forged-{target_login}", other_workspace, other_project),
+                    )
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        "DELETE FROM celestin_private.project_runtime_scopes "
+                        "WHERE login_role_name = %s",
+                        (target_login,),
                     )
 
 
@@ -715,6 +826,142 @@ def test_project_login_cannot_lock_an_unmapped_workspace(postgres_connections, t
                     "SELECT public.celestin_lock_authorization_request(%s, %s, %s, %s)",
                     (fixture.workspace_b, "human", fixture.issuer, fixture.human_subject),
                 )
+
+
+@pytest.mark.parametrize("role", ["project_a", "project_b"])
+def test_project_runtime_live_policy_and_trigger_catalogs_cover_all_protected_tables(
+    postgres_connections, tenant_fixture, role
+):
+    pg, fixture = postgres_connections, tenant_fixture
+    workspace_id = fixture.workspace_a if role == "project_a" else fixture.workspace_b
+    project_id = fixture.project_a if role == "project_a" else fixture.project_b
+    pool = _LiveReadinessPool(pg, workspace_id, project_id)
+
+    assert len(PROTECTED_TABLES) == 12
+    _assert_expected_policy_catalog(pool, timeout=5)
+    _assert_expected_trigger_catalog(pool, timeout=5)
+
+    with pg.project_connection(workspace_id, project_id) as connection:
+        privileges = connection.execute(
+            """SELECT table_name,
+                      has_table_privilege(current_user, format('public.%I', table_name), 'SELECT'),
+                      has_table_privilege(current_user, format('public.%I', table_name), 'INSERT'),
+                      has_table_privilege(current_user, format('public.%I', table_name), 'UPDATE'),
+                      has_table_privilege(current_user, format('public.%I', table_name), 'DELETE')
+                 FROM unnest(%s::text[]) AS tables(table_name)
+                ORDER BY table_name""",
+            (list(PROTECTED_TABLES),),
+        ).fetchall()
+    expected = {
+        table: (table in {"chat_messages", "project_memory"},
+                table in {"chat_messages", "project_memory"},
+                table == "project_memory", False)
+        for table in PROTECTED_TABLES
+    }
+    assert {table: tuple(row[1:]) for row in privileges} == expected
+
+
+@pytest.mark.parametrize("role", ["project_a", "project_b"])
+def test_project_runtime_readiness_rejects_direct_advisory_lock_acl(
+    postgres_connections, tenant_fixture, role
+):
+    """Migrations 0001-0009 must not silently pass this strengthened gate."""
+    pg, fixture = postgres_connections, tenant_fixture
+    workspace_id = fixture.workspace_a if role == "project_a" else fixture.workspace_b
+    project_id = fixture.project_a if role == "project_a" else fixture.project_b
+    with pg.project_connection(workspace_id, project_id) as connection:
+        rows = connection.execute(_advisory_lock_privilege_query()).fetchall()
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(
+            rows, role_profile="project_runtime"
+        )
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _assert_safe_project_runtime(
+            _LiveReadinessPool(pg, workspace_id, project_id),
+            timeout=5,
+            scope=(workspace_id, project_id),
+        )
+
+
+@pytest.mark.parametrize("role", ["project_a", "project_b"])
+def test_project_runtime_direct_session_and_transaction_advisory_locks_are_denied(
+    postgres_connections, tenant_fixture, role
+):
+    pg, fixture = postgres_connections, tenant_fixture
+    workspace_id = fixture.workspace_a if role == "project_a" else fixture.workspace_b
+    project_id = fixture.project_a if role == "project_a" else fixture.project_b
+    statements = (
+        "SELECT pg_catalog.pg_advisory_lock(%s::bigint)",
+        "SELECT pg_catalog.pg_advisory_lock_shared(%s::bigint)",
+        "SELECT pg_catalog.pg_advisory_unlock(%s::bigint)",
+        "SELECT pg_catalog.pg_advisory_unlock_all()",
+        "SELECT pg_catalog.pg_advisory_xact_lock(%s::bigint)",
+        "SELECT pg_catalog.pg_advisory_xact_lock_shared(%s::bigint)",
+        "SELECT pg_catalog.pg_try_advisory_xact_lock(%s::bigint)",
+    )
+    lock_key = 7_238_451_221
+    with pg.project_connection(workspace_id, project_id) as connection:
+        for statement in statements:
+            params = () if "%s" not in statement else (lock_key,)
+            with pytest.raises(pg.psycopg.errors.InsufficientPrivilege) as raised:
+                with connection.transaction():
+                    connection.execute(statement, params)
+            assert raised.value.sqlstate == "42501"
+
+
+def test_live_advisory_function_role_profiles(
+    postgres_connections, tenant_fixture
+):
+    pg = postgres_connections
+    profiles = (
+        ("migration", pg.migration_connection),
+        ("authorization_admin", pg.connection),
+        ("authorization_reader", pg.authorization_connection),
+    )
+    for role_profile, connect in profiles:
+        with connect() as connection:
+            rows = connection.execute(_advisory_lock_privilege_query()).fetchall()
+            _validate_advisory_lock_privilege_catalog(rows, role_profile=role_profile)
+
+    scopes = (
+        (tenant_fixture.workspace_a, tenant_fixture.project_a),
+        (tenant_fixture.workspace_b, tenant_fixture.project_b),
+    )
+    for workspace_id, project_id in scopes:
+        with pg.project_connection(workspace_id, project_id) as connection:
+            rows = connection.execute(_advisory_lock_privilege_query()).fetchall()
+        _validate_advisory_lock_privilege_catalog(
+            rows, role_profile="project_runtime"
+        )
+
+
+def test_live_three_authorization_and_runtime_group_membership_roster(
+    postgres_connections
+):
+    pg = postgres_connections
+    expected_members = {
+        ("celestin_authorization_admin", pg.target.admin_user, False),
+        ("celestin_authorization_reader", pg.target.authorization_user, False),
+        ("celestin_project_runtime", pg.target.project_a_user, False),
+        ("celestin_project_runtime", pg.target.project_b_user, False),
+    }
+    with pg.connection() as connection:
+        rows = connection.execute(
+            """SELECT granted.rolname, member.rolname, membership.admin_option
+                 FROM pg_catalog.pg_auth_members AS membership
+                 JOIN pg_catalog.pg_roles AS granted
+                   ON granted.oid = membership.roleid
+                 JOIN pg_catalog.pg_roles AS member
+                   ON member.oid = membership.member
+                WHERE granted.rolname = ANY(%s::text[])
+                ORDER BY granted.rolname, member.rolname""",
+            ([
+                "celestin_authorization_admin",
+                "celestin_authorization_reader",
+                "celestin_project_runtime",
+            ],),
+        ).fetchall()
+    assert set(rows) == expected_members
 
 
 def test_constraints_reject_cross_workspace_membership_and_duplicate_grants(
@@ -962,6 +1209,105 @@ def test_authorized_write_commits_and_failed_operation_rolls_back(postgres_conne
     assert all(cursor.closed for cursor in opened[-1].cursors)
 
 
+def test_cancelled_authorized_operation_rolls_back_and_closes_both_sessions(
+    postgres_connections, tenant_fixture
+):
+    pg, fixture = postgres_connections, tenant_fixture
+    opened = []
+
+    def control_connection():
+        connection = pg.connect_authorization()
+        opened.append(connection)
+        return connection
+
+    def project_connection(scope):
+        connection = pg.connect_project_scope(scope.workspace_id, scope.project_id)
+        opened.append(connection)
+        return connection
+
+    factory = _LiveProjectScopedFactory(control_connection, project_connection)
+    conversation = f"cancelled-{fixture.suffix}"
+
+    def cancel_after_insert(session, scope):
+        connection = session._connection_for_adapters
+        connection.execute(
+            """INSERT INTO chat_messages
+                   (workspace_id, project_id, conversation_id, role, content, created_at)
+               VALUES (%s, %s, %s, 'assistant', 'cancelled operation', CURRENT_TIMESTAMP)""",
+            (scope.workspace_id, scope.project_id, conversation),
+        )
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        factory._execute_authorized(
+            fixture.resolver(), fixture.human(), fixture.project_key,
+            "write", cancel_after_insert,
+        )
+
+    assert _fetchone(
+        pg,
+        "SELECT count(*) FROM chat_messages WHERE conversation_id = %s",
+        (conversation,),
+        workspace_id=fixture.workspace_a,
+        project_id=fixture.project_a,
+    )[0] == 0
+    assert len(opened) == 2
+    assert all(connection.closed for connection in opened)
+    assert all(cursor.closed for connection in opened for cursor in connection.cursors)
+
+
+def test_postgres_pool_reuse_clears_session_state_and_session_advisory_locks(
+    postgres_connections
+):
+    pg = postgres_connections
+    pool = _create_pool(
+        pg.target.dsn,
+        SimpleNamespace(connection_timeout=5, pool_timeout=5),
+        min_size=1,
+        max_size=1,
+    )
+    backend_pid = None
+    original_search_path = None
+    lock_key = 7_238_451_229
+    try:
+        pool.open(wait=True)
+        with pool.connection(timeout=5) as connection:
+            backend_pid = connection.execute("SELECT pg_backend_pid()").fetchone()[0]
+            original_search_path = connection.execute("SHOW search_path").fetchone()[0]
+            with connection.transaction():
+                connection.execute("SET search_path TO pg_catalog")
+                connection.execute("SET application_name TO 'celestin-session-leak-probe'")
+                connection.execute(
+                    "SELECT set_config('celestin.pool_probe', 'leaked', false)"
+                )
+                connection.execute(
+                    "SELECT pg_catalog.pg_advisory_lock(%s::bigint)", (lock_key,)
+                )
+
+        with pg.migration_connection() as observer:
+            assert observer.execute(
+                """SELECT EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_locks
+                        WHERE pid = %s AND locktype = 'advisory' AND granted
+                   )""",
+                (backend_pid,),
+            ).fetchone()[0] is False
+
+        with pool.connection(timeout=5) as reused:
+            assert reused.execute("SELECT pg_backend_pid()").fetchone()[0] == backend_pid
+            assert reused.execute("SELECT current_user = session_user").fetchone()[0] is True
+            assert reused.execute("SHOW search_path").fetchone()[0] == original_search_path
+            assert reused.execute("SELECT current_setting('application_name')").fetchone()[0] != (
+                "celestin-session-leak-probe"
+            )
+            custom_setting = reused.execute(
+                "SELECT current_setting('celestin.pool_probe', true)"
+            ).fetchone()[0]
+            assert custom_setting in (None, "")
+    finally:
+        pool.close()
+
+
 def test_sql_errors_are_redacted_and_connections_cursors_close(postgres_connections, tenant_fixture):
     pg, fixture = postgres_connections, tenant_fixture
     connection = pg.connect_authorization()
@@ -993,7 +1339,18 @@ def _wait_for_lock(postgres_connections, pid: int) -> bool:
     return False
 
 
-@pytest.mark.parametrize("revocation", ["grant", "membership", "service"])
+@pytest.mark.parametrize(
+    "revocation",
+    [
+        "grant",
+        "membership",
+        "service",
+        "human_status",
+        "workspace_lifecycle",
+        "project_lifecycle",
+        "scope_mapping",
+    ],
+)
 def test_inflight_authorized_operation_serializes_before_revocation(
     postgres_connections, tenant_fixture, revocation
 ):
@@ -1006,12 +1363,32 @@ def test_inflight_authorized_operation_serializes_before_revocation(
             "revoked_at = CURRENT_TIMESTAMP WHERE id = %s",
             (fixture.service_id,),
         )
+    elif revocation == "human_status":
+        principal = fixture.human()
+        update = (
+            "UPDATE celestin_users SET status = 'suspended' WHERE id = %s",
+            (fixture.human_id,),
+        )
     elif revocation == "membership":
         principal = fixture.human()
         update = (
             "UPDATE celestin_workspace_memberships SET status = 'suspended' "
             "WHERE workspace_id = %s AND user_id = %s",
             (fixture.workspace_a, fixture.human_id),
+        )
+    elif revocation == "workspace_lifecycle":
+        principal = fixture.human()
+        update = (
+            "UPDATE celestin_workspaces SET archived_at = CURRENT_TIMESTAMP, "
+            "purge_after = CURRENT_TIMESTAMP + INTERVAL '1 day' WHERE id = %s",
+            (fixture.workspace_a,),
+        )
+    elif revocation == "project_lifecycle":
+        principal = fixture.human()
+        update = (
+            "UPDATE celestin_projects SET archived_at = CURRENT_TIMESTAMP, "
+            "purge_after = CURRENT_TIMESTAMP + INTERVAL '1 day' WHERE id = %s",
+            (fixture.project_a,),
         )
     else:
         principal = fixture.human()
@@ -1043,7 +1420,20 @@ def test_inflight_authorized_operation_serializes_before_revocation(
             revoker_pid.append(connection.raw.info.backend_pid)
             revoker_started.set()
             with connection.transaction():
-                connection.execute(update[0], update[1])
+                if revocation == "scope_mapping":
+                    connection.execute(
+                        "DELETE FROM celestin_private.project_runtime_scopes "
+                        "WHERE login_role_name = %s",
+                        (pg.target.project_a_user,),
+                    )
+                    connection.execute(
+                        """INSERT INTO celestin_private.project_runtime_scopes
+                               (login_role_name, workspace_id, project_id)
+                           VALUES (%s, %s, %s)""",
+                        (pg.target.project_a_user, fixture.workspace_b, fixture.project_b),
+                    )
+                else:
+                    connection.execute(update[0], update[1])
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         protected = executor.submit(protected_operation)
@@ -1057,7 +1447,12 @@ def test_inflight_authorized_operation_serializes_before_revocation(
         assert protected.result(timeout=_LOCK_WAIT_SECONDS) == fixture.project_a
         revoker.result(timeout=_LOCK_WAIT_SECONDS)
 
-    with pytest.raises(HostedAccessDenied):
+    expected_denials = (
+        (HostedAuthorizationUnavailable,)
+        if revocation == "scope_mapping"
+        else (HostedAccessDenied,)
+    )
+    with pytest.raises(expected_denials):
         factory._execute_authorized(
             fixture.resolver(), principal, fixture.project_key, "read",
             lambda *_: pytest.fail("a request after committed revocation must be denied"),
