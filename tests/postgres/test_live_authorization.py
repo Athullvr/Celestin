@@ -661,6 +661,48 @@ def test_source_message_reference_is_scoped_and_same_project_decision_succeeds(
     )
 
 
+def test_project_runtime_retrieval_uses_scoped_request_uow_and_authoritative_rows(
+    postgres_connections, tenant_fixture
+):
+    pg, fixture = postgres_connections, tenant_fixture
+    factory = _factory(pg)
+    missing_message_id = max(fixture.message_a, fixture.message_b) + 1000
+
+    def retrieve(request):
+        connection = request.retrieval_data._request_connection
+        assert connection is request._authorization_session._connection_for_adapters
+        assert connection.info.transaction_status == pg.psycopg.pq.TransactionStatus.INTRANS
+
+        matches = request.retrieval_service.search_chat_history(
+            fixture.project_key, "synthetic live fixture", 10
+        )
+        records = request.retrieval_data.load_messages(
+            fixture.project_key,
+            [str(fixture.message_a), str(fixture.message_b), str(missing_message_id)],
+        )
+        return matches, records
+
+    matches, records = factory._execute_authorized_request(
+        fixture.resolver(),
+        fixture.human(),
+        fixture.project_key,
+        "read",
+        retrieve,
+    )
+
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.message_id == str(fixture.message_a)
+    assert match.project_id == fixture.project_key
+    assert match.source_id == f"a-{fixture.suffix}"
+    assert match.content == f"synthetic live fixture a-{fixture.suffix}"
+    assert match.role == "user"
+    assert match.timestamp is not None
+    assert set(records) == {str(fixture.message_a)}
+    assert records[str(fixture.message_a)].role == match.role
+    assert records[str(fixture.message_a)].content == match.content
+
+
 @pytest.mark.parametrize(
     "own_workspace_attr,own_project_attr,other_workspace_attr,other_project_attr,role",
     [

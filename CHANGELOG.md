@@ -4,6 +4,14 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T16:46:46+05:30 — Prepare guarded PostgreSQL retrieval tests
+
+- Changed: Added an opt-in project-runtime retrieval integration case, an offline regression that proves the live fixture skips before configuration/driver/migration access without explicit opt-in, and a scripted PostgreSQL-adapter test for authoritative row reload and omission of stale/ineligible candidates. Clarified hosted lexical retrieval coverage and limits in the PostgreSQL test guide.
+- Why: Prepare safe future retrieval validation without contacting a database now or presenting local semantic/hybrid and Evidence adapter tests as hosted request-path evidence.
+- Validation: Baseline focused suite: 141 passed, 35 PostgreSQL-marked tests skipped. Final focused retrieval/MCP/SQLite/auth/UoW suite: 226 passed, 43 PostgreSQL tests skipped. Offline migration-runner/provisioning tests: 33 passed. Guard/adapter spot checks: 2 passed; changed tests compiled; staged and unstaged diff checks passed.
+- Limitations: No live PostgreSQL/Neon connection or migration was attempted. Hosted project-runtime Evidence access remains intentionally unavailable; live semantic/hybrid retrieval is not implemented in the hosted path.
+- Correction: The first post-change run exposed a test double that replaced process-global `os.environ` and broke pytest's own reporting (1 passed, 147 errors). The stub was narrowed to the fixture module and the final runs passed.
+
 ## 2026-10-24T16:26:35+05:30 — Harden retrieval provenance diagnostics and regressions
 
 - Changed: Made stale-vector diagnostics refer to missing authoritative project-scoped records rather than SQLite specifically. Added deterministic tests for adversarial/stale semantic metadata, foreign and missing message rows, hybrid deduplication, and foreign-project evidence references.

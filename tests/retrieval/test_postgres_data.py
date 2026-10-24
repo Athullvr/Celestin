@@ -138,6 +138,36 @@ def test_message_search_maps_postgres_types_scopes_and_closes_resources(scope):
     assert all(connection.closed for connection in database.connections)
 
 
+def test_message_search_reloads_authoritative_rows_and_omits_stale_or_archived_candidates(scope):
+    def respond(query, _params):
+        if "record.id = ANY" in query:
+            # The second candidate is absent from the visible, authoritative reload,
+            # as it would be for a deleted, archived, or otherwise ineligible row.
+            return [
+                (42, "conversation-current", "persisted message content", NOW, "assistant")
+            ]
+        return [
+            (42, "stale candidate content", NOW, "stale conversation", 0.75),
+            (43, "archived or deleted candidate", NOW, "ineligible", 0.5),
+        ]
+
+    database = Database(respond)
+    page = adapter(database, scope).search_messages(
+        "celestin", "persisted message", 5, relax=False
+    )
+
+    assert len(page.matches) == 1
+    match = page.matches[0]
+    assert match.record_id == "42"
+    assert match.project == "celestin"
+    assert match.content == "persisted message content"
+    assert match.source_id == "conversation-current"
+    assert match.role == "assistant"
+    assert match.timestamp == "2026-10-17T03:30:00.000000Z"
+    assert all(cursor.closed for cursor in database.cursors)
+    assert all(connection.closed for connection in database.connections)
+
+
 @pytest.mark.parametrize("query", ["", "  ", "!!! ???"])
 def test_empty_or_tokenless_message_query_does_not_connect(scope, query):
     database = Database()
