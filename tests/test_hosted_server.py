@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -113,14 +114,57 @@ def expected_trigger_rows():
 
 
 _ADVISORY_SIGNATURES = tuple(sorted(_ADVISORY_LOCK_SIGNATURES))
+_ADVISORY_TEST_OWNER_OID = 10
+_ADVISORY_TEST_OWNER = "celestin_catalog_owner"
+_ADVISORY_TEST_CURRENT_USER_OID = 20
+_ADVISORY_TEST_CURRENT_USERS = {
+    "project_runtime": "celestin_project_login",
+    "authorization_reader": "celestin_reader_login",
+    "authorization_admin": "celestin_admin_login",
+    "migration": "celestin_migration_login",
+}
 
 
 def expected_advisory_rows(role_profile):
     allowed = _ADVISORY_LOCK_ALLOWED_SIGNATURES[role_profile]
-    return [
-        (signature, signature in allowed, signature in allowed, False)
-        for signature in _ADVISORY_SIGNATURES
-    ]
+    current_user = _ADVISORY_TEST_CURRENT_USERS[role_profile]
+    rows = []
+    for signature in _ADVISORY_SIGNATURES:
+        entries = [
+            {
+                "grantor_oid": _ADVISORY_TEST_OWNER_OID,
+                "grantor": _ADVISORY_TEST_OWNER,
+                "grantee_oid": _ADVISORY_TEST_OWNER_OID,
+                "grantee": _ADVISORY_TEST_OWNER,
+                "privilege_type": "EXECUTE",
+                "is_grantable": True,
+            }
+        ]
+        if signature in allowed:
+            entries.append(
+                {
+                    "grantor_oid": _ADVISORY_TEST_OWNER_OID,
+                    "grantor": _ADVISORY_TEST_OWNER,
+                    "grantee_oid": _ADVISORY_TEST_CURRENT_USER_OID,
+                    "grantee": current_user,
+                    "privilege_type": "EXECUTE",
+                    "is_grantable": False,
+                }
+            )
+        rows.append(
+            (
+                signature,
+                signature in allowed,
+                signature in allowed,
+                False,
+                _ADVISORY_TEST_OWNER_OID,
+                _ADVISORY_TEST_OWNER,
+                _ADVISORY_TEST_CURRENT_USER_OID,
+                current_user,
+                entries,
+            )
+        )
+    return rows
 
 
 def expected_privileged_role_membership_rows(expected_members):
@@ -400,9 +444,10 @@ def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
     }),)
 
 
-def test_authorization_reader_role_has_no_tenant_content_access():
+def test_authorization_reader_profile_fails_closed_for_unscoped_lock_wrapper():
     pool = FakePool(GOOD_CONTROL_ROLE_ROW)
-    _assert_safe_authorization_reader(pool, timeout=1)
+    with pytest.raises(RuntimeError, match="lock-key scope is not verified"):
+        _assert_safe_authorization_reader(pool, timeout=1)
     assert len(pool.queries) == 3
     assert tuple(PROTECTED_TABLES + AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][2])
     assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][3])
@@ -422,9 +467,10 @@ def test_runtime_refuses_unsafe_authorization_admin_role(index):
         )
 
 
-def test_authorization_admin_probe_checks_role_locks_and_all_write_helpers():
+def test_authorization_admin_probe_keeps_unscoped_lock_helpers_unready():
     pool = FakePool(authorization_admin=True)
-    _assert_safe_authorization_admin(pool, timeout=1)
+    with pytest.raises(RuntimeError, match="lock-key scope is not verified"):
+        _assert_safe_authorization_admin(pool, timeout=1)
     assert len(pool.queries) == 3
     assert "authorization_admin_role_readiness" in pool.queries[0][0]
     assert "has_function_privilege" in pool.queries[1][0]
@@ -433,6 +479,25 @@ def test_authorization_admin_probe_checks_role_locks_and_all_write_helpers():
         "public." + signature
         for signature in _function_specs(False, authorization_admin=True)
     )
+
+
+@pytest.mark.parametrize(
+    "project_runtime,authorization_admin",
+    ((False, False), (False, True)),
+)
+def test_function_catalog_does_not_accept_unscoped_reader_or_admin_locks(
+    project_runtime, authorization_admin
+):
+    rows = expected_function_rows(
+        project_runtime=project_runtime,
+        authorization_admin=authorization_admin,
+    )
+    with pytest.raises(RuntimeError, match="lock-key scope is not verified"):
+        _validate_function_catalog(
+            rows,
+            project_runtime=project_runtime,
+            authorization_admin=authorization_admin,
+        )
 
 
 @pytest.mark.parametrize(
@@ -677,6 +742,96 @@ def test_advisory_lock_catalog_rejects_missing_or_inconsistent_acl_metadata(bad_
         _validate_advisory_lock_privilege_catalog(rows, role_profile="project_runtime")
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "grant_option",
+        "public_grant",
+        "unexpected_grantee",
+        "unexpected_grantor",
+        "unknown_grantor",
+        "owner_identity_mismatch",
+        "current_identity_mismatch",
+        "unknown_grantee",
+        "missing_grantability",
+        "duplicate_acl_entry",
+    ),
+)
+def test_advisory_lock_catalog_rejects_unsafe_acl_entries(mutation):
+    rows = expected_advisory_rows("migration")
+    index = _ADVISORY_SIGNATURES.index("pg_advisory_lock(bigint)")
+    row = list(rows[index])
+    entries = deepcopy(row[8])
+    migration_entry = next(entry for entry in entries if entry["grantee_oid"] == 20)
+
+    if mutation == "grant_option":
+        migration_entry["is_grantable"] = True
+    elif mutation == "public_grant":
+        entries.append(
+            {
+                "grantor_oid": _ADVISORY_TEST_OWNER_OID,
+                "grantor": _ADVISORY_TEST_OWNER,
+                "grantee_oid": 0,
+                "grantee": "PUBLIC",
+                "privilege_type": "EXECUTE",
+                "is_grantable": False,
+            }
+        )
+    elif mutation == "unexpected_grantee":
+        entries.append(
+            {
+                "grantor_oid": _ADVISORY_TEST_OWNER_OID,
+                "grantor": _ADVISORY_TEST_OWNER,
+                "grantee_oid": 30,
+                "grantee": "celestin_unapproved_role",
+                "privilege_type": "EXECUTE",
+                "is_grantable": False,
+            }
+        )
+    elif mutation == "unexpected_grantor":
+        migration_entry["grantor_oid"] = 40
+        migration_entry["grantor"] = "celestin_unapproved_grantor"
+    elif mutation == "unknown_grantor":
+        migration_entry["grantor"] = None
+    elif mutation == "owner_identity_mismatch":
+        row[5] = "different_catalog_owner"
+    elif mutation == "current_identity_mismatch":
+        row[7] = "different_migration_login"
+    elif mutation == "unknown_grantee":
+        migration_entry["grantee"] = None
+    elif mutation == "missing_grantability":
+        migration_entry.pop("is_grantable")
+    elif mutation == "duplicate_acl_entry":
+        entries.append(deepcopy(migration_entry))
+
+    row[8] = entries
+    rows[index] = tuple(row)
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile="migration")
+
+
+def test_advisory_lock_catalog_rejects_inherited_access_without_a_direct_grant():
+    rows = expected_advisory_rows("project_runtime")
+    index = _ADVISORY_SIGNATURES.index("pg_advisory_lock(bigint)")
+    row = list(rows[index])
+    row[1] = True  # Effective EXECUTE inherited through an unexpected membership.
+    rows[index] = tuple(row)
+
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile="project_runtime")
+
+
+def test_advisory_lock_catalog_rejects_inconsistent_login_identity_across_overloads():
+    rows = expected_advisory_rows("project_runtime")
+    row = list(rows[-1])
+    row[6] = 30
+    row[7] = "another_project_login"
+    rows[-1] = tuple(row)
+
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile="project_runtime")
+
+
 def test_advisory_lock_readiness_query_checks_effective_catalog_privileges():
     query = _advisory_lock_privilege_query()
     assert "pg_catalog.pg_proc" in query
@@ -687,6 +842,12 @@ def test_advisory_lock_readiness_query_checks_effective_catalog_privileges():
     assert "pg_catalog.acldefault" in query
     assert "direct_execute" in query
     assert "public_execute" in query
+    assert "acl.is_grantable" in query
+    assert "acl.grantor" in query
+    assert "acl.grantee" in query
+    assert "grantor.rolname" in query
+    assert "grantee.rolname" in query
+    assert "jsonb_agg" in query
 
 
 def test_privileged_role_membership_catalog_accepts_exact_no_login_group_roster():

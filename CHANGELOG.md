@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T11:28:08+05:30 — Harden advisory ACL and wrapper readiness
+
+- Changed: Advisory-lock readiness now validates complete ACL entries, grantor/grantee identities, grantability, owner/login identity consistency, and exact effective/direct/PUBLIC access. Reader and authorization-admin wrapper readiness now fails closed while lock keys remain caller-selected and unbound. Added adversarial catalog fixtures, a SQLite connection-pragma regression, and clarified request versus privileged provisioning readiness in the PostgreSQL test guide. Files: `src/orbit/mcp_server/hosted_server.py`, `tests/test_hosted_server.py`, `tests/database/test_engine.py`, `docs/postgres-integration-tests.md`.
+- Why: Catalog ACL shape alone cannot make a SECURITY DEFINER wrapper safe when untrusted callers can choose arbitrary advisory-lock keys; the local SQLite connection contract also deserves direct regression coverage.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py tests/database/test_engine.py` — 473 passed; selected offline regression suite — 616 passed; changed Python modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: All PostgreSQL catalog tests used offline fixtures. No PostgreSQL server, migration, Neon capability, external service, or hosted tenant-isolation behavior was tested. The tenant-isolation gate remains open.
+
 ## 2026-10-24T08:56:32+05:30 — Expand advisory role-profile negative tests
 
 - Changed: Added offline negative cases for every privileged group/member flag and all database-owner attributes checked by authorization-admin function readiness.

@@ -216,6 +216,16 @@ END;
 """,
 }
 
+# These request/admin wrappers accept caller-selected workspace or principal
+# keys and pass them to advisory locks without a database-verifiable binding.
+# SECURITY DEFINER alone would turn those arguments into an arbitrary lock-key
+# capability. Keep their readiness closed until the interface derives or
+# validates lock scope against trusted database state.
+_UNVERIFIED_LOCK_KEY_SCOPE_SIGNATURES = frozenset({
+    "celestin_lock_authorization_request(uuid,text,text,text)",
+    *_ADMIN_AUTHORIZATION_WRITE_FUNCTION_BODIES,
+})
+
 # Request pools must not acquire arbitrary PostgreSQL advisory locks directly.
 # The lock wrappers must be SECURITY DEFINER in a reviewed forward migration;
 # the trusted database-owner identity keeps only the runner pair plus the two
@@ -1411,6 +1421,10 @@ def _validate_function_catalog(
             raise RuntimeError("PostgreSQL authorization helper definition is unsafe")
     if project_runtime and len(owners) != 1:
         raise RuntimeError("PostgreSQL authorization helper ownership is inconsistent")
+    if set(expected) & _UNVERIFIED_LOCK_KEY_SCOPE_SIGNATURES:
+        raise RuntimeError(
+            "PostgreSQL authorization helper lock-key scope is not verified"
+        )
 
 
 def _function_catalog_query(
@@ -1507,7 +1521,7 @@ def _assert_authorization_function_catalog(
 
 
 def _advisory_lock_privilege_query() -> str:
-    """Return effective and direct/PUBLIC ACL state for all advisory overloads."""
+    """Return effective access and complete ACL entries for advisory overloads."""
     return """
         SELECT procedure.oid::regprocedure::text,
                pg_catalog.has_function_privilege(
@@ -1533,12 +1547,45 @@ def _advisory_lock_privilege_query() -> str:
                      ) AS acl
                     WHERE acl.grantee = 0
                       AND acl.privilege_type = 'EXECUTE'
-               ) AS public_execute
+               ) AS public_execute,
+               owner.oid::bigint AS owner_oid,
+               owner.rolname AS owner_name,
+               login.oid::bigint AS current_user_oid,
+               login.rolname AS current_user_name,
+               COALESCE(
+                   pg_catalog.jsonb_agg(
+                       pg_catalog.jsonb_build_object(
+                           'grantor_oid', acl.grantor::bigint,
+                           'grantor', grantor.rolname,
+                           'grantee_oid', acl.grantee::bigint,
+                           'grantee', CASE
+                               WHEN acl.grantee = 0 THEN 'PUBLIC'
+                               ELSE grantee.rolname
+                           END,
+                           'privilege_type', acl.privilege_type,
+                           'is_grantable', acl.is_grantable
+                       ) ORDER BY acl.grantee, acl.grantor, acl.privilege_type
+                   ) FILTER (WHERE acl.grantee IS NOT NULL),
+                   '[]'::jsonb
+               ) AS acl_entries
           FROM pg_catalog.pg_proc AS procedure
           JOIN pg_catalog.pg_namespace AS namespace
             ON namespace.oid = procedure.pronamespace
+          JOIN pg_catalog.pg_roles AS owner
+            ON owner.oid = procedure.proowner
+          JOIN pg_catalog.pg_roles AS login
+            ON login.rolname = current_user
+          LEFT JOIN LATERAL pg_catalog.aclexplode(
+              COALESCE(procedure.proacl,
+                       pg_catalog.acldefault('f', procedure.proowner))
+          ) AS acl ON true
+          LEFT JOIN pg_catalog.pg_roles AS grantor
+            ON grantor.oid = acl.grantor
+          LEFT JOIN pg_catalog.pg_roles AS grantee
+            ON grantee.oid = acl.grantee
          WHERE namespace.nspname = 'pg_catalog'
            AND pg_catalog.left(procedure.proname, 12) = 'pg_advisory_'
+         GROUP BY procedure.oid, owner.oid, owner.rolname, login.oid, login.rolname
          ORDER BY procedure.oid::regprocedure::text
     """
 
@@ -1551,28 +1598,144 @@ def _normalize_function_signature(signature: str) -> str:
 
 
 def _validate_advisory_lock_privilege_catalog(rows, *, role_profile: str) -> None:
-    """Require an exact effective advisory-function profile for the DB login.
+    """Require the exact effective and grantable advisory ACL profile for a login.
 
     PostgreSQL grants function EXECUTE to PUBLIC by default. Since ACLs are
     additive, a role-specific GRANT/REVOKE cannot deny that inherited access.
     The request identities therefore get no direct advisory functions; reviewed
     SECURITY DEFINER wrappers own the lock operation. The migration/database
     owner gets only the runner's session lock/unlock pair and the exclusive and
-    shared transaction-lock primitives needed by its owned wrappers.
+    shared transaction-lock primitives needed by its owned wrappers. The
+    function owner is the only accepted grantor; owner grant options are
+    inherent, while every non-owner grant must be direct, non-delegable, and
+    granted to the inspected login.
     """
     allowed = _ADVISORY_LOCK_ALLOWED_SIGNATURES.get(role_profile)
     if allowed is None:
         raise RuntimeError("PostgreSQL advisory-lock role profile is unknown")
     actual = {}
+    inspected_login = None
+    acl_fields = {
+        "grantor_oid",
+        "grantor",
+        "grantee_oid",
+        "grantee",
+        "privilege_type",
+        "is_grantable",
+    }
     try:
         for row in rows:
-            if len(row) != 4 or any(type(value) is not bool for value in row[1:]):
+            if len(row) != 9:
+                raise ValueError("advisory-lock catalog row has an unexpected shape")
+            (
+                signature,
+                effective_execute,
+                direct_execute,
+                public_execute,
+                owner_oid,
+                owner_name,
+                current_user_oid,
+                current_user_name,
+                acl_entries,
+            ) = row
+            if any(
+                type(value) is not bool
+                for value in (effective_execute, direct_execute, public_execute)
+            ):
                 raise ValueError("advisory-lock catalog omitted a privilege property")
-            signature, effective_execute, direct_execute, public_execute = row
+            if (
+                type(owner_oid) is not int
+                or owner_oid <= 0
+                or type(current_user_oid) is not int
+                or current_user_oid <= 0
+                or not isinstance(owner_name, str)
+                or not owner_name
+                or not isinstance(current_user_name, str)
+                or not current_user_name
+                or not isinstance(acl_entries, (list, tuple))
+            ):
+                raise ValueError("advisory-lock catalog omitted role or ACL metadata")
+            login_identity = (current_user_oid, current_user_name)
+            if inspected_login is None:
+                inspected_login = login_identity
+            elif inspected_login != login_identity:
+                raise ValueError("advisory-lock rows disagree on current login identity")
             normalized = _normalize_function_signature(str(signature))
             if not normalized or normalized in actual:
                 raise ValueError("duplicate advisory function")
-            actual[normalized] = (effective_execute, direct_execute, public_execute)
+            owner_entries = 0
+            current_user_entries = 0
+            public_entries = 0
+            seen_entries = set()
+            for entry in acl_entries:
+                if not isinstance(entry, Mapping) or set(entry) != acl_fields:
+                    raise ValueError("advisory-lock ACL entry has an unexpected shape")
+                grantor_oid = entry["grantor_oid"]
+                grantee_oid = entry["grantee_oid"]
+                grantor = entry["grantor"]
+                grantee = entry["grantee"]
+                privilege = entry["privilege_type"]
+                grantable = entry["is_grantable"]
+                if (
+                    type(grantor_oid) is not int
+                    or grantor_oid <= 0
+                    or type(grantee_oid) is not int
+                    or grantee_oid < 0
+                    or not isinstance(grantor, str)
+                    or not grantor
+                    or not isinstance(grantee, str)
+                    or not grantee
+                    or privilege != "EXECUTE"
+                    or type(grantable) is not bool
+                ):
+                    raise ValueError("advisory-lock ACL entry is incomplete")
+                entry_key = (
+                    grantor_oid,
+                    grantor,
+                    grantee_oid,
+                    grantee,
+                    privilege,
+                    grantable,
+                )
+                if entry_key in seen_entries:
+                    raise ValueError("duplicate advisory-lock ACL entry")
+                seen_entries.add(entry_key)
+
+                if grantee_oid == 0:
+                    if grantee != "PUBLIC":
+                        raise ValueError("PUBLIC ACL identity is inconsistent")
+                    public_entries += 1
+                    raise ValueError("PUBLIC has advisory-lock execution")
+                if grantor_oid != owner_oid or grantor != owner_name:
+                    raise ValueError("advisory-lock grantor is not the function owner")
+                if grantee_oid == owner_oid:
+                    if grantee != owner_name or not grantable:
+                        raise ValueError("function-owner ACL metadata is inconsistent")
+                    owner_entries += 1
+                    if owner_entries > 1:
+                        raise ValueError("duplicate function-owner ACL entry")
+                    continue
+                if (
+                    grantee_oid != current_user_oid
+                    or grantee != current_user_name
+                    or grantable
+                    or normalized not in allowed
+                ):
+                    raise ValueError("unexpected advisory-lock grant")
+                current_user_entries += 1
+
+            if (
+                current_user_entries > 1
+                or direct_execute != bool(current_user_entries)
+                or public_execute != bool(public_entries)
+            ):
+                raise ValueError("advisory-lock ACL flags disagree with entries")
+            actual[normalized] = (
+                effective_execute,
+                direct_execute,
+                public_execute,
+                current_user_entries,
+            )
     except (TypeError, ValueError):
         raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe") from None
     if (
@@ -1581,7 +1744,8 @@ def _validate_advisory_lock_privilege_catalog(rows, *, role_profile: str) -> Non
             effective != (signature in allowed)
             or direct != (signature in allowed)
             or public
-            for signature, (effective, direct, public) in actual.items()
+            or direct_count != int(signature in allowed)
+            for signature, (effective, direct, public, direct_count) in actual.items()
         )
     ):
         raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe")
