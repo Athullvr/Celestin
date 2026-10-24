@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T15:58:20+05:30 — Compare hosted isolation architectures
+
+- Changed: Added `docs/hosted-isolation-architecture-decision-matrix.md`, comparing scope-mapped advisory wrappers, database-mediated authorization, row locks, per-project databases, and a provider change against shared threats and operational dimensions.
+- Why: Make the architecture choice, revocation/timeout policy, provider evidence, and separate approval gates reviewable without selecting or implementing an unapproved security design.
+- Validation: Current source and supporting design documents inspected; all six relative Markdown links resolve, new-document trailing-whitespace check is clean, and `git diff --check` plus `git diff --cached --check` pass. No tests or database operations run.
+- Limitations: Architecture remains blocked pending product/security and storage-owner decisions and provider capability evidence. No live PostgreSQL/Neon behavior is verified; hosted mode remains disabled.
+
 ## 2026-10-24T13:33:03+05:30 — Specify hosted authorization and revocation protocol
 
 - Changed: Added `docs/hosted-authorization-protocol.md` documenting verified application/database identity boundaries, request/revocation transaction sequences, coordination alternatives, advisory-lock operations, offline-readiness limits, and open approval/provider gates. Cross-linked the audit from the lock-isolation decision, added transaction-isolation semantics to LI-06, and added live acceptance case T-19.
