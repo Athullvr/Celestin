@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T16:26:35+05:30 — Harden retrieval provenance diagnostics and regressions
+
+- Changed: Made stale-vector diagnostics refer to missing authoritative project-scoped records rather than SQLite specifically. Added deterministic tests for adversarial/stale semantic metadata, foreign and missing message rows, hybrid deduplication, and foreign-project evidence references.
+- Why: The retrieval service is storage-port based, and search metadata must come from scoped persisted records; diagnostics should not misstate the backing store.
+- Validation: Focused retrieval tests: 48 passed, 1 skipped (`sqlite_vec` unavailable). Relevant retrieval, database/SQLite, MCP, authorization, end-to-end stdio, and request-UoW suites: 277 passed, 6 skipped (`pageindex` and `sqlite_vec` unavailable). Compilation and Git diff checks passed.
+- Limitations: PostgreSQL adapter tests are fake-backed; no live PostgreSQL/Neon, database, or migration behavior was checked. Indexed semantic vectors can still be stale for ranking until the existing index synchronization runs, but persisted result metadata remains authoritative.
+
 ## 2026-10-24T16:12:51+05:30 — Preserve speaker role in memory retrieval
 
 - Changed: Retrieval now rehydrates search hits from authoritative project-scoped message rows and returns the persisted speaker role through the existing nullable `role` result field. Updated retrieval contract documentation and added SQLite, scripted PostgreSQL/UoW, semantic-only, MCP, and stdio regression coverage.

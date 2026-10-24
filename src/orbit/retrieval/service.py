@@ -278,8 +278,8 @@ class RetrievalService:
         if count:
             self.last_retrieval = RetrievalInfo(
                 "hybrid",
-                (f"ignored {count} vector hit(s) with no matching SQLite record; "
-                 "run: celestin-index sync",),
+                (f"ignored {count} vector hit(s) with no matching authoritative project-scoped record; "
+                 "check semantic-index synchronization",),
             )
 
     def _fuse_messages(
@@ -677,8 +677,8 @@ class RetrievalService:
             if sem.status == "ok":
                 mode = "hybrid"
                 if sem.stale:
-                    warnings.append(f"ignored {sem.stale} vector hit(s) with no matching SQLite record; "
-                                    "run: celestin-index sync")
+                    warnings.append(f"ignored {sem.stale} vector hit(s) with no matching authoritative project-scoped record; "
+                                    "check semantic-index synchronization")
             else:
                 mode = "fts_fallback"
                 warnings.append(f"semantic search unavailable: {sem.detail}")

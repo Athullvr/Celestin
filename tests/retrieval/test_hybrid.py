@@ -69,6 +69,8 @@ def test_semantic_only_match_uses_different_wording(env):
     query = "why avoid hosted infrastructure"  # no shared FTS terms with the message
     assert env.service(semantic=False).search_chat_history("p", query) == []
     results = env.service().search_chat_history("p", query)
+    assert ids(results)[0] == str(target)
+    assert results[0].role == "user"
     assert ids(results) == [str(target)]
     assert results[0].project_id == "p" and results[0].source_id == "conv"
 
@@ -111,7 +113,7 @@ def test_stale_vector_hit_for_a_row_moved_to_another_project_is_discarded(env):
     env.conn.execute("UPDATE chat_messages SET project = 'other' WHERE id = ?", (moved,))  # index now stale
     service = env.service()
     assert service.search_chat_history("p", "hosted infrastructure") == []
-    assert any("no matching SQLite record" in w for w in service.last_retrieval.warnings)
+    assert any("no matching authoritative project-scoped record" in w for w in service.last_retrieval.warnings)
     assert all(i.project_id == "p" for i in service.retrieve_context("p", "hosted infrastructure", 2000).items)
 
 
