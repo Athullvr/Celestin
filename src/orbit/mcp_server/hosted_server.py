@@ -86,7 +86,13 @@ AUTHORIZATION_TABLES = (
     "celestin_service_project_grants",
 )
 AUTHORIZATION_READER_ROLE = "celestin_authorization_reader"
+AUTHORIZATION_ADMIN_ROLE = "celestin_authorization_admin"
 PROJECT_RUNTIME_ROLE = "celestin_project_runtime"
+PRIVILEGED_GROUP_ROLES = (
+    PROJECT_RUNTIME_ROLE,
+    AUTHORIZATION_READER_ROLE,
+    AUTHORIZATION_ADMIN_ROLE,
+)
 _PROJECT_DSN_ENV_NAME = re.compile(r"^CELESTIN_PROJECT_POSTGRES_DSN_[A-Z0-9_]{1,96}$")
 _MAX_CONFIGURED_PROJECT_POOLS = 32
 _PROJECT_SCOPE_EXPRESSION = (
@@ -150,6 +156,65 @@ BEGIN
     END LOOP;
 END;
 """
+
+_ADMIN_AUTHORIZATION_WRITE_FUNCTION_BODIES = {
+    "celestin_lock_authorization_write(uuid,text,text,text)": """
+DECLARE
+    lock_key TEXT;
+BEGIN
+    FOR lock_key IN
+        SELECT DISTINCT key_value
+          FROM (
+              SELECT pg_catalog.jsonb_build_array('workspace', target_workspace)::text AS key_value
+              UNION ALL
+              SELECT pg_catalog.jsonb_build_array(
+                  'principal', principal_kind, principal_issuer, principal_subject
+              )::text
+               WHERE principal_kind IS NOT NULL
+          ) AS keys
+         ORDER BY key_value
+    LOOP
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('celestin-auth-v1:' || lock_key, 0)
+        );
+    END LOOP;
+END;
+""",
+    "celestin_lock_workspace_authorization_write(uuid)": """
+    SELECT pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+            'celestin-auth-v1:' || pg_catalog.jsonb_build_array('workspace', target_workspace)::text,
+            0
+        )
+    )
+""",
+    "celestin_lock_principal_authorization_write(text,text,text)": """
+    SELECT pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+            'celestin-auth-v1:' || pg_catalog.jsonb_build_array(
+                'principal', principal_kind, principal_issuer, principal_subject
+            )::text,
+            0
+        )
+    )
+""",
+    "celestin_lock_principal_transition_write(text,text,text,text)": """
+DECLARE
+    lock_key TEXT;
+BEGIN
+    FOR lock_key IN
+        SELECT DISTINCT pg_catalog.jsonb_build_array('principal', 'human', issuer, subject)::text
+          FROM (VALUES (old_issuer, old_subject), (new_issuer, new_subject)) AS ids(issuer, subject)
+         WHERE issuer IS NOT NULL AND subject IS NOT NULL
+         ORDER BY 1
+    LOOP
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended('celestin-auth-v1:' || lock_key, 0)
+        );
+    END LOOP;
+END;
+""",
+}
 
 # Request pools must not acquire arbitrary PostgreSQL advisory locks directly.
 # The lock wrappers must be SECURITY DEFINER in a reviewed forward migration;
@@ -299,11 +364,11 @@ def _trigger_specs():
 def _trigger_function_specs():
     return {
         "celestin_lock_workspace_auth_row": (
-            ("search_path=pg_catalog, public",),
+            ("search_path=pg_catalog, pg_temp",),
             _WORKSPACE_AUTH_TRIGGER_FUNCTION_BODY,
         ),
         "celestin_lock_human_identity_auth_row": (
-            ("search_path=pg_catalog, public",),
+            ("search_path=pg_catalog, pg_temp",),
             _HUMAN_AUTH_TRIGGER_FUNCTION_BODY,
         ),
     }
@@ -1240,35 +1305,55 @@ def _assert_expected_policy_catalog(pool, timeout: float) -> None:
     _validate_policy_catalog(rows)
 
 
-def _function_specs(project_runtime: bool):
+def _function_specs(project_runtime: bool, *, authorization_admin: bool = False):
+    if project_runtime and authorization_admin:
+        raise ValueError("a PostgreSQL function profile cannot be both project and admin")
+    if authorization_admin:
+        return {
+            signature: (
+                "sql" if signature in {
+                    "celestin_lock_workspace_authorization_write(uuid)",
+                    "celestin_lock_principal_authorization_write(text,text,text)",
+                } else "plpgsql",
+                "v",
+                True,
+                ("search_path=pg_catalog, pg_temp",),
+                body,
+            )
+            for signature, body in _ADMIN_AUTHORIZATION_WRITE_FUNCTION_BODIES.items()
+        }
     if project_runtime:
         return {
             "celestin_request_scope_matches(uuid,uuid)": (
                 "sql", "s", False,
-                ("search_path=pg_catalog, celestin_private",),
+                ("search_path=pg_catalog, pg_temp",),
                 _PROJECT_SCOPE_FUNCTION_BODY,
             ),
             "celestin_request_workspace_matches(uuid)": (
                 "sql", "s", False,
-                ("search_path=pg_catalog, celestin_private",),
+                ("search_path=pg_catalog, pg_temp",),
                 _PROJECT_WORKSPACE_FUNCTION_BODY,
             ),
             "celestin_lock_project_authorization_request(uuid)": (
                 "plpgsql", "v", True,
-                ("search_path=pg_catalog, celestin_private",),
+                ("search_path=pg_catalog, pg_temp",),
                 _PROJECT_LOCK_FUNCTION_BODY,
             ),
         }
     return {
         "celestin_lock_authorization_request(uuid,text,text,text)": (
-            "plpgsql", "v", True, ("search_path=pg_catalog",),
+            "plpgsql", "v", True, ("search_path=pg_catalog, pg_temp",),
             _READER_LOCK_FUNCTION_BODY,
         ),
     }
 
 
-def _validate_function_catalog(rows, *, project_runtime: bool) -> None:
-    expected = _function_specs(project_runtime)
+def _validate_function_catalog(
+    rows, *, project_runtime: bool, authorization_admin: bool = False
+) -> None:
+    expected = _function_specs(
+        project_runtime, authorization_admin=authorization_admin
+    )
     actual = {}
     try:
         for row in rows:
@@ -1279,16 +1364,21 @@ def _validate_function_catalog(rows, *, project_runtime: bool) -> None:
                 security_definer, config, source, public_execute, current_execute,
                 unexpected_execute_grants,
             ) = row
+            if any(
+                type(row[index]) is not bool
+                for index in (2, 3, 4, 5, 6, 7, 8, 11, 14, 15, 16)
+            ):
+                raise ValueError("authorization function catalog omitted a boolean property")
             signature = _canonical_sql_expression(str(signature))
             if signature in actual:
                 raise ValueError("duplicate function signature")
             actual[signature] = (
-                str(owner), bool(owner_is_database_owner), bool(owner_superuser), bool(owner_bypassrls),
-                bool(owner_createrole), bool(owner_createdb), bool(owner_replication),
-                bool(owner_has_no_other_memberships), str(language),
-                str(volatility), bool(security_definer), tuple(config or ()),
-                _canonical_sql_expression(str(source)), bool(public_execute),
-                bool(current_execute), bool(unexpected_execute_grants),
+                str(owner), owner_is_database_owner, owner_superuser, owner_bypassrls,
+                owner_createrole, owner_createdb, owner_replication,
+                owner_has_no_other_memberships, str(language),
+                str(volatility), security_definer, tuple(config or ()),
+                _canonical_sql_expression(str(source)), public_execute,
+                current_execute, unexpected_execute_grants,
             )
     except (TypeError, ValueError):
         raise RuntimeError("PostgreSQL authorization helper definition is unsafe") from None
@@ -1308,7 +1398,7 @@ def _validate_function_catalog(rows, *, project_runtime: bool) -> None:
             not owner_is_database_owner
             or superuser or bypassrls or createrole or createdb or replication
             or not no_other_memberships
-            or owner in {AUTHORIZATION_READER_ROLE, PROJECT_RUNTIME_ROLE, "celestin_authorization_admin"}
+            or owner in {AUTHORIZATION_READER_ROLE, PROJECT_RUNTIME_ROLE, AUTHORIZATION_ADMIN_ROLE}
             or language != expected_language
             or volatility != expected_volatility
             or secdef != expected_secdef
@@ -1323,12 +1413,20 @@ def _validate_function_catalog(rows, *, project_runtime: bool) -> None:
         raise RuntimeError("PostgreSQL authorization helper ownership is inconsistent")
 
 
-def _function_catalog_query(project_runtime: bool) -> tuple[str, tuple[str, ...]]:
-    signatures = tuple(_function_specs(project_runtime))
+def _function_catalog_query(
+    project_runtime: bool, *, authorization_admin: bool = False
+) -> tuple[str, tuple[str, ...]]:
+    signatures = tuple(
+        _function_specs(project_runtime, authorization_admin=authorization_admin)
+    )
     regprocedures = tuple(
         "public." + signature for signature in signatures
     )
-    expected_execute_role = PROJECT_RUNTIME_ROLE if project_runtime else AUTHORIZATION_READER_ROLE
+    expected_execute_role = (
+        AUTHORIZATION_ADMIN_ROLE if authorization_admin
+        else PROJECT_RUNTIME_ROLE if project_runtime
+        else AUTHORIZATION_READER_ROLE
+    )
     placeholders = ", ".join("pg_catalog.to_regprocedure(%s)" for _ in signatures)
     query = """
         SELECT procedure.oid::regprocedure::text,
@@ -1382,8 +1480,12 @@ def _function_catalog_query(project_runtime: bool) -> tuple[str, tuple[str, ...]
     return query, (expected_execute_role, *regprocedures)
 
 
-def _assert_authorization_function_catalog(pool, timeout: float, *, project_runtime: bool) -> None:
-    query, signatures = _function_catalog_query(project_runtime)
+def _assert_authorization_function_catalog(
+    pool, timeout: float, *, project_runtime: bool, authorization_admin: bool = False
+) -> None:
+    query, signatures = _function_catalog_query(
+        project_runtime, authorization_admin=authorization_admin
+    )
     cursor = None
     try:
         with pool.connection(timeout=timeout) as connection:
@@ -1397,16 +1499,41 @@ def _assert_authorization_function_catalog(pool, timeout: float, *, project_runt
                 cursor.close()
             except Exception:
                 raise RuntimeError("PostgreSQL authorization helper cursor could not be closed") from None
-    _validate_function_catalog(rows, project_runtime=project_runtime)
+    _validate_function_catalog(
+        rows,
+        project_runtime=project_runtime,
+        authorization_admin=authorization_admin,
+    )
 
 
 def _advisory_lock_privilege_query() -> str:
-    """Return every pg_catalog advisory lock/unlock overload and its effective ACL."""
+    """Return effective and direct/PUBLIC ACL state for all advisory overloads."""
     return """
         SELECT procedure.oid::regprocedure::text,
                pg_catalog.has_function_privilege(
                    current_user, procedure.oid, 'EXECUTE'
-               ) AS current_role_execute
+                ) AS effective_execute,
+               EXISTS (
+                   SELECT 1
+                     FROM pg_catalog.aclexplode(
+                         COALESCE(procedure.proacl,
+                                  pg_catalog.acldefault('f', procedure.proowner))
+                     ) AS acl
+                    WHERE acl.grantee = (
+                        SELECT role.oid FROM pg_catalog.pg_roles AS role
+                         WHERE role.rolname = current_user
+                    )
+                      AND acl.privilege_type = 'EXECUTE'
+               ) AS direct_execute,
+               EXISTS (
+                   SELECT 1
+                     FROM pg_catalog.aclexplode(
+                         COALESCE(procedure.proacl,
+                                  pg_catalog.acldefault('f', procedure.proowner))
+                     ) AS acl
+                    WHERE acl.grantee = 0
+                      AND acl.privilege_type = 'EXECUTE'
+               ) AS public_execute
           FROM pg_catalog.pg_proc AS procedure
           JOIN pg_catalog.pg_namespace AS namespace
             ON namespace.oid = procedure.pronamespace
@@ -1438,16 +1565,24 @@ def _validate_advisory_lock_privilege_catalog(rows, *, role_profile: str) -> Non
         raise RuntimeError("PostgreSQL advisory-lock role profile is unknown")
     actual = {}
     try:
-        for signature, can_execute in rows:
+        for row in rows:
+            if len(row) != 4 or any(type(value) is not bool for value in row[1:]):
+                raise ValueError("advisory-lock catalog omitted a privilege property")
+            signature, effective_execute, direct_execute, public_execute = row
             normalized = _normalize_function_signature(str(signature))
             if not normalized or normalized in actual:
                 raise ValueError("duplicate advisory function")
-            actual[normalized] = bool(can_execute)
+            actual[normalized] = (effective_execute, direct_execute, public_execute)
     except (TypeError, ValueError):
         raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe") from None
     if (
         set(actual) != _ADVISORY_LOCK_SIGNATURES
-        or any(can_execute != (signature in allowed) for signature, can_execute in actual.items())
+        or any(
+            effective != (signature in allowed)
+            or direct != (signature in allowed)
+            or public
+            for signature, (effective, direct, public) in actual.items()
+        )
     ):
         raise RuntimeError("PostgreSQL advisory-lock privileges are unsafe")
 
@@ -1887,6 +2022,151 @@ def _assert_safe_authorization_reader(pool, timeout: float) -> None:
         pool, timeout, role_profile="authorization_reader"
     )
     _assert_authorization_function_catalog(pool, timeout, project_runtime=False)
+
+
+def _assert_safe_authorization_admin(pool, timeout: float) -> None:
+    """Require the provisioner login to use only the reviewed admin lock wrappers."""
+    query = """
+        /* authorization_admin_role_readiness */
+        SELECT role.rolsuper, role.rolbypassrls,
+               role.rolcreaterole, role.rolcreatedb, role.rolreplication,
+               role.rolcanlogin, role.rolinherit,
+               current_user = session_user AS exact_login,
+               pg_catalog.pg_has_role(current_user, %s, 'MEMBER') AS has_admin_group,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_roles AS inherited
+                    WHERE inherited.rolname <> current_user
+                      AND inherited.rolname NOT IN (%s, 'pg_database_owner')
+                      AND pg_catalog.pg_has_role(current_user, inherited.oid, 'MEMBER')
+               ) AS no_other_role_memberships,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                    WHERE membership.member = role.oid AND membership.admin_option
+               ) AS no_membership_admin_option,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_class AS relation
+                    WHERE relation.relowner = role.oid
+                      AND relation.relname = ANY(%s::text[])
+               ) AS owns_no_celestin_table,
+               NOT has_schema_privilege(current_user, 'public', 'CREATE')
+                   AS cannot_create_public_objects,
+               NOT has_schema_privilege(current_user, 'celestin_private', 'CREATE')
+                   AS cannot_create_private_objects
+          FROM pg_catalog.pg_roles AS role
+         WHERE role.rolname = current_user
+    """
+    row = _run_pool_probe(
+        pool,
+        timeout,
+        query,
+        (
+            AUTHORIZATION_ADMIN_ROLE,
+            AUTHORIZATION_ADMIN_ROLE,
+            list(PROTECTED_TABLES + AUTHORIZATION_TABLES + ("project_runtime_scopes",)),
+        ),
+    )
+    if (
+        row is None
+        or len(row) != 14
+        or any(type(value) is not bool for value in row)
+        or any(row[:5])
+        or not all(row[5:])
+    ):
+        raise RuntimeError(
+            "PostgreSQL authorization-admin role violates its least-privilege requirements"
+        )
+    _assert_advisory_lock_privileges(
+        pool, timeout, role_profile="authorization_admin"
+    )
+    _assert_authorization_function_catalog(
+        pool, timeout, project_runtime=False, authorization_admin=True
+    )
+
+
+def _privileged_role_membership_query() -> str:
+    """Return protected group-role settings and every direct member."""
+    return """
+        SELECT group_role.rolname,
+               group_role.rolcanlogin, group_role.rolsuper,
+               group_role.rolbypassrls, group_role.rolcreaterole,
+               group_role.rolcreatedb, group_role.rolreplication,
+               group_role.rolinherit,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_auth_members AS parent_membership
+                    WHERE parent_membership.member = group_role.oid
+               ) AS group_has_no_parent_membership,
+               member.rolname,
+               membership.admin_option,
+               member.rolcanlogin, member.rolsuper, member.rolbypassrls,
+               member.rolcreaterole, member.rolcreatedb,
+               member.rolreplication, member.rolinherit
+          FROM pg_catalog.pg_roles AS group_role
+          LEFT JOIN pg_catalog.pg_auth_members AS membership
+            ON membership.roleid = group_role.oid
+          LEFT JOIN pg_catalog.pg_roles AS member
+            ON member.oid = membership.member
+         WHERE group_role.rolname = ANY(%s::text[])
+         ORDER BY group_role.rolname, member.rolname
+    """
+
+
+def _validate_privileged_role_membership_catalog(rows, *, expected_members) -> None:
+    """Require safe NOLOGIN groups and the explicitly approved direct roster."""
+    expected_groups = set(PRIVILEGED_GROUP_ROLES)
+    try:
+        materialized = [tuple(row) for row in rows]
+        if len(materialized) != len(set(materialized)):
+            raise ValueError("duplicate role catalog row")
+        group_rows = {}
+        actual_members = set()
+        for row in materialized:
+            if len(row) != 18:
+                raise ValueError("unexpected role catalog row shape")
+            (
+                group_name, group_can_login, group_superuser, group_bypassrls,
+                group_createrole, group_createdb, group_replication, group_inherit,
+                group_has_no_parent, member_name, admin_option,
+                member_can_login, member_superuser, member_bypassrls,
+                member_createrole, member_createdb, member_replication,
+                member_inherit,
+            ) = row
+            if any(type(row[index]) is not bool for index in range(1, 9)):
+                raise ValueError("privileged group catalog omitted a boolean property")
+            if group_name not in expected_groups:
+                raise ValueError("unknown privileged group role")
+            group_profile = (
+                group_can_login, group_superuser, group_bypassrls,
+                group_createrole, group_createdb, group_replication,
+                group_inherit, group_has_no_parent,
+            )
+            if group_profile != (False, False, False, False, False, False, True, True):
+                raise ValueError("unsafe privileged group role")
+            previous = group_rows.setdefault(group_name, group_profile)
+            if previous != group_profile:
+                raise ValueError("inconsistent privileged group role")
+            if member_name is None:
+                if any(value is not None for value in row[10:]):
+                    raise ValueError("malformed empty role roster row")
+                continue
+            if any(type(row[index]) is not bool for index in range(10, 18)):
+                raise ValueError("privileged member catalog omitted a boolean property")
+            member_profile = (
+                member_can_login, member_superuser, member_bypassrls,
+                member_createrole, member_createdb, member_replication,
+                member_inherit,
+            )
+            if admin_option is not False or member_profile != (
+                True, False, False, False, False, False, True
+            ):
+                raise ValueError("unsafe privileged role member")
+            actual_members.add((group_name, member_name))
+    except (TypeError, ValueError):
+        raise RuntimeError("PostgreSQL privileged role membership catalog is unsafe") from None
+    if (
+        set(group_rows) != expected_groups
+        or actual_members != set(expected_members)
+    ):
+        raise RuntimeError("PostgreSQL privileged role membership catalog is unsafe")
 
 
 def _assert_safe_project_runtime(

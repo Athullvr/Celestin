@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T08:53:10+05:30 — Complete advisory-lock source readiness profiles
+
+- Changed: Added authorization-admin catalog validation for the four authorization-write wrappers, separate effective/direct/PUBLIC advisory-function ACL checks, exact privileged NOLOGIN group-roster validation, and fail-closed handling for missing catalog booleans. Added adversarial offline tests.
+- Why: Restricted Celestin wrapper grants do not remove PostgreSQL's default `PUBLIC EXECUTE` on advisory built-ins, and readiness must validate the admin helper profile before a future deployment relies on it.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 433 passed. `python -m py_compile src/orbit/mcp_server/hosted_server.py tests/test_hosted_server.py` and `git diff --check` passed.
+- Limitations: Tests use fakes. No PostgreSQL catalog was inspected, no migration or ACL change was applied, and the tenant-isolation gate remains open.
+
 ## 2026-10-24T08:36:08+05:30 — Expand guarded tenant-isolation acceptance cases
 
 - Changed: Expanded the opt-in PostgreSQL suite with role ACL profiles, direct lock attempts, policy/trigger catalog checks across all protected tables, both exposed content tables, additional revocation races, cancellation cleanup, and pool session-reset coverage. Documented the forward-only ACL/wrapper prerequisite, including that migration 0008's authorization-write helpers remain invoker-security and are not independently readiness-validated.

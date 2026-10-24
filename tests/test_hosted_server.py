@@ -23,6 +23,7 @@ from orbit.mcp_server.hosted_server import (
     WorkspaceContextMiddleware,
     _access_token,
     _assert_safe_authorization_reader,
+    _assert_safe_authorization_admin,
     _assert_safe_project_runtime,
     _workspace_selector,
     create_hosted_mcp_app,
@@ -43,6 +44,9 @@ from orbit.mcp_server.hosted_server import (
     _assert_expected_trigger_catalog,
     _validate_function_catalog,
     _validate_policy_catalog,
+    _validate_privileged_role_membership_catalog,
+    PRIVILEGED_GROUP_ROLES,
+    AUTHORIZATION_ADMIN_ROLE,
 )
 from orbit.mcp_server.hosted_scope import (
     HostedAuthorizationUnavailable,
@@ -61,6 +65,7 @@ PROJECT_SCOPE = (
 GOOD_CONTROL_ROLE_ROW = (
     (False,) * 5 + (True,) * 5 + (False,) + (True,) * 10
 )
+GOOD_AUTHORIZATION_ADMIN_ROLE_ROW = (False,) * 5 + (True,) * 9
 GOOD_PROJECT_ROLE_ROW = (
     (False,) * 5 + (True,) * 6 + (False,) + (True,) * 26
 )
@@ -79,9 +84,11 @@ def expected_policy_rows():
     return rows
 
 
-def expected_function_rows(*, project_runtime):
+def expected_function_rows(*, project_runtime, authorization_admin=False):
     rows = []
-    for signature, (language, volatility, security_definer, config, source) in _function_specs(project_runtime).items():
+    for signature, (language, volatility, security_definer, config, source) in _function_specs(
+        project_runtime, authorization_admin=authorization_admin
+    ).items():
         rows.append((
             signature, "celestin_migration_owner", True,
             False, False, False, False, False, True, language, volatility,
@@ -110,7 +117,23 @@ _ADVISORY_SIGNATURES = tuple(sorted(_ADVISORY_LOCK_SIGNATURES))
 
 def expected_advisory_rows(role_profile):
     allowed = _ADVISORY_LOCK_ALLOWED_SIGNATURES[role_profile]
-    return [(signature, signature in allowed) for signature in _ADVISORY_SIGNATURES]
+    return [
+        (signature, signature in allowed, signature in allowed, False)
+        for signature in _ADVISORY_SIGNATURES
+    ]
+
+
+def expected_privileged_role_membership_rows(expected_members):
+    rows = []
+    for group in PRIVILEGED_GROUP_ROLES:
+        members = sorted(member for role, member in expected_members if role == group)
+        if not members:
+            rows.append((group, False, False, False, False, False, False, True, True,
+                         None, None, None, None, None, None, None, None, None))
+        for member in members:
+            rows.append((group, False, False, False, False, False, False, True, True,
+                         member, False, True, False, False, False, False, False, True))
+    return rows
 
 
 class FakePool:
@@ -123,17 +146,31 @@ class FakePool:
         function_rows=None,
         trigger_rows=None,
         advisory_rows=None,
+        authorization_admin=False,
+        authorization_admin_role_row=None,
     ):
         self.row = row
+        self.authorization_admin = authorization_admin
+        self.authorization_admin_role_row = (
+            GOOD_AUTHORIZATION_ADMIN_ROLE_ROW
+            if authorization_admin_role_row is None else authorization_admin_role_row
+        )
         self.project_runtime = (
-            row == GOOD_PROJECT_ROLE_ROW if project_runtime is None else project_runtime
+            (row == GOOD_PROJECT_ROLE_ROW and not authorization_admin)
+            if project_runtime is None else project_runtime
         )
         self.policy_rows = expected_policy_rows() if policy_rows is None else policy_rows
         self.function_rows = (
-            expected_function_rows(project_runtime=self.project_runtime)
+            expected_function_rows(
+                project_runtime=self.project_runtime,
+                authorization_admin=authorization_admin,
+            )
             if function_rows is None else function_rows
         )
-        profile = "project_runtime" if self.project_runtime else "authorization_reader"
+        profile = (
+            "authorization_admin" if authorization_admin else
+            "project_runtime" if self.project_runtime else "authorization_reader"
+        )
         self.trigger_rows = (
             expected_trigger_rows() if trigger_rows is None else trigger_rows
         )
@@ -171,6 +208,8 @@ class FakePool:
                     raise AssertionError("probe placeholder count does not match bound parameters")
                 if "pg_catalog.pg_trigger AS catalog_trigger" in query:
                     return Cursor(rows=pool.trigger_rows)
+                if "authorization_admin_role_readiness" in query:
+                    return Cursor(row=pool.authorization_admin_role_row)
                 if "left(procedure.proname, 12) = 'pg_advisory_'" in query:
                     return Cursor(rows=pool.advisory_rows)
                 if "pg_catalog.pg_policy AS policy" in query:
@@ -372,6 +411,88 @@ def test_authorization_reader_role_has_no_tenant_content_access():
     assert "pg_catalog.pg_proc" in pool.queries[2][0]
 
 
+@pytest.mark.parametrize("index", range(len(GOOD_AUTHORIZATION_ADMIN_ROLE_ROW)))
+def test_runtime_refuses_unsafe_authorization_admin_role(index):
+    row = list(GOOD_AUTHORIZATION_ADMIN_ROLE_ROW)
+    row[index] = not row[index]
+    with pytest.raises(RuntimeError, match="authorization-admin"):
+        _assert_safe_authorization_admin(
+            FakePool(authorization_admin=True, authorization_admin_role_row=row),
+            timeout=1,
+        )
+
+
+def test_authorization_admin_probe_checks_role_locks_and_all_write_helpers():
+    pool = FakePool(authorization_admin=True)
+    _assert_safe_authorization_admin(pool, timeout=1)
+    assert len(pool.queries) == 3
+    assert "authorization_admin_role_readiness" in pool.queries[0][0]
+    assert "has_function_privilege" in pool.queries[1][0]
+    assert pool.queries[2][1][0] == AUTHORIZATION_ADMIN_ROLE
+    assert tuple(pool.queries[2][1][1:]) == tuple(
+        "public." + signature
+        for signature in _function_specs(False, authorization_admin=True)
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_helper",
+        "wrong_body",
+        "wrong_owner",
+        "owner_superuser",
+        "owner_role_membership",
+        "wrong_language",
+        "wrong_volatility",
+        "invoker_security",
+        "unsafe_search_path",
+        "public_execute",
+        "not_executable_by_admin",
+        "unexpected_execute_grant",
+        "missing_boolean_metadata",
+    ],
+)
+def test_authorization_admin_function_catalog_fails_closed(mutation):
+    rows = expected_function_rows(project_runtime=False, authorization_admin=True)
+    index = 0
+    changed = list(rows[index])
+    if mutation == "missing_helper":
+        rows.pop(index)
+    elif mutation == "wrong_body":
+        changed[13] += " -- changed"
+    elif mutation == "wrong_owner":
+        changed[1] = "celestin_authorization_admin_login"
+        changed[2] = False
+    elif mutation == "owner_superuser":
+        changed[3] = True
+    elif mutation == "owner_role_membership":
+        changed[8] = False
+    elif mutation == "wrong_language":
+        changed[9] = "sql"
+    elif mutation == "wrong_volatility":
+        changed[10] = "s"
+    elif mutation == "invoker_security":
+        changed[11] = False
+    elif mutation == "unsafe_search_path":
+        changed[12] = ("search_path=public",)
+    elif mutation == "public_execute":
+        changed[14] = True
+    elif mutation == "not_executable_by_admin":
+        changed[15] = False
+    elif mutation == "unexpected_execute_grant":
+        changed[16] = True
+    elif mutation == "missing_boolean_metadata":
+        changed[3] = None
+    if mutation != "missing_helper":
+        rows[index] = tuple(changed)
+
+    with pytest.raises(RuntimeError, match="authorization helper"):
+        _validate_function_catalog(
+            rows, project_runtime=False, authorization_admin=True
+        )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -491,12 +612,15 @@ def test_advisory_lock_privilege_profiles_allow_only_required_locks(role_profile
 
 @pytest.mark.parametrize("role_profile", tuple(_ADVISORY_LOCK_ALLOWED_SIGNATURES))
 @pytest.mark.parametrize("signature", _ADVISORY_SIGNATURES)
+@pytest.mark.parametrize("field_index", (1, 2, 3))
 def test_advisory_lock_privilege_profiles_reject_unexpected_effective_access(
-    role_profile, signature
+    role_profile, signature, field_index
 ):
     rows = expected_advisory_rows(role_profile)
     index = _ADVISORY_SIGNATURES.index(signature)
-    rows[index] = (signature, not rows[index][1])
+    changed = list(rows[index])
+    changed[field_index] = not changed[field_index]
+    rows[index] = tuple(changed)
     with pytest.raises(RuntimeError, match="advisory-lock privileges"):
         _validate_advisory_lock_privilege_catalog(rows, role_profile=role_profile)
 
@@ -519,11 +643,26 @@ def test_advisory_lock_catalog_rejects_missing_core_functions_duplicate_rows_and
         )
     with pytest.raises(RuntimeError, match="advisory-lock privileges"):
         _validate_advisory_lock_privilege_catalog(
-            rows + [("pg_advisory_unreviewed(bigint)", False)],
+            rows + [("pg_advisory_unreviewed(bigint)", False, False, False)],
             role_profile="project_runtime",
         )
     with pytest.raises(RuntimeError, match="role profile"):
         _validate_advisory_lock_privilege_catalog(rows, role_profile="unknown")
+
+
+@pytest.mark.parametrize(
+    "bad_row",
+    [
+        ("pg_advisory_lock(bigint)", None, False, False),
+        ("pg_advisory_lock(bigint)", False, False, None),
+        ("pg_advisory_lock(bigint)", False, False),
+    ],
+)
+def test_advisory_lock_catalog_rejects_missing_or_inconsistent_acl_metadata(bad_row):
+    rows = expected_advisory_rows("project_runtime")
+    rows[0] = bad_row
+    with pytest.raises(RuntimeError, match="advisory-lock privileges"):
+        _validate_advisory_lock_privilege_catalog(rows, role_profile="project_runtime")
 
 
 def test_advisory_lock_readiness_query_checks_effective_catalog_privileges():
@@ -532,6 +671,88 @@ def test_advisory_lock_readiness_query_checks_effective_catalog_privileges():
     assert "namespace.nspname = 'pg_catalog'" in query
     assert "pg_catalog.left(procedure.proname, 12) = 'pg_advisory_'" in query
     assert "has_function_privilege" in query
+    assert "pg_catalog.aclexplode" in query
+    assert "pg_catalog.acldefault" in query
+    assert "direct_execute" in query
+    assert "public_execute" in query
+
+
+def test_privileged_role_membership_catalog_accepts_exact_no_login_group_roster():
+    expected = {
+        ("celestin_project_runtime", "celestin_it_project_a_1234abcd"),
+        ("celestin_project_runtime", "celestin_it_project_b_1234abcd"),
+        ("celestin_authorization_reader", "celestin_it_reader_1234abcd"),
+        ("celestin_authorization_admin", "celestin_it_admin_1234abcd"),
+    }
+    _validate_privileged_role_membership_catalog(
+        expected_privileged_role_membership_rows(expected),
+        expected_members=expected,
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_group",
+        "unexpected_group",
+        "missing_member",
+        "unexpected_member",
+        "group_login",
+        "group_bypassrls",
+        "group_admin_option",
+        "member_not_login",
+        "member_superuser",
+        "member_bypassrls",
+        "member_admin_option",
+        "member_missing_metadata",
+        "duplicate_row",
+        "malformed_row",
+    ],
+)
+def test_privileged_role_membership_catalog_rejects_unsafe_or_incomplete_roster(mutation):
+    expected = {
+        ("celestin_project_runtime", "project_a"),
+        ("celestin_authorization_reader", "reader"),
+        ("celestin_authorization_admin", "admin"),
+    }
+    rows = expected_privileged_role_membership_rows(expected)
+    if mutation == "missing_group":
+        rows = [row for row in rows if row[0] != AUTHORIZATION_ADMIN_ROLE]
+    elif mutation == "unexpected_group":
+        rows.append(("unexpected_group", False, False, False, False, False, False, True, True,
+                     None, None, None, None, None, None, None, None, None))
+    elif mutation == "missing_member":
+        rows = [row for row in rows if row[9] != "admin"]
+    elif mutation == "unexpected_member":
+        rows.append((AUTHORIZATION_ADMIN_ROLE, False, False, False, False, False, False, True,
+                     True, "unexpected", False, True, False, False, False, False, False, True))
+    elif mutation in {"group_login", "group_bypassrls", "group_admin_option"}:
+        target = next(i for i, row in enumerate(rows) if row[0] == AUTHORIZATION_ADMIN_ROLE)
+        changed = list(rows[target])
+        changed[{"group_login": 1, "group_bypassrls": 3, "group_admin_option": 10}[mutation]] = True
+        rows[target] = tuple(changed)
+    elif mutation in {
+        "member_not_login", "member_superuser", "member_bypassrls",
+        "member_admin_option", "member_missing_metadata",
+    }:
+        target = next(i for i, row in enumerate(rows) if row[0] == AUTHORIZATION_ADMIN_ROLE)
+        changed = list(rows[target])
+        index = {
+            "member_not_login": 11,
+            "member_superuser": 12,
+            "member_bypassrls": 13,
+            "member_admin_option": 10,
+            "member_missing_metadata": 12,
+        }[mutation]
+        changed[index] = None if mutation == "member_missing_metadata" else not changed[index]
+        rows[target] = tuple(changed)
+    elif mutation == "duplicate_row":
+        rows.append(rows[0])
+    elif mutation == "malformed_row":
+        rows[0] = rows[0][:-1]
+
+    with pytest.raises(RuntimeError, match="membership catalog"):
+        _validate_privileged_role_membership_catalog(rows, expected_members=expected)
 
 
 @pytest.mark.parametrize(
