@@ -134,6 +134,7 @@ class EndToEndStdioIntegrationTests(unittest.TestCase):
                 self.assertEqual(search["results"][0]["message_id"], message["message_id"])
                 self.assertEqual(search["results"][0]["source_message_id"], message["message_id"])
                 self.assertEqual(search["results"][0]["created_at"], message["created_at"])
+                self.assertEqual(search["results"][0]["role"], "user")
 
                 context = _tool_payload(await session_two.call_tool(
                     "retrieve_context",

@@ -4,6 +4,126 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T17:00:27+05:30 — Propose ACL-independent hosted storage architecture
+
+- Changed: Added `docs/hosted-control-plane-data-plane-architecture.md` with current source facts, a threat comparison of shared row locking, per-project databases, isolated per-project workers, and provider alternatives; proposed routing and revocation/drain semantics; migration, provisioning, recovery, provider-decision, and live-test requirements. No application source or tests changed.
+- Why: Evaluate a cross-project data boundary that does not depend on unverified built-in advisory-lock ACL changes, while keeping the current hosted gate closed and preserving local SQLite/stdio.
+- Validation: The hosted server/scope, fake authorization, request-UoW, provisioning, and fake migration-runner suites passed before and after the documentation change (569 passed each run). Eleven relative Markdown links resolved. `git diff --check` and `git diff --cached --check` passed. No Python modules changed.
+- Limitations: The architecture and revocation protocol are proposals awaiting product/security, storage/database, operations, and provider review. No database, SQL, migration, Neon, Auth0, or external-service operation occurred. SQLite persistence tests were not run because this task prohibited database/SQL operations. No live behavior or provider capability is verified.
+
+## 2026-10-24T16:46:46+05:30 — Prepare guarded PostgreSQL retrieval tests
+
+- Changed: Added an opt-in project-runtime retrieval integration case, an offline regression that proves the live fixture skips before configuration/driver/migration access without explicit opt-in, and a scripted PostgreSQL-adapter test for authoritative row reload and omission of stale/ineligible candidates. Clarified hosted lexical retrieval coverage and limits in the PostgreSQL test guide.
+- Why: Prepare safe future retrieval validation without contacting a database now or presenting local semantic/hybrid and Evidence adapter tests as hosted request-path evidence.
+- Validation: Baseline focused suite: 141 passed, 35 PostgreSQL-marked tests skipped. Final focused retrieval/MCP/SQLite/auth/UoW suite: 226 passed, 43 PostgreSQL tests skipped. Offline migration-runner/provisioning tests: 33 passed. Guard/adapter spot checks: 2 passed; changed tests compiled; staged and unstaged diff checks passed.
+- Limitations: No live PostgreSQL/Neon connection or migration was attempted. Hosted project-runtime Evidence access remains intentionally unavailable; live semantic/hybrid retrieval is not implemented in the hosted path.
+- Correction: The first post-change run exposed a test double that replaced process-global `os.environ` and broke pytest's own reporting (1 passed, 147 errors). The stub was narrowed to the fixture module and the final runs passed.
+
+## 2026-10-24T16:26:35+05:30 — Harden retrieval provenance diagnostics and regressions
+
+- Changed: Made stale-vector diagnostics refer to missing authoritative project-scoped records rather than SQLite specifically. Added deterministic tests for adversarial/stale semantic metadata, foreign and missing message rows, hybrid deduplication, and foreign-project evidence references.
+- Why: The retrieval service is storage-port based, and search metadata must come from scoped persisted records; diagnostics should not misstate the backing store.
+- Validation: Focused retrieval tests: 48 passed, 1 skipped (`sqlite_vec` unavailable). Relevant retrieval, database/SQLite, MCP, authorization, end-to-end stdio, and request-UoW suites: 277 passed, 6 skipped (`pageindex` and `sqlite_vec` unavailable). Compilation and Git diff checks passed.
+- Limitations: PostgreSQL adapter tests are fake-backed; no live PostgreSQL/Neon, database, or migration behavior was checked. Indexed semantic vectors can still be stale for ranking until the existing index synchronization runs, but persisted result metadata remains authoritative.
+
+## 2026-10-24T16:12:51+05:30 — Preserve speaker role in memory retrieval
+
+- Changed: Retrieval now rehydrates search hits from authoritative project-scoped message rows and returns the persisted speaker role through the existing nullable `role` result field. Updated retrieval contract documentation and added SQLite, scripted PostgreSQL/UoW, semantic-only, MCP, and stdio regression coverage.
+- Why: Search results already exposed a `role` field, but it was always `null`, losing available source context and traceability.
+- Validation: Relevant offline retrieval/MCP/UoW suite: 242 passed, 6 skipped because optional `pageindex` and `sqlite_vec` packages are unavailable. Changed Python files compiled; `git diff --check` and `git diff --cached --check` checked.
+- Limitations: Synthetic adapter tests do not validate live PostgreSQL. Hosted PostgreSQL runtime wiring, authorization behavior, public MCP keys, and request arguments were not changed.
+
+## 2026-10-24T15:58:20+05:30 — Compare hosted isolation architectures
+
+- Changed: Added `docs/hosted-isolation-architecture-decision-matrix.md`, comparing scope-mapped advisory wrappers, database-mediated authorization, row locks, per-project databases, and a provider change against shared threats and operational dimensions.
+- Why: Make the architecture choice, revocation/timeout policy, provider evidence, and separate approval gates reviewable without selecting or implementing an unapproved security design.
+- Validation: Current source and supporting design documents inspected; all six relative Markdown links resolve, new-document trailing-whitespace check is clean, and `git diff --check` plus `git diff --cached --check` pass. No tests or database operations run.
+- Limitations: Architecture remains blocked pending product/security and storage-owner decisions and provider capability evidence. No live PostgreSQL/Neon behavior is verified; hosted mode remains disabled.
+
+## 2026-10-24T13:33:03+05:30 — Specify hosted authorization and revocation protocol
+
+- Changed: Added `docs/hosted-authorization-protocol.md` documenting verified application/database identity boundaries, request/revocation transaction sequences, coordination alternatives, advisory-lock operations, offline-readiness limits, and open approval/provider gates. Cross-linked the audit from the lock-isolation decision, added transaction-isolation semantics to LI-06, and added live acceptance case T-19.
+- Why: Make the trusted authorization scope and revocation ordering reviewable before any migration 0010 or hosted enablement decision.
+- Validation: Fresh selected offline hosted/auth/UoW/provisioning/migration-runner/SQLite/MCP suite: 662 passed; documentation whitespace and Git diff checks passed. No source modules changed.
+- Limitations: Design remains proposed; there is no live PostgreSQL/Neon evidence, no transaction isolation contract in the current request code, and no owner approval for lock architecture or revocation semantics.
+
+## 2026-10-24T13:13:15+05:30 — Add offline hosted onboarding readiness assessment
+
+- Changed: Added a pure offline hosted onboarding evaluator that validates project/configuration bindings, expected profile inventory, evidence freshness/target metadata, and supplied catalog rows using the existing hosted profile validators. Request-runtime and privileged preflight assessments are independent; output is structured and redacted. Added adversarial tests and `docs/hosted-provisioning-readiness.md`.
+- Why: Make future operator onboarding observable and testable without provisioning roles or treating synthetic catalog evidence as live PostgreSQL/Neon proof.
+- Validation: Selected offline hosted/auth/UoW/provisioning/migration-runner/SQLite/MCP suite: 662 passed; focused offline workflow tests: 15 passed; Python compilation and `git diff --check` passed. `git diff --cached --check` was also run without staging.
+- Limitations: Current source continues to block full reader/admin readiness because lock-wrapper scope is unverified. Offline catalog structure never grants permission to serve or provision. Neon capability remains unknown; no database, migration, external service, role, ACL, hosted startup configuration, or MCP schema was changed.
+
+## 2026-10-24T12:37:37+05:30 — Define hosted lock-isolation decision gates
+
+- Changed: Added `docs/hosted-lock-isolation-decision.md` and `docs/hosted-lock-isolation-test-matrix.md` with a source-backed threat model, lock-scope alternatives, revocation ordering, role/readiness separation, provider-dependent blockers, and migration 0010 gates.
+- Why: Resolve the architectural review boundary before any forward migration or database operation, without treating offline fixtures as live PostgreSQL/Neon evidence.
+- Validation: Selected offline hosted readiness, authorization, request UoW, provisioning, and migration-runner suites: 535 passed. `git diff --check` and documentation whitespace inspection passed.
+- Limitations: No source, tests, migrations, database, Neon service, roles, ACLs, or hosted runtime changed. The design remains a proposal; hosted tenant isolation is not ready. No Python modules changed, so compilation was not applicable.
+
+## 2026-10-24T12:27:34+05:30 — Clarify advisory-lock security design gates
+
+- Changed: Added a proposal-only addendum to `docs/postgres-advisory-lock-privilege-boundary-proposal.md` comparing migration and readiness profiles, trusted lock scope, threat impacts, role separation, request versus privileged readiness, and forward-migration recovery gates.
+- Why: Make source-level mismatches and unresolved Neon/provider prerequisites explicit before designing migration 0010.
+- Validation: Reviewed the full documentation diff; `git diff --check` passed. No tests were run for this documentation-only change.
+- Limitations: This is a proposal, not an approved design or live catalog validation. No database, migration, external service, role, ACL, or hosted runtime was changed; tenant isolation remains not ready.
+
+## 2026-10-24T12:15:05+05:30 — Separate request readiness from privileged preflight
+
+- Changed: Added an offline regression in `tests/test_hosted_server.py` proving request-pool readiness checks the authorization-reader and configured project pools without invoking privileged authorization-admin readiness.
+- Why: Keep operator-only provisioning checks outside ordinary hosted request startup.
+- Validation: Hosted readiness suite: 464 passed; selected offline regression suite including the opt-in live authorization module without its opt-in flag: 617 passed, 35 skipped; changed test module compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: The test verifies the application call boundary with fakes; it does not validate live PostgreSQL readiness or provider behavior. Hosted tenant isolation remains not ready.
+
+## 2026-10-24T11:28:08+05:30 — Harden advisory ACL and wrapper readiness
+
+- Changed: Advisory-lock readiness now validates complete ACL entries, grantor/grantee identities, grantability, owner/login identity consistency, and exact effective/direct/PUBLIC access. Reader and authorization-admin wrapper readiness now fails closed while lock keys remain caller-selected and unbound. Added adversarial catalog fixtures, a SQLite connection-pragma regression, and clarified request versus privileged provisioning readiness in the PostgreSQL test guide. Files: `src/orbit/mcp_server/hosted_server.py`, `tests/test_hosted_server.py`, `tests/database/test_engine.py`, `docs/postgres-integration-tests.md`.
+- Why: Catalog ACL shape alone cannot make a SECURITY DEFINER wrapper safe when untrusted callers can choose arbitrary advisory-lock keys; the local SQLite connection contract also deserves direct regression coverage.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py tests/database/test_engine.py` — 473 passed; selected offline regression suite — 616 passed; changed Python modules compiled; `git diff --check` and `git diff --cached --check` passed.
+- Limitations: All PostgreSQL catalog tests used offline fixtures. No PostgreSQL server, migration, Neon capability, external service, or hosted tenant-isolation behavior was tested. The tenant-isolation gate remains open.
+
+## 2026-10-24T08:56:32+05:30 — Expand advisory role-profile negative tests
+
+- Changed: Added offline negative cases for every privileged group/member flag and all database-owner attributes checked by authorization-admin function readiness.
+- Why: The readiness validator's safety matrix should have direct regression coverage for each privilege-bearing role property and fail closed on incomplete metadata.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 449 passed. Test module compilation and `git diff --check` passed.
+- Limitations: These are fake-catalog tests; no PostgreSQL connection or migration was used.
+
+## 2026-10-24T08:55:29+05:30 — Propose forward-only advisory ACL boundary
+
+- Changed: Added a proposal documenting the verified privilege gap, lock overload/profile matrix, threat model, least-privilege alternatives, forward-only wrapper/ACL operation, privilege preconditions, rollback limitations, and required offline/live acceptance evidence.
+- Why: A wrapper-only fix cannot revoke direct advisory calls exposed through PostgreSQL's `PUBLIC EXECUTE`; database-wide ACL authority and blast-radius limits must be reviewed before live testing.
+- Validation: Focused combined offline suite — 559 passed, 35 PostgreSQL tests skipped; changed modules compiled; `git diff --check`, cached diff check, proposal existence, and documentation-link checks passed.
+- Limitations: The proposal is not approved or applied. No PostgreSQL catalog, SQL, migration, credentials, Auth0, or external service was accessed; the tenant-isolation gate remains open.
+
+## 2026-10-24T08:53:52+05:30 — Exercise admin lock readiness in the live suite
+
+- Changed: Extended the opt-in authorization tests to run the admin readiness probe and validate exact NOLOGIN group membership from PostgreSQL catalogs. Updated integration-test documentation to describe the source validator and its not-yet-wired provisioning-host boundary.
+- Why: The admin connection profile and complete role roster need real-catalog acceptance coverage while remaining separate from hosted request pools.
+- Validation: `python -m py_compile tests/postgres/test_live_authorization.py` passed. `python -m pytest -p no:cacheprovider -o addopts='' tests/postgres/test_live_authorization.py` collected 35 live tests and skipped all 35 because opt-in was not enabled.
+- Limitations: No PostgreSQL connection or migration was made. These additions are unexecuted against a server; admin provisioning readiness is not wired into a production host.
+
+## 2026-10-24T08:53:10+05:30 — Complete advisory-lock source readiness profiles
+
+- Changed: Added authorization-admin catalog validation for the four authorization-write wrappers, separate effective/direct/PUBLIC advisory-function ACL checks, exact privileged NOLOGIN group-roster validation, and fail-closed handling for missing catalog booleans. Added adversarial offline tests.
+- Why: Restricted Celestin wrapper grants do not remove PostgreSQL's default `PUBLIC EXECUTE` on advisory built-ins, and readiness must validate the admin helper profile before a future deployment relies on it.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py` — 433 passed. `python -m py_compile src/orbit/mcp_server/hosted_server.py tests/test_hosted_server.py` and `git diff --check` passed.
+- Limitations: Tests use fakes. No PostgreSQL catalog was inspected, no migration or ACL change was applied, and the tenant-isolation gate remains open.
+
+## 2026-10-24T08:36:08+05:30 — Expand guarded tenant-isolation acceptance cases
+
+- Changed: Expanded the opt-in PostgreSQL suite with role ACL profiles, direct lock attempts, policy/trigger catalog checks across all protected tables, both exposed content tables, additional revocation races, cancellation cleanup, and pool session-reset coverage. Documented the forward-only ACL/wrapper prerequisite, including that migration 0008's authorization-write helpers remain invoker-security and are not independently readiness-validated.
+- Why: The offline checks cannot prove PostgreSQL ACL, RLS, trigger, transaction, or pooled-session behavior; the live suite needs explicit, least-privileged acceptance cases for a future approved disposable target.
+- Validation: Selected regression run: 472 passed, 35 opt-in tests skipped, and one failure in the existing SQLite process-concurrency test (`database is locked`). An isolated rerun passed (1 passed). Focused hosted suite: 306 passed, 35 skipped. The PostgreSQL opt-in command was not run.
+- Limitations: No database was contacted and no migration was applied. Live ACL, isolation, revocation-race, trigger, cancellation, and pool behavior remain unverified; the tenant-isolation gate remains open.
+
+## 2026-10-24T07:18:52+05:30 — Fail closed on advisory-lock and trigger catalog drift
+
+- Changed: Hosted readiness now checks effective `pg_advisory_*` execution across all supported overloads, expects the request lock wrappers to be security-definer functions, and validates the exact authorization-trigger roster, event metadata, function body, ownership, search path, and grants. PostgreSQL pool return now clears session state with `DISCARD ALL` and disables automatic server-side preparation. Added adversarial offline catalog tests.
+- Why: PostgreSQL built-in advisory privileges are inherited through `PUBLIC`; revoking Celestin's wrapper grants alone does not remove direct lock access from a project login. Authorization ordering and RLS readiness must fail closed until the built-in ACL and secure-wrapper prerequisites are satisfied.
+- Validation: `python -m pytest -p no:cacheprovider -o addopts='' tests/test_hosted_server.py tests/postgres/test_live_authorization.py tests/postgres/test_live_support.py tests/postgres/test_migration_runner.py` — 306 passed, 35 opt-in PostgreSQL tests skipped. Python compilation passed. No PostgreSQL opt-in flag, database, migration, Auth0 request, or external operation was used.
+- Limitations: No forward migration was added or applied. The checked-in 0008–0009 setup remains incompatible with the strengthened direct-lock/readiness gate. Live PostgreSQL behavior was not tested; tenant isolation is not declared passed.
+
 ## 2026-10-23T22:00:35+05:30 — Separate Evidence adapter tests from the hosted RLS gate
 
 - Changed: Assigned the adapter-level Evidence suite its own pytest marker and documented its exact opt-in command separately from project-login authorization/RLS acceptance. Clarified that these tests currently use a control-plane connection and do not prove project-runtime Evidence access.

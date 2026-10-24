@@ -63,6 +63,15 @@ def test_connect_creates_tables_from_clean_checkout(tmp_path):
     assert {"chat_messages", "project_memory"} <= names
 
 
+def test_connection_configures_foreign_keys_and_bounded_busy_timeout(tmp_path):
+    conn = connect(tmp_path / "connection-settings.db")
+    try:
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    finally:
+        conn.close()
+
+
 def test_migrations_are_idempotent(tmp_path):
     path = tmp_path / "fresh.db"
     first = connect(path)
