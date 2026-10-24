@@ -4,12 +4,20 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T13:33:03+05:30 — Specify hosted authorization and revocation protocol
+
+- Changed: Added `docs/hosted-authorization-protocol.md` documenting verified application/database identity boundaries, request/revocation transaction sequences, coordination alternatives, advisory-lock operations, offline-readiness limits, and open approval/provider gates. Cross-linked the audit from the lock-isolation decision, added transaction-isolation semantics to LI-06, and added live acceptance case T-19.
+- Why: Make the trusted authorization scope and revocation ordering reviewable before any migration 0010 or hosted enablement decision.
+- Validation: Fresh selected offline hosted/auth/UoW/provisioning/migration-runner/SQLite/MCP suite: 662 passed; documentation whitespace and Git diff checks passed. No source modules changed.
+- Limitations: Design remains proposed; there is no live PostgreSQL/Neon evidence, no transaction isolation contract in the current request code, and no owner approval for lock architecture or revocation semantics.
+
 ## 2026-10-24T13:13:15+05:30 — Add offline hosted onboarding readiness assessment
 
 - Changed: Added a pure offline hosted onboarding evaluator that validates project/configuration bindings, expected profile inventory, evidence freshness/target metadata, and supplied catalog rows using the existing hosted profile validators. Request-runtime and privileged preflight assessments are independent; output is structured and redacted. Added adversarial tests and `docs/hosted-provisioning-readiness.md`.
 - Why: Make future operator onboarding observable and testable without provisioning roles or treating synthetic catalog evidence as live PostgreSQL/Neon proof.
-- Validation: Selected offline hosted/auth/UoW/provisioning/migration/SQLite/MCP suite: 662 passed; focused offline workflow tests: 15 passed; Python compilation and `git diff --check` passed. `git diff --cached --check` was also run without staging.
+- Validation: Selected offline hosted/auth/UoW/provisioning/migration-runner/SQLite/MCP suite: 662 passed; focused offline workflow tests: 15 passed; Python compilation and `git diff --check` passed. `git diff --cached --check` was also run without staging.
 - Limitations: Current source continues to block full reader/admin readiness because lock-wrapper scope is unverified. Offline catalog structure never grants permission to serve or provision. Neon capability remains unknown; no database, migration, external service, role, ACL, hosted startup configuration, or MCP schema was changed.
+
 ## 2026-10-24T12:37:37+05:30 — Define hosted lock-isolation decision gates
 
 - Changed: Added `docs/hosted-lock-isolation-decision.md` and `docs/hosted-lock-isolation-test-matrix.md` with a source-backed threat model, lock-scope alternatives, revocation ordering, role/readiness separation, provider-dependent blockers, and migration 0010 gates.
