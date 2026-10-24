@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-24T08:55:29+05:30 — Propose forward-only advisory ACL boundary
+
+- Changed: Added a proposal documenting the verified privilege gap, lock overload/profile matrix, threat model, least-privilege alternatives, forward-only wrapper/ACL operation, privilege preconditions, rollback limitations, and required offline/live acceptance evidence.
+- Why: A wrapper-only fix cannot revoke direct advisory calls exposed through PostgreSQL's `PUBLIC EXECUTE`; database-wide ACL authority and blast-radius limits must be reviewed before live testing.
+- Validation: Focused combined offline suite — 559 passed, 35 PostgreSQL tests skipped; changed modules compiled; `git diff --check`, cached diff check, proposal existence, and documentation-link checks passed.
+- Limitations: The proposal is not approved or applied. No PostgreSQL catalog, SQL, migration, credentials, Auth0, or external service was accessed; the tenant-isolation gate remains open.
+
 ## 2026-10-24T08:53:52+05:30 — Exercise admin lock readiness in the live suite
 
 - Changed: Extended the opt-in authorization tests to run the admin readiness probe and validate exact NOLOGIN group membership from PostgreSQL catalogs. Updated integration-test documentation to describe the source validator and its not-yet-wired provisioning-host boundary.
