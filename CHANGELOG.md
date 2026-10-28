@@ -4,6 +4,13 @@ Record each meaningful project change during the event, newest first. Update thi
 
 ## Event build log
 
+## 2026-10-28T21:19:30+05:30 — Add local project-context application boundary
+
+- Changed: Added `ProjectContextService` and `ProjectContextResult` to compose the trusted local resolver with pinned-revision reconstruction and the typed Knowledge read seam. Kept local and Knowledge project IDs distinct, rejected mismatched resolver bindings, omitted records from failed/scope-mismatched reads, and preserved read coverage, record issues, and limitations. Added focused tests and `docs/project-context-application-boundary.md`.
+- Why: Provide the smallest application boundary for local Resurrection without inventing a production Knowledge reader or joining it to Retrieval context.
+- Validation: Focused project-state, resolver, typed-read, reconstructor, MCP tool, persistence, and authorization tests: 99 passed. `git diff --check` and `git diff --cached --check` passed.
+- Limitations: No production local Knowledge reader or approved local-to-Knowledge project mapping exists. The Knowledge read and Git revision are independent snapshots. The stdio end-to-end compatibility test stalled and was interrupted; it did not produce a result. No full suite, database, or benchmark was run.
+
 ## 2026-10-24T21:30:00+05:30 — Add typed knowledge read result boundary
 
 - Changed: Added `orbit.project_state.knowledge_read` (`KnowledgeReadResult`, outcome/coverage/failure/record-issue enums and types) and `tests/project_state/test_knowledge_read.py`. Outcome (succeeded, failed, scope mismatch), coverage (unknown, partial, reported complete), record-level issues, and limitations are separate fields; empty success differs from failure; there is no "verified complete" status.

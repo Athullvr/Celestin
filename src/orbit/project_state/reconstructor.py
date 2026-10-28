@@ -65,6 +65,7 @@ class ProjectStateReconstructor:
         project_id: str,
         *,
         knowledge_source: ReadOnlyKnowledgeSource | None = None,
+        knowledge_project_id: str | None = None,
     ) -> None:
         if not isinstance(project_id, str) or not project_id.strip() or "\x00" in project_id:
             raise ValueError("project_id must be a non-empty string")
@@ -77,6 +78,15 @@ class ProjectStateReconstructor:
         self._root = root
         self._project_id = project_id.strip()
         self._knowledge_source = knowledge_source
+        if knowledge_project_id is not None and (
+            not isinstance(knowledge_project_id, str)
+            or not knowledge_project_id.strip()
+            or "\x00" in knowledge_project_id
+        ):
+            raise ValueError("knowledge_project_id must be a non-empty string when provided")
+        # A trusted application reader may use a distinct Knowledge namespace.
+        # Keep it separate from the local project ID used in the snapshot.
+        self._knowledge_project_id = knowledge_project_id or self._project_id
 
     def reconstruct(self, revision: str = "HEAD") -> ProjectStateSnapshot:
         """Build a deterministic snapshot from blobs reachable at ``revision``."""
@@ -373,7 +383,7 @@ class ProjectStateReconstructor:
         conflicting_candidate_ids: set[str] = set()
         for bundle in bundles:
             record = bundle.record
-            if record.project != self._project_id:
+            if record.project != self._knowledge_project_id:
                 ignored_out_of_scope = True
                 continue
             project_bundles.append(bundle)
@@ -391,7 +401,7 @@ class ProjectStateReconstructor:
         for bundle in project_bundles:
             record = bundle.record
             project_evidence = tuple(
-                item for item in bundle.evidence if item.project == self._project_id
+                item for item in bundle.evidence if item.project == self._knowledge_project_id
             )
             if len(project_evidence) != len(bundle.evidence):
                 ignored_out_of_scope_evidence = True
