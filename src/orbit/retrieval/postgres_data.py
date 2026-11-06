@@ -46,6 +46,23 @@ class ProjectScopeMismatch(ValueError):
     """The public project selector does not match the trusted adapter scope."""
 
 
+@dataclass(frozen=True, slots=True)
+class KnowledgeSearchMatch:
+    """A direct FTS hit from the authoritative Knowledge table."""
+
+    knowledge_id: str
+    project: str
+    claim: str
+    updated_at: str | None
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeSearchPage:
+    matches: tuple[KnowledgeSearchMatch, ...]
+    tier: str
+
+
 class _Cursor(Protocol):
     def fetchall(self) -> Sequence[tuple[Any, ...]]: ...
 
@@ -223,6 +240,39 @@ class PostgresRetrievalData(RetrievalData):
             )
         return SearchPage(tuple(matches), tier)
 
+    def search_knowledge(
+        self, project: str, query: str, limit: int, *, relax: bool
+    ) -> KnowledgeSearchPage:
+        """Search current Knowledge claims under this adapter's project scope."""
+        self._check_project(project)
+        _validate_search(query, limit)
+        strict = _strict_tsquery(query)
+        if strict is None:
+            return KnowledgeSearchPage((), "strict")
+        with self._connection() as connection:
+            rows, tier = self._search_tiers(
+                connection,
+                "celestin_knowledge_records",
+                "claim",
+                query,
+                strict,
+                limit,
+                relax,
+            )
+        return KnowledgeSearchPage(
+            tuple(
+                KnowledgeSearchMatch(
+                    knowledge_id=str(row[0]),
+                    project=self._scope.project_key,
+                    claim=str(row[1]),
+                    updated_at=_utc_iso(row[2]),
+                    score=-float(row[4]),
+                )
+                for row in rows
+            ),
+            tier,
+        )
+
     def load_messages(
         self, project: str, message_ids: Sequence[str]
     ) -> dict[str, MessageRecord]:
@@ -328,6 +378,12 @@ class PostgresRetrievalData(RetrievalData):
         expression: str,
         limit: int,
     ) -> list[tuple[Any, ...]]:
+        if table == "celestin_knowledge_records":
+            return _fetchall(
+                connection,
+                _knowledge_search_sql(content_column),
+                (expression, *self._scope_params(), expression, limit),
+            )
         if table == "chat_messages":
             source_select = "record.conversation_id"
             order_time = "record.created_at"
@@ -388,6 +444,26 @@ def _search_sql(
            AND project.archived_at IS NULL AND workspace.archived_at IS NULL
            AND {vector} @@ {tsquery}
          ORDER BY score DESC, {order_time} DESC, record.id ASC
+         LIMIT %s
+    """
+
+
+def _knowledge_search_sql(content_column: str) -> str:
+    # Identifiers come only from the closed call-site constants above.
+    vector = f"to_tsvector('simple'::regconfig, record.{content_column})"
+    tsquery = "to_tsquery('simple'::regconfig, %s)"
+    return f"""
+        SELECT record.knowledge_id, record.claim, record.updated_at,
+               NULL::text AS source_id, ts_rank_cd({vector}, {tsquery}) AS score
+          FROM celestin_knowledge_records AS record
+          JOIN celestin_projects AS project
+            ON project.id = record.project_id AND project.workspace_id = record.workspace_id
+          JOIN celestin_workspaces AS workspace ON workspace.id = record.workspace_id
+         WHERE record.workspace_id = %s::uuid AND record.project_id = %s::uuid
+           AND record.lifecycle_status = 'current'
+           AND project.archived_at IS NULL AND workspace.archived_at IS NULL
+           AND {vector} @@ {tsquery}
+         ORDER BY score DESC, record.updated_at DESC, record.knowledge_id ASC
          LIMIT %s
     """
 

@@ -45,6 +45,8 @@ class CaptureEvent:
     evidence: tuple[EvidenceSource, ...] = ()
     conflict_key: str | None = None
     locator: str | None = None
+    source_timestamp: str | None = None
+    source_revision: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

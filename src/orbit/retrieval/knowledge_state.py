@@ -11,6 +11,7 @@ from orbit.evidence.model import (
     KnowledgeRecord,
     KnowledgeType,
     LifecycleStatus,
+    ProducerDeliveryProvenance,
     ReferenceStatus,
     VerificationStatus,
 )
@@ -95,9 +96,10 @@ class CaptureKnowledgeState:
     reviewed_at: str | None
     review_note: str | None
     conflicts_with: tuple[str, ...]
+    producer_delivery: ProducerDeliveryProvenance | None
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "candidate_id": self.candidate_id,
             "project_id": self.project_id,
             "category": self.category,
@@ -113,6 +115,51 @@ class CaptureKnowledgeState:
             "review_note": self.review_note,
             "conflicts_with": list(self.conflicts_with),
         }
+        if self.producer_delivery is not None:
+            delivery = self.producer_delivery
+            value["producer_delivery"] = {
+                "schema_version": delivery.schema_version,
+                "producer_id": delivery.producer_id,
+                "source_namespace": delivery.source_namespace,
+                "delivery_id": delivery.delivery_id,
+                "payload_revision_id": delivery.payload_revision_id,
+                "payload_hash_version": delivery.payload_hash_version,
+                "payload_hash": delivery.payload_hash,
+                "occurrences": [
+                    {
+                        "ordinal": occurrence.ordinal,
+                        "category": occurrence.category,
+                        "claim": occurrence.claim,
+                        "source_namespace": occurrence.source_namespace,
+                        "source_id": occurrence.source_id,
+                        "source_revision": occurrence.source_revision,
+                        "occurred_at": occurrence.occurred_at,
+                        "locator": occurrence.locator,
+                        "candidate_id": occurrence.candidate_id,
+                        "candidate_revision": occurrence.candidate_revision,
+                        "evidence": [
+                            {
+                                "evidence_type": evidence.evidence_type.value,
+                                "source_id": evidence.source_id,
+                                "locator": evidence.locator,
+                                "revision": evidence.revision,
+                                "content_hash": evidence.content_hash,
+                            }
+                            for evidence in occurrence.evidence
+                        ],
+                    }
+                    for occurrence in delivery.occurrences
+                ],
+                "conflicts": [
+                    {
+                        "producer_id": conflict.producer_id,
+                        "candidate_id": conflict.candidate_id,
+                        "candidate_revision": conflict.candidate_revision,
+                    }
+                    for conflict in delivery.conflicts
+                ],
+            }
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +234,7 @@ class KnowledgeStateEnvelope:
                 reviewed_at=provenance.reviewed_at,
                 review_note=provenance.review_note,
                 conflicts_with=tuple(provenance.conflicts_with),
+                producer_delivery=provenance.producer_delivery,
             )
 
         return cls(

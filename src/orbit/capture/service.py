@@ -160,10 +160,15 @@ class KnowledgeCapturePipeline:
         repository: CaptureCandidateRepository | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        identity_namespace: str | None = None,
     ) -> None:
         self._project_id = _required_text(project_id, "project_id", MAX_REFERENCE_CHARS)
         self._repository = repository if repository is not None else InMemoryCaptureRepository()
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._identity_namespace = (
+            _required_text(identity_namespace, "identity_namespace", MAX_REFERENCE_CHARS)
+            if identity_namespace is not None else None
+        )
 
     def capture(self, request: CaptureInput) -> CaptureResult:
         source = self._validate_input(request)
@@ -187,7 +192,11 @@ class KnowledgeCapturePipeline:
                 else CandidateCertainty.UNQUALIFIED
             )
             identity = _candidate_identity(
-                self._project_id, event.category, claim, event.conflict_key
+                self._project_id,
+                event.category,
+                claim,
+                event.conflict_key,
+                namespace=self._identity_namespace,
             )
             candidate = KnowledgeCandidate(
                 candidate_id=identity,
@@ -435,6 +444,10 @@ class KnowledgeCapturePipeline:
                 _required_text(event.claim, "event claim", MAX_CLAIM_CHARS)
                 _safe_reference(event.conflict_key, "conflict_key", optional=True)
                 _safe_reference(event.locator, "event locator", optional=True)
+                event_timestamp = _optional_text(event.source_timestamp, "event source_timestamp")
+                if event_timestamp is not None:
+                    _validate_timestamp(event_timestamp)
+                _safe_reference(event.source_revision, "event source_revision", optional=True)
                 if not isinstance(event.evidence, tuple):
                     raise CaptureValidationError("event evidence must be a tuple of EvidenceSource values")
                 for item in event.evidence:
@@ -460,6 +473,8 @@ class KnowledgeCapturePipeline:
                     event,
                     replace(
                         source,
+                        source_timestamp=event.source_timestamp or source.source_timestamp,
+                        source_revision=event.source_revision or source.source_revision,
                         locator=event.locator or f"event:{index}",
                     ),
                 )
@@ -685,10 +700,14 @@ def _candidate_identity(
     category: CandidateCategory,
     claim: str,
     conflict_key: str | None,
+    *,
+    namespace: str | None = None,
 ) -> str:
-    raw = "\0".join(
-        (project_id, category.value, _normalize_claim(claim), _normalize_key(conflict_key) or "")
-    )
+    parts = [project_id]
+    if namespace is not None:
+        parts.append(namespace)
+    parts.extend((category.value, _normalize_claim(claim), _normalize_key(conflict_key) or ""))
+    raw = "\0".join(parts)
     return "capture-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 

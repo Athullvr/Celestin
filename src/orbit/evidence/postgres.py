@@ -1,9 +1,7 @@
 """Request-bound PostgreSQL adapter for the existing Evidence store port.
 
-This persists the current manual Evidence/Knowledge domain interface only. It
-does not implement Capture conversion, producer delivery, occurrence links,
-approval, or conversion replay. Hosted request composition supplies the
-resolver-issued scope and owns the outer transaction and connection lifecycle.
+The adapter shares its request connection with the Capture workflow and does
+not create, commit, roll back, or close an independent session.
 """
 
 from __future__ import annotations
@@ -20,10 +18,14 @@ from .model import (
     CaptureKnowledgeProvenance,
     CaptureSourceProvenance,
     EvidenceRecord,
+    EvidenceSource,
     EvidenceType,
     KnowledgeRecord,
     KnowledgeType,
     LifecycleStatus,
+    ProducerConflictReference,
+    ProducerDeliveryProvenance,
+    ProducerOccurrenceProvenance,
     ReferenceStatus,
     VerificationStatus,
 )
@@ -170,6 +172,29 @@ class PostgresEvidenceLinkedMemoryStore(EvidenceLinkedMemoryStore):
             (self._scope.workspace_id, self._scope.project_id, knowledge_id),
         )
         return tuple(_evidence_from_row(project, row) for row in rows)
+
+    def list_knowledge_bundles(self, project: str) -> Sequence[KnowledgeBundle]:
+        """Read all scoped Knowledge rows and their stored Evidence associations."""
+        project = self._require_read_project(project)
+        rows = self._fetchall(
+            """
+            SELECT knowledge_id, knowledge_type, claim, created_at, updated_at,
+                   verification_status, lifecycle_status, supersedes_id,
+                   superseded_by_id, checked_at, checked_by, check_note,
+                   capture_provenance
+              FROM celestin_knowledge_records
+             WHERE workspace_id = %s AND project_id = %s
+             ORDER BY created_at, knowledge_id
+            """,
+            (self._scope.workspace_id, self._scope.project_id),
+        )
+        return tuple(
+            KnowledgeBundle(
+                record=(record := _knowledge_from_row(project, row)),
+                evidence=tuple(self.list_evidence(project, record.knowledge_id)),
+            )
+            for row in rows
+        )
 
     def set_knowledge_verification(
         self, project: str, knowledge_id: str, record: KnowledgeRecord
@@ -438,6 +463,8 @@ def _provenance_json(value: CaptureKnowledgeProvenance | None) -> str | None:
         "review_note": value.review_note,
         "conflicts_with": list(value.conflicts_with),
     }
+    if value.producer_delivery is not None:
+        payload["producer_delivery"] = _producer_provenance_dict(value.producer_delivery)
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -467,9 +494,101 @@ def _provenance_from_json(value: Any) -> CaptureKnowledgeProvenance | None:
             reviewed_at=value["reviewed_at"],
             review_note=value["review_note"],
             conflicts_with=tuple(value["conflicts_with"]),
+            producer_delivery=_producer_provenance_from_json(value.get("producer_delivery")),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError("stored capture provenance is invalid") from exc
+
+
+def _producer_provenance_dict(value: ProducerDeliveryProvenance | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "schema_version": value.schema_version,
+        "producer_id": value.producer_id,
+        "source_namespace": value.source_namespace,
+        "delivery_id": value.delivery_id,
+        "payload_revision_id": value.payload_revision_id,
+        "payload_hash_version": value.payload_hash_version,
+        "payload_hash": value.payload_hash,
+        "occurrences": [
+            {
+                "ordinal": item.ordinal,
+                "category": item.category,
+                "claim": item.claim,
+                "source_namespace": item.source_namespace,
+                "source_id": item.source_id,
+                "source_revision": item.source_revision,
+                "occurred_at": item.occurred_at,
+                "locator": item.locator,
+                "candidate_id": item.candidate_id,
+                "candidate_revision": item.candidate_revision,
+                "evidence": [
+                    {
+                        "evidence_type": evidence.evidence_type.value,
+                        "source_id": evidence.source_id,
+                        "locator": evidence.locator,
+                        "revision": evidence.revision,
+                        "content_hash": evidence.content_hash,
+                    }
+                    for evidence in item.evidence
+                ],
+            }
+            for item in value.occurrences
+        ],
+        "conflicts": [
+            {
+                "producer_id": item.producer_id,
+                "candidate_id": item.candidate_id,
+                "candidate_revision": item.candidate_revision,
+            }
+            for item in value.conflicts
+        ],
+    }
+
+
+def _producer_provenance_from_json(value: Any) -> ProducerDeliveryProvenance | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("producer_delivery must be an object")
+    occurrences = tuple(
+        ProducerOccurrenceProvenance(
+            ordinal=item["ordinal"],
+            category=item["category"],
+            claim=item["claim"],
+            source_namespace=item["source_namespace"],
+            source_id=item["source_id"],
+            source_revision=item.get("source_revision"),
+            occurred_at=item.get("occurred_at"),
+            locator=item.get("locator"),
+            candidate_id=item["candidate_id"],
+            candidate_revision=item["candidate_revision"],
+            evidence=tuple(
+                EvidenceSource(
+                    EvidenceType(evidence["evidence_type"]),
+                    evidence["source_id"],
+                    evidence.get("locator"),
+                    evidence.get("revision"),
+                    evidence.get("content_hash"),
+                )
+                for evidence in item["evidence"]
+            ),
+        )
+        for item in value["occurrences"]
+    )
+    conflicts = tuple(ProducerConflictReference(**item) for item in value.get("conflicts", ()))
+    return ProducerDeliveryProvenance(
+        schema_version=value["schema_version"],
+        producer_id=value["producer_id"],
+        source_namespace=value["source_namespace"],
+        delivery_id=value["delivery_id"],
+        payload_revision_id=value["payload_revision_id"],
+        payload_hash_version=value["payload_hash_version"],
+        payload_hash=value["payload_hash"],
+        occurrences=occurrences,
+        conflicts=conflicts,
+    )
 
 
 def _knowledge_from_row(project: str, row: tuple[Any, ...]) -> KnowledgeRecord:
