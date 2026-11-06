@@ -123,6 +123,71 @@ GRANT USAGE ON SCHEMA celestin_private TO celestin_project_capture_runtime;
 GRANT SELECT ON celestin_private.project_runtime_scopes TO celestin_project_capture_runtime;
 GRANT EXECUTE ON FUNCTION public.celestin_request_scope_matches(UUID, UUID)
     TO celestin_project_capture_runtime;
+GRANT EXECUTE ON FUNCTION public.celestin_request_workspace_matches(UUID)
+    TO celestin_project_capture_runtime;
+GRANT EXECUTE ON FUNCTION public.celestin_lock_project_authorization_request(UUID)
+    TO celestin_project_capture_runtime;
+
+CREATE POLICY celestin_capture_project_workspace_read ON public.celestin_workspaces
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (public.celestin_request_workspace_matches(id));
+CREATE POLICY celestin_capture_project_project_read ON public.celestin_projects
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (public.celestin_request_scope_matches(workspace_id, id));
+CREATE POLICY celestin_capture_project_workspace_membership_read
+    ON public.celestin_workspace_memberships
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (
+        public.celestin_request_workspace_matches(workspace_id)
+        AND EXISTS (
+            SELECT 1 FROM public.celestin_project_memberships AS membership
+             WHERE membership.workspace_id = celestin_workspace_memberships.workspace_id
+               AND membership.project_id = (
+                   SELECT scope.project_id
+                     FROM celestin_private.project_runtime_scopes AS scope
+                    WHERE scope.login_role_name = session_user::name
+               )
+               AND membership.user_id = celestin_workspace_memberships.user_id
+        )
+    );
+CREATE POLICY celestin_capture_project_membership_read
+    ON public.celestin_project_memberships
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (public.celestin_request_scope_matches(workspace_id, project_id));
+CREATE POLICY celestin_capture_project_user_read ON public.celestin_users
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.celestin_project_memberships AS membership
+             WHERE membership.user_id = celestin_users.id
+               AND public.celestin_request_scope_matches(
+                   membership.workspace_id, membership.project_id
+               )
+        )
+    );
+CREATE POLICY celestin_capture_project_service_identity_read
+    ON public.celestin_service_identities
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.celestin_service_project_grants AS grant_row
+             WHERE grant_row.workspace_id = celestin_service_identities.workspace_id
+               AND grant_row.service_identity_id = celestin_service_identities.id
+               AND public.celestin_request_scope_matches(
+                   grant_row.workspace_id, grant_row.project_id
+               )
+        )
+    );
+CREATE POLICY celestin_capture_project_service_grant_read
+    ON public.celestin_service_project_grants
+    FOR SELECT TO celestin_project_capture_runtime
+    USING (public.celestin_request_scope_matches(workspace_id, project_id));
+GRANT SELECT ON TABLE
+    public.celestin_users, public.celestin_workspaces,
+    public.celestin_workspace_memberships, public.celestin_projects,
+    public.celestin_project_memberships, public.celestin_service_identities,
+    public.celestin_service_project_grants
+TO celestin_project_capture_runtime;
 
 DO $$
 DECLARE

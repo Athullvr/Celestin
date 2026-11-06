@@ -8,6 +8,7 @@ The authorization session factory owns the request transaction and cleanup.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from orbit.capture.postgres import PostgresProducerKnowledgeWorkflow
 from orbit.mcp_server.hosted_scope import (
     HostedScopeResolver,
     ProjectScopedSourceMessage,
@@ -32,6 +33,7 @@ class PostgresRequestUnitOfWork:
     _authorization_session: PostgresHostedAuthorizationSession
     _scope: ResolvedProjectScope
     evidence_store: PostgresEvidenceLinkedMemoryStore
+    producer_knowledge: PostgresProducerKnowledgeWorkflow
     memory_store: PostgresMemoryStore
     retrieval_data: PostgresRetrievalData
     retrieval_service: RetrievalService
@@ -48,12 +50,18 @@ class PostgresRequestUnitOfWork:
             raise TypeError("scope must be issued by HostedScopeResolver")
         connection = session._connection_for_adapters
         instance = object.__new__(cls)
+        evidence_store = PostgresEvidenceLinkedMemoryStore._for_request(connection, scope)
         object.__setattr__(instance, "_authorization_session", session)
         object.__setattr__(instance, "_scope", scope)
+        object.__setattr__(instance, "evidence_store", evidence_store)
         object.__setattr__(
             instance,
-            "evidence_store",
-            PostgresEvidenceLinkedMemoryStore._for_request(connection, scope),
+            "producer_knowledge",
+            PostgresProducerKnowledgeWorkflow._for_request(
+                connection,
+                scope,
+                evidence_store,
+            ),
         )
         object.__setattr__(
             instance, "memory_store", PostgresMemoryStore._for_request(connection, scope)
@@ -67,6 +75,11 @@ class PostgresRequestUnitOfWork:
         )
         object.__setattr__(instance, "_resolver", resolver)
         return instance
+
+    @property
+    def scope(self) -> ResolvedProjectScope:
+        """The server-issued project scope bound to this request transaction."""
+        return self._scope
 
     def require_source_message(self, message_id: str) -> ProjectScopedSourceMessage:
         """Validate source provenance on the same authorized session."""

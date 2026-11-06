@@ -15,6 +15,7 @@ from orbit.evidence.model import (
     ReferenceStatus,
     VerificationStatus,
 )
+from orbit.evidence.provenance_json import producer_delivery_to_dict
 from orbit.project_state.model import EvidenceClass
 
 KNOWLEDGE_STATE_SCHEMA_VERSION = 1
@@ -116,49 +117,7 @@ class CaptureKnowledgeState:
             "conflicts_with": list(self.conflicts_with),
         }
         if self.producer_delivery is not None:
-            delivery = self.producer_delivery
-            value["producer_delivery"] = {
-                "schema_version": delivery.schema_version,
-                "producer_id": delivery.producer_id,
-                "source_namespace": delivery.source_namespace,
-                "delivery_id": delivery.delivery_id,
-                "payload_revision_id": delivery.payload_revision_id,
-                "payload_hash_version": delivery.payload_hash_version,
-                "payload_hash": delivery.payload_hash,
-                "occurrences": [
-                    {
-                        "ordinal": occurrence.ordinal,
-                        "category": occurrence.category,
-                        "claim": occurrence.claim,
-                        "source_namespace": occurrence.source_namespace,
-                        "source_id": occurrence.source_id,
-                        "source_revision": occurrence.source_revision,
-                        "occurred_at": occurrence.occurred_at,
-                        "locator": occurrence.locator,
-                        "candidate_id": occurrence.candidate_id,
-                        "candidate_revision": occurrence.candidate_revision,
-                        "evidence": [
-                            {
-                                "evidence_type": evidence.evidence_type.value,
-                                "source_id": evidence.source_id,
-                                "locator": evidence.locator,
-                                "revision": evidence.revision,
-                                "content_hash": evidence.content_hash,
-                            }
-                            for evidence in occurrence.evidence
-                        ],
-                    }
-                    for occurrence in delivery.occurrences
-                ],
-                "conflicts": [
-                    {
-                        "producer_id": conflict.producer_id,
-                        "candidate_id": conflict.candidate_id,
-                        "candidate_revision": conflict.candidate_revision,
-                    }
-                    for conflict in delivery.conflicts
-                ],
-            }
+            value["producer_delivery"] = producer_delivery_to_dict(self.producer_delivery)
         return value
 
 
