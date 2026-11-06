@@ -78,7 +78,7 @@ GOOD_CONTROL_ROLE_ROW = (
 )
 GOOD_AUTHORIZATION_ADMIN_ROLE_ROW = (False,) * 5 + (True,) * 9
 GOOD_PROJECT_ROLE_ROW = (
-    (False,) * 5 + (True,) * 6 + (False,) + (True,) * 26
+    (False,) * 5 + (True,) * 6 + (False,) + (True,) * 27
 )
 
 
@@ -422,10 +422,8 @@ def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
         "project_runtime_scopes", "celestin_schema_migrations",
     ) == tuple(pool.queries[0][1][2])
     assert tuple(PROTECTED_TABLES) == tuple(pool.queries[0][1][3])
-    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][15])
-    assert tuple(PROTECTED_TABLES[2:]) + ("celestin_schema_migrations",) == tuple(
-        pool.queries[0][1][16]
-    )
+    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][14])
+    assert ("celestin_schema_migrations",) == tuple(pool.queries[0][1][15])
     assert "relrowsecurity" in pool.queries[0][0]
     assert "relforcerowsecurity" in pool.queries[0][0]
     assert "pg_has_role" in pool.queries[0][0]
@@ -434,6 +432,7 @@ def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
     assert "rolreplication" in pool.queries[0][0]
     assert "exact_project_login_mapping" in pool.queries[0][0]
     assert "current_tool_grants" in pool.queries[0][0]
+    assert "producer_knowledge_grants" in pool.queries[0][0]
     assert "current_tool_sequence_grants" in pool.queries[0][0]
     assert "no_unexposed_content_grants" in pool.queries[0][0]
     assert "has_any_column_privilege" in pool.queries[0][0]

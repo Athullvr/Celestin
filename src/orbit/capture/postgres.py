@@ -405,7 +405,6 @@ class PostgresProducerKnowledgeWorkflow:
         self, producer_id: str, candidate_id: str, candidate_revision: int
     ) -> KnowledgeConversionResult:
         """Convert only the exact approved immutable candidate revision."""
-        self._require_permission("write")
         self._require_permission("memory:convert")
         producer_id = _required_text(producer_id, "producer_id")
         candidate_id = _required_text(candidate_id, "candidate_id")
@@ -623,6 +622,13 @@ class PostgresProducerKnowledgeWorkflow:
         relax: bool = True,
     ) -> KnowledgeRetrievalResult:
         """Run FTS over the scoped Knowledge index and bind hits to the typed read."""
+        if read_result.project_id != self._scope.project_key:
+            return KnowledgeRetrievalResult(
+                read_result,
+                None,
+                "not_run",
+                failure="knowledge_project_scope_mismatch",
+            )
         from orbit.retrieval.postgres_data import PostgresRetrievalData
 
         retrieval = PostgresRetrievalData._for_request(self._connection, self._scope)
@@ -1388,6 +1394,16 @@ def _candidate_ref_dict(candidate: DeliveryCandidateRevision) -> dict[str, objec
         "candidate_revision": candidate.candidate_revision,
         "first_occurrence_ordinal": candidate.first_occurrence_ordinal,
     }
+
+
+def _review_state(status: ReviewStatus) -> ProducerReviewState:
+    if status is ReviewStatus.APPROVED:
+        return ProducerReviewState.APPROVED
+    if status is ReviewStatus.REJECTED:
+        return ProducerReviewState.REJECTED
+    raise ProducerWorkflowError(
+        "invalid_review_state", "only approved or rejected reviews can be persisted"
+    )
 
 
 def _first_occurrence_ordinals(candidate_ids: Sequence[str]) -> dict[str, int]:

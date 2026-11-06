@@ -1,5 +1,14 @@
 # PostgreSQL integration tests
 
+> **Current through migration 0010:** The project-runtime login now has
+> project-scoped producer/Capture/Knowledge table grants in addition to its
+> existing message and decision grants. `tests/postgres/test_live_authorization.py`
+> checks the expanded RLS and exact workflow privilege catalog, while the new
+> producer workflow cases exercise retry, review, conversion, provenance, and
+> Knowledge FTS on the same authorized project request. This does not add an
+> MCP tool or prove external producer authentication. Older paragraphs below
+> that describe the 0008-only privilege profile are historical.
+
 ## Scope
 
 The hosted project-runtime authorization/RLS gate covers the packaged migrations and restricted project-login behavior. `tests/postgres/test_live_authorization.py` covers authorization decisions, same-key project separation, lifecycle/revocation, constraints, in-flight authorization changes, rollback, direct SQL/RLS behavior, legacy-GUC forgery, prohibited role switching, the workspace-lock boundary added in migration 0009, and a project-login retrieval case through the request unit of work. The retrieval case checks lexical results, persisted message fields, exclusion of a sibling-project row and a missing ID, and that retrieval borrows the active authorized request connection.

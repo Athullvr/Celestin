@@ -174,8 +174,11 @@ audit storage, and event-driven deactivation with reconciliation are not
 implemented. Authorization changes acquire transaction-scoped exclusive
 advisory locks corresponding to the shared locks held by protected requests; an
 already-authorized operation can finish before a concurrent revocation commits.
-This does not disable token issuance at Auth0. D-08 delivery receipts/equality/
-replay and Capture-to-Evidence conversion are outside the hosted MCP path.
+This does not disable token issuance at Auth0. An internal Producer → Knowledge
+application now composes durable delivery, Capture review/conversion, typed
+Knowledge reads, and FTS retrieval through `HostedRequestBoundary`; it is not
+registered as an MCP tool and does not claim an external producer integration.
+See [the workflow contract](docs/producer-knowledge-workflow.md).
 
 ## Optional Neon tooling for Codex
 

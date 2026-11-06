@@ -896,7 +896,7 @@ def test_project_runtime_live_policy_and_trigger_catalogs_cover_all_protected_ta
     project_id = fixture.project_a if role == "project_a" else fixture.project_b
     pool = _LiveReadinessPool(pg, workspace_id, project_id)
 
-    assert len(PROTECTED_TABLES) == 12
+    assert len(PROTECTED_TABLES) == 15
     _assert_expected_policy_catalog(pool, timeout=5)
     _assert_expected_trigger_catalog(pool, timeout=5)
 
@@ -911,10 +911,26 @@ def test_project_runtime_live_policy_and_trigger_catalogs_cover_all_protected_ta
                 ORDER BY table_name""",
             (list(PROTECTED_TABLES),),
         ).fetchall()
+    write_tables = {
+        "chat_messages",
+        "project_memory",
+        "celestin_knowledge_records",
+        "celestin_evidence_records",
+        "celestin_candidates",
+        "celestin_candidate_revisions",
+        "celestin_candidate_review_events",
+        "celestin_candidate_evidence_records",
+        "celestin_candidate_occurrences",
+        "celestin_candidate_conversions",
+        "celestin_producer_delivery_receipts",
+        "celestin_candidate_revision_payloads",
+        "celestin_delivery_candidate_revisions",
+    }
+    update_tables = {
+        "project_memory", "celestin_knowledge_records", "celestin_evidence_records"
+    }
     expected = {
-        table: (table in {"chat_messages", "project_memory"},
-                table in {"chat_messages", "project_memory"},
-                table == "project_memory", False)
+        table: (table in write_tables, table in write_tables, table in update_tables, False)
         for table in PROTECTED_TABLES
     }
     assert {table: tuple(row[1:]) for row in privileges} == expected

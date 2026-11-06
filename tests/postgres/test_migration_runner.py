@@ -119,7 +119,7 @@ def migration(version: int, sql: str = "CREATE TEST;", name: str | None = None) 
 
 def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     migrations = load_migrations()
-    assert [item.version for item in migrations] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert [item.version for item in migrations] == list(range(1, 11))
     assert migrations[0].name == "0001_hosted_baseline.sql"
     assert "CREATE TABLE celestin_users" in migrations[0].sql
     assert "BEGIN;" not in migrations[0].sql
@@ -218,6 +218,21 @@ def test_packaged_baseline_is_ordered_and_distinct_from_schema_draft():
     assert "celestin_lock_authorization_request(UUID, TEXT, TEXT, TEXT)" in normalized_nine
     assert "TO celestin_authorization_reader" in normalized_nine
     assert "TO celestin_project_runtime" in normalized_nine
+
+    migration_ten = migrations[9]
+    assert migration_ten.name == "0010_producer_knowledge_workflow.sql"
+    normalized_ten = " ".join(migration_ten.sql.split())
+    assert "celestin_producer_delivery_receipts" in normalized_ten
+    assert "celestin_candidate_revision_payloads" in normalized_ten
+    assert "celestin_delivery_candidate_revisions" in normalized_ten
+    assert "celestin_project_runtime" in normalized_ten
+    assert "celestin_project_capture_runtime" not in normalized_ten
+    assert "ENABLE ROW LEVEL SECURITY" in normalized_ten
+    assert "FORCE ROW LEVEL SECURITY" in normalized_ten
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE" in normalized_ten
+    assert "GRANT DELETE" not in normalized_ten.upper()
+    assert "CREATE ROLE" not in migration_ten.sql.upper()
+    assert "smic-conversion-payload-v1+jcs-rfc8785+sha256" not in migration_ten.sql
     assert "FROM PUBLIC, celestin_project_runtime" in normalized_nine
     assert "OLD.issuer" in migration_nine.sql and "NEW.issuer" in migration_nine.sql
     assert "public.celestin_project_memberships" in migration_nine.sql

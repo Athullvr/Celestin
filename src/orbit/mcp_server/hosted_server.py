@@ -75,6 +75,9 @@ PROTECTED_TABLES = (
     "celestin_candidate_evidence_records",
     "celestin_candidate_occurrences",
     "celestin_candidate_conversions",
+    "celestin_producer_delivery_receipts",
+    "celestin_candidate_revision_payloads",
+    "celestin_delivery_candidate_revisions",
 )
 AUTHORIZATION_TABLES = (
     "celestin_users",
@@ -2441,6 +2444,50 @@ def _assert_safe_project_runtime(
                     AND NOT has_table_privilege(current_user, 'public.project_memory', 'TRIGGER')
                     AND NOT has_table_privilege(current_user, 'public.project_memory', 'REFERENCES')
                ) AS current_tool_grants,
+               NOT EXISTS (
+                   SELECT 1 FROM unnest(ARRAY[
+                       'celestin_knowledge_records', 'celestin_evidence_records',
+                       'celestin_project_producers', 'celestin_project_source_namespaces',
+                       'celestin_candidates', 'celestin_candidate_revisions',
+                       'celestin_candidate_review_events',
+                       'celestin_candidate_evidence_records',
+                       'celestin_candidate_occurrences', 'celestin_candidate_conversions',
+                       'celestin_producer_delivery_receipts',
+                       'celestin_candidate_revision_payloads',
+                       'celestin_delivery_candidate_revisions'
+                   ]::text[]) AS workflow(table_name)
+                    WHERE NOT has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'SELECT')
+                       OR (
+                           workflow.table_name NOT IN (
+                               'celestin_project_producers',
+                               'celestin_project_source_namespaces'
+                           )
+                           AND NOT has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'INSERT')
+                       )
+                       OR (
+                           workflow.table_name IN (
+                               'celestin_project_producers',
+                               'celestin_project_source_namespaces'
+                           )
+                           AND has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'INSERT')
+                       )
+                       OR has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'UPDATE')
+                          <> (workflow.table_name = ANY(ARRAY[
+                              'celestin_knowledge_records', 'celestin_evidence_records'
+                          ]::text[]))
+                       OR has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'DELETE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'TRUNCATE')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'TRIGGER')
+                       OR has_table_privilege(current_user,
+                              format('public.%I', workflow.table_name), 'REFERENCES')
+               ) AS producer_knowledge_grants,
                (
                    has_sequence_privilege(current_user,
                        pg_catalog.pg_get_serial_sequence('public.chat_messages', 'id'), 'USAGE')
@@ -2665,7 +2712,7 @@ def _assert_safe_project_runtime(
             UUID(int=scope[0].int ^ 1), scope[1],
             scope[0], UUID(int=scope[0].int ^ 1),
             auth_tables,
-            list(PROTECTED_TABLES[2:]) + ["celestin_schema_migrations"],
+            ["celestin_schema_migrations"],
             tenant_tables,
             list(PROTECTED_TABLES + AUTHORIZATION_TABLES + ("celestin_schema_migrations",)),
         ),
@@ -2722,15 +2769,15 @@ def _validate_project_runtime_probe(row) -> None:
     """Validate the project-role probe result without opening a connection."""
     if (
         row is None
-        or len(row) != 38
+        or len(row) != 39
         or any(type(value) is not bool for value in row)
         or any(row[:5])
         or not all(row[5:10])
         or not row[10]
         or row[11]
         or not all(row[12:23])
-        or not all(row[23:31])
-        or not all(row[31:])
+        or not all(row[23:32])
+        or not all(row[32:])
     ):
         raise RuntimeError(
             "PostgreSQL project role violates its project-isolation requirements"
