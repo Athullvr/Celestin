@@ -115,7 +115,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE
     public.celestin_knowledge_records,
     public.celestin_evidence_records
 TO celestin_project_runtime;
-GRANT SELECT ON TABLE
+GRANT SELECT, INSERT ON TABLE
     public.celestin_project_producers,
     public.celestin_project_source_namespaces
 TO celestin_project_runtime;

@@ -916,6 +916,8 @@ def test_project_runtime_live_policy_and_trigger_catalogs_cover_all_protected_ta
         "project_memory",
         "celestin_knowledge_records",
         "celestin_evidence_records",
+        "celestin_project_producers",
+        "celestin_project_source_namespaces",
         "celestin_candidates",
         "celestin_candidate_revisions",
         "celestin_candidate_review_events",
@@ -934,6 +936,328 @@ def test_project_runtime_live_policy_and_trigger_catalogs_cover_all_protected_ta
         for table in PROTECTED_TABLES
     }
     assert {table: tuple(row[1:]) for row in privileges} == expected
+
+
+def test_project_scoped_producer_delivery_conversion_read_and_retrieval(
+    postgres_connections, tenant_fixture, monkeypatch
+):
+    from orbit.capture.model import CandidateCategory, CaptureSourceType
+    from orbit.capture.postgres import ProducerWorkflowError
+    from orbit.capture.producer_contract import (
+        ProducerDelivery,
+        ProducerEvidenceReference,
+        ProducerOccurrence,
+    )
+    from orbit.evidence.model import EvidenceType, ProducerConflictReference
+    from orbit.evidence.postgres import PostgresEvidenceLinkedMemoryStore
+    from orbit.mcp_server.hosted_identity import HostedRequestBoundary
+
+    pg, fixture = postgres_connections, tenant_fixture
+    producer_id = f"producer-{fixture.suffix}"
+    namespace = f"repository-{fixture.suffix}"
+    timestamp_a = "2026-11-01T10:00:00-05:00"
+    timestamp_b = "2026-11-02T15:30:00Z"
+    reviewer = fixture.human()
+    submitter = fixture.service()
+
+    with pg.connection() as connection, connection.transaction():
+        connection.execute(
+            """UPDATE celestin_project_memberships
+                  SET can_approve_candidates = TRUE, can_convert_memory = TRUE
+                WHERE workspace_id = %s AND project_id = %s AND user_id = %s""",
+            (fixture.workspace_a, fixture.project_a, fixture.human_id),
+        )
+
+    class Authenticator:
+        def __init__(self, principal):
+            self.principal = principal
+
+        def authenticate(self, _context):
+            return self.principal
+
+    class WorkspaceBinding:
+        def __init__(self, workspace):
+            self.workspace = workspace
+
+        def workspace_for(self, _principal, requested_workspace_id=None):
+            if requested_workspace_id is not None and requested_workspace_id != self.workspace:
+                return None
+            return self.workspace
+
+    def invoke(principal, workspace, action, operation):
+        boundary = HostedRequestBoundary(
+            authenticator=Authenticator(principal),
+            workspace_binding=WorkspaceBinding(workspace),
+            principal_status=ActiveStatusFallback(),
+            request_executor=_factory(pg),
+        )
+
+        def capture_error(unit_of_work):
+            try:
+                return operation(unit_of_work.producer_knowledge)
+            except ProducerWorkflowError as exc:
+                return ("error", exc.code)
+
+        return boundary.execute_authorized_request(
+            object(),
+            fixture.project_key,
+            action,
+            capture_error,
+            workspace_selector=str(workspace),
+        )
+
+    def make_delivery(
+        delivery_id,
+        revision_id,
+        claim,
+        *,
+        times=(timestamp_a, timestamp_b),
+        conflicts=(),
+        source_namespace=namespace,
+    ):
+        evidence = ProducerEvidenceReference(
+            EvidenceType.REPOSITORY_FILE,
+            f"repo-{fixture.suffix}",
+            source_namespace,
+            locator="README.md:8",
+            revision="a1b2c3",
+            content_hash="sha256:" + "a" * 64,
+        )
+        return ProducerDelivery(
+            project_id=fixture.project_key,
+            producer_id=producer_id,
+            source_namespace=source_namespace,
+            delivery_id=delivery_id,
+            payload_revision_id=revision_id,
+            source_type=CaptureSourceType.EXECUTION_REPORT,
+            source_id=f"run-{fixture.suffix}",
+            occurred_at=timestamp_a,
+            occurrences=tuple(
+                ProducerOccurrence(
+                    ordinal,
+                    CandidateCategory.DECISION,
+                    claim,
+                    (evidence,),
+                    source_id=f"repo-{fixture.suffix}",
+                    source_revision="a1b2c3",
+                    occurred_at=when,
+                    locator="README.md:8",
+                    conflicts=conflicts if ordinal == 0 else (),
+                )
+                for ordinal, when in enumerate(times)
+            ),
+        )
+
+    delivery = make_delivery(
+        "delivery-1", "payload-r1", "Use the bounded queue for project jobs."
+    )
+    receipt = invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: (
+            workflow.ensure_registered_source(producer_id, namespace),
+            workflow.deliver(delivery),
+        )[1],
+    )
+    assert receipt.outcome.value == "accepted"
+    assert len(receipt.candidates) == 1
+    assert receipt.candidates[0].first_occurrence_ordinal == 0
+    candidate_id = receipt.candidates[0].candidate_id
+    assert receipt.candidates[0].candidate_revision == 1
+
+    replay = invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(delivery),
+    )
+    assert replay.outcome.value == "replayed"
+    assert replay.received_at == receipt.received_at
+    assert replay.candidates == receipt.candidates
+
+    changed_payload = make_delivery(
+        "delivery-1", "payload-r2", "Use a changed claim under the same delivery key."
+    )
+    assert invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(changed_payload),
+    ) == ("error", "delivery_id_payload_conflict")
+
+    other_project_delivery = make_delivery(
+        "delivery-b", "payload-b", "Use the bounded queue for project jobs."
+    )
+    assert invoke(
+        reviewer,
+        fixture.workspace_b,
+        "write",
+        lambda workflow: workflow.deliver(other_project_delivery),
+    ) == ("error", "producer_not_registered")
+
+    unregistered_source = make_delivery(
+        "delivery-source-mismatch", "payload-s", "Source namespace must be configured.",
+        source_namespace=f"unregistered-{fixture.suffix}",
+    )
+    assert invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(unregistered_source),
+    ) == ("error", "source_namespace_not_registered")
+
+    invalid_conflict = make_delivery(
+        "delivery-invalid-conflict",
+        "payload-c1",
+        "A conflict target must resolve in this project.",
+        conflicts=(ProducerConflictReference(producer_id, "missing-candidate", 1),),
+        times=(timestamp_a,),
+    )
+    assert invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(invalid_conflict),
+    ) == ("error", "conflict_reference_unresolved")
+
+    reviewed = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "candidate:approve",
+        lambda workflow: workflow.approve(producer_id, candidate_id, 1),
+    )
+    assert reviewed.status.value == "approved"
+
+    revision_two = make_delivery(
+        "delivery-2", "payload-r2", "Use the bounded queue for project jobs.",
+        times=(timestamp_a,),
+    )
+    receipt_two = invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(revision_two),
+    )
+    assert receipt_two.candidates[0].candidate_id == candidate_id
+    assert receipt_two.candidates[0].candidate_revision == 2
+    assert invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:convert",
+        lambda workflow: workflow.convert(producer_id, candidate_id, 2),
+    ) == ("error", "candidate_not_approved")
+
+    conflict_delivery = make_delivery(
+        "delivery-conflict",
+        "payload-conflict",
+        "Do not use an unbounded worker queue.",
+        conflicts=(ProducerConflictReference(producer_id, candidate_id, 1),),
+        times=(timestamp_b,),
+    )
+    conflict_receipt = invoke(
+        submitter,
+        fixture.workspace_a,
+        "write",
+        lambda workflow: workflow.deliver(conflict_delivery),
+    )
+    conflict_candidate_id = conflict_receipt.candidates[0].candidate_id
+    invoke(
+        reviewer,
+        fixture.workspace_a,
+        "candidate:approve",
+        lambda workflow: workflow.approve(producer_id, conflict_candidate_id, 1),
+    )
+
+    original_create = PostgresEvidenceLinkedMemoryStore.create_knowledge
+
+    def fail_after_store_write(store, *args, **kwargs):
+        original_create(store, *args, **kwargs)
+        raise RuntimeError("simulated failure after evidence store write")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            PostgresEvidenceLinkedMemoryStore, "create_knowledge", fail_after_store_write
+        )
+        failed_conversion = invoke(
+            reviewer,
+            fixture.workspace_a,
+            "memory:convert",
+            lambda workflow: workflow.convert(producer_id, candidate_id, 1),
+        )
+    assert failed_conversion == ("error", "conversion_failed")
+    after_rollback = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:read",
+        lambda workflow: workflow.read_knowledge(),
+    )
+    assert after_rollback.outcome.value == "succeeded"
+    assert after_rollback.records == ()
+
+    converted = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:convert",
+        lambda workflow: workflow.convert(producer_id, candidate_id, 1),
+    )
+    replayed_conversion = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:convert",
+        lambda workflow: workflow.convert(producer_id, candidate_id, 1),
+    )
+    assert converted.outcome.value == "created"
+    assert replayed_conversion.outcome.value == "replayed"
+    assert replayed_conversion.knowledge_id == converted.knowledge_id
+
+    conflict_converted = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:convert",
+        lambda workflow: workflow.convert(producer_id, conflict_candidate_id, 1),
+    )
+    assert conflict_converted.outcome.value == "created"
+
+    knowledge_read, retrieval = invoke(
+        reviewer,
+        fixture.workspace_a,
+        "memory:read",
+        lambda workflow: (
+            (read := workflow.read_knowledge()),
+            workflow.retrieve_knowledge(read, "bounded queue"),
+        ),
+    )
+    assert knowledge_read.outcome.value == "succeeded"
+    assert knowledge_read.coverage.value == "reported_complete"
+    assert len(knowledge_read.records) == 2
+    primary_bundle = next(
+        bundle for bundle in knowledge_read.records
+        if bundle.record.knowledge_id == converted.knowledge_id
+    )
+    provenance = primary_bundle.record.capture_provenance.producer_delivery
+    assert primary_bundle.record.verification_status.value == "unverified"
+    assert [item.ordinal for item in provenance.occurrences] == [0, 1]
+    assert [item.category for item in provenance.occurrences] == ["decision", "decision"]
+    assert [item.occurred_at for item in provenance.occurrences] == [timestamp_a, timestamp_b]
+    assert [item.candidate_revision for item in provenance.occurrences] == [1, 1]
+    assert len(primary_bundle.evidence) == 1
+    assert len(provenance.occurrences[0].evidence) == 1
+    assert primary_bundle.evidence[0].verification_status.value == "unverified"
+    assert retrieval.knowledge_read is knowledge_read
+    assert retrieval.context_bundle is not None
+    assert any(item.record_id == f"knowledge:{converted.knowledge_id}"
+               for item in retrieval.context_bundle.items)
+
+    conflict_bundle = next(
+        bundle for bundle in knowledge_read.records
+        if bundle.record.knowledge_id == conflict_converted.knowledge_id
+    )
+    conflict_provenance = conflict_bundle.record.capture_provenance.producer_delivery
+    assert conflict_provenance.conflicts == (
+        ProducerConflictReference(producer_id, candidate_id, 1),
+    )
+    assert conflict_provenance.occurrences[0].conflicts == conflict_provenance.conflicts
 
 
 @pytest.mark.parametrize("role", ["project_a", "project_b"])

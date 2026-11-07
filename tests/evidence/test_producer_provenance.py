@@ -21,6 +21,7 @@ def test_producer_provenance_round_trip_preserves_order_duplicates_and_links():
         "a1b2c3",
         "sha256:" + "a" * 64,
     )
+    conflict = ProducerConflictReference("producer-b", "candidate-9", 4)
     repeated_occurrences = tuple(
         ProducerOccurrenceProvenance(
             ordinal=index,
@@ -34,6 +35,7 @@ def test_producer_provenance_round_trip_preserves_order_duplicates_and_links():
             evidence=(source,),
             candidate_id="capture-candidate-1",
             candidate_revision=2,
+            conflicts=(conflict,) if index == 1 else (),
         )
         for index in range(2)
     )
@@ -46,7 +48,7 @@ def test_producer_provenance_round_trip_preserves_order_duplicates_and_links():
         payload_hash_version="celestin-producer-delivery-v1+jcs-rfc8785+sha256",
         payload_hash="b" * 64,
         occurrences=repeated_occurrences,
-        conflicts=(ProducerConflictReference("producer-b", "candidate-9", 4),),
+        conflicts=(conflict,),
     )
 
     encoded = producer_delivery_to_dict(provenance)
@@ -55,6 +57,8 @@ def test_producer_provenance_round_trip_preserves_order_duplicates_and_links():
     assert decoded == provenance
     assert [item.ordinal for item in decoded.occurrences] == [0, 1]
     assert [item.evidence for item in decoded.occurrences] == [(source,), (source,)]
+    assert decoded.occurrences[0].conflicts == ()
+    assert decoded.occurrences[1].conflicts == (conflict,)
     assert decoded.conflicts == (ProducerConflictReference("producer-b", "candidate-9", 4),)
 
 

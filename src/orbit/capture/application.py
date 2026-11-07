@@ -8,7 +8,7 @@ through MCP tools or an external producer transport.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Mapping, TypeVar
 
@@ -49,6 +49,7 @@ class ProducerKnowledgeApplication:
         hosted_boundary: HostedRequestBoundary,
         hosted_project_keys: Mapping[str, str],
         producer_ids_by_local_project: Mapping[str, str],
+        source_namespaces_by_local_project: Mapping[str, Sequence[str]],
     ) -> None:
         if not callable(getattr(resolver, "resolve", None)):
             raise TypeError("resolver must provide resolve(project_id)")
@@ -56,6 +57,7 @@ class ProducerKnowledgeApplication:
             raise TypeError("hosted_boundary must be a HostedRequestBoundary")
         mapping = dict(hosted_project_keys)
         producer_bindings = dict(producer_ids_by_local_project)
+        namespace_bindings = dict(source_namespaces_by_local_project)
         if not mapping:
             raise ValueError("hosted_project_keys must contain an explicit project mapping")
         for local_id, hosted_key in mapping.items():
@@ -65,6 +67,8 @@ class ProducerKnowledgeApplication:
                 raise ValueError("hosted project mapping values must be non-empty text")
         if set(producer_bindings) != set(mapping):
             raise ValueError("every local project must have one trusted producer binding")
+        if set(namespace_bindings) != set(mapping):
+            raise ValueError("every local project must have trusted source namespaces")
         for local_id, producer_id in producer_bindings.items():
             if (
                 not isinstance(local_id, str)
@@ -75,10 +79,24 @@ class ProducerKnowledgeApplication:
                 or "\x00" in producer_id
             ):
                 raise ValueError("producer bindings must contain non-empty project and producer IDs")
+        normalized_namespaces: dict[str, frozenset[str]] = {}
+        for local_id, namespaces in namespace_bindings.items():
+            if not isinstance(namespaces, Sequence) or isinstance(namespaces, (str, bytes)):
+                raise ValueError("source namespace bindings must be sequences of names")
+            values = tuple(namespaces)
+            if not values or any(
+                not isinstance(value, str) or not value.strip() or "\x00" in value
+                for value in values
+            ):
+                raise ValueError("source namespaces must be non-empty text")
+            if len(set(values)) != len(values):
+                raise ValueError("source namespace bindings must not contain duplicates")
+            normalized_namespaces[local_id] = frozenset(values)
         self._resolver = resolver
         self._hosted_boundary = hosted_boundary
         self._hosted_project_keys = mapping
         self._producer_ids_by_local_project = producer_bindings
+        self._source_namespaces_by_local_project = normalized_namespaces
 
     def deliver(
         self,
@@ -100,11 +118,24 @@ class ProducerKnowledgeApplication:
                 "producer_identity_mismatch",
                 "delivery producer does not match the trusted project producer binding",
             )
+        if delivery.source_namespace not in self._source_namespaces_by_local_project[binding.project_id]:
+            raise ProducerWorkflowError(
+                "source_namespace_mismatch",
+                "delivery source namespace is not configured for this project",
+            )
+
+        producer_id = self._producer_ids_by_local_project[binding.project_id]
+        source_namespace = delivery.source_namespace
+
+        def operation(workflow: PostgresProducerKnowledgeWorkflow) -> ProducerDeliveryReceipt:
+            workflow.ensure_registered_source(producer_id, source_namespace)
+            return workflow.deliver(delivery)
+
         return self._execute(
             binding,
             hosted_key,
             "write",
-            lambda workflow: workflow.deliver(delivery),
+            operation,
             transport_context=transport_context,
             workspace_selector=workspace_selector,
         )

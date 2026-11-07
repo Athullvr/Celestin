@@ -45,7 +45,11 @@ class PrincipalStatus:
 class Workflow:
     def __init__(self) -> None:
         self.deliveries = []
+        self.registrations = []
         self.read_result = KnowledgeReadResult.succeeded("hosted-project")
+
+    def ensure_registered_source(self, producer_id: str, source_namespace: str) -> None:
+        self.registrations.append((producer_id, source_namespace))
 
     def deliver(self, delivery: ProducerDelivery) -> str:
         self.deliveries.append(delivery)
@@ -84,6 +88,7 @@ def make_app() -> tuple[ProducerKnowledgeApplication, Workflow, Executor]:
         boundary,
         {"alpha": "hosted-project"},
         {"alpha": "producer-bound-by-server"},
+        {"alpha": ("local-source",)},
     )
     return app, workflow, executor
 
@@ -115,6 +120,7 @@ def test_application_resolves_local_project_and_uses_configured_hosted_and_produ
     )
 
     assert result == "accepted"
+    assert workflow.registrations == [("producer-bound-by-server", "local-source")]
     assert workflow.deliveries == [delivery()]
     assert executor.calls == [("hosted-project", "write", "authorized")]
 

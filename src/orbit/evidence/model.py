@@ -119,6 +119,7 @@ class ProducerOccurrenceProvenance:
     evidence: tuple[EvidenceSource, ...]
     candidate_id: str
     candidate_revision: int
+    conflicts: tuple[ProducerConflictReference, ...] = ()
 
     def __post_init__(self) -> None:
         if isinstance(self.ordinal, bool) or not isinstance(self.ordinal, int) or self.ordinal < 0:
@@ -136,6 +137,9 @@ class ProducerOccurrenceProvenance:
         evidence = tuple(self.evidence)
         if not evidence or any(not isinstance(item, EvidenceSource) for item in evidence):
             raise ValueError("each producer occurrence must retain at least one EvidenceSource")
+        conflicts = tuple(self.conflicts)
+        if any(not isinstance(item, ProducerConflictReference) for item in conflicts):
+            raise ValueError("occurrence conflicts must be typed ProducerConflictReference values")
         if (
             isinstance(self.candidate_revision, bool)
             or not isinstance(self.candidate_revision, int)
@@ -143,6 +147,7 @@ class ProducerOccurrenceProvenance:
         ):
             raise ValueError("candidate_revision must be a positive integer")
         object.__setattr__(self, "evidence", evidence)
+        object.__setattr__(self, "conflicts", conflicts)
 
 
 @dataclass(frozen=True, slots=True)

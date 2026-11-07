@@ -348,6 +348,42 @@ class PostgresProducerKnowledgeWorkflow:
                 "delivery was rolled back and can be retried with the same identity",
             ) from exc
 
+    def ensure_registered_source(self, producer_id: str, source_namespace: str) -> None:
+        """Persist the server-configured producer/source binding in this project.
+
+        Only the internal application should call this with its trusted
+        configuration values. The project-scoped SQL role constrains resulting
+        rows, but this method does not authenticate an external producer.
+        """
+        self._require_permission("write")
+        producer_id = _required_text(producer_id, "producer_id")
+        source_namespace = _required_text(source_namespace, "source_namespace")
+        try:
+            with self._atomic():
+                self._execute(
+                    """
+                    INSERT INTO celestin_project_producers
+                        (workspace_id, project_id, producer_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (workspace_id, project_id, producer_id) DO NOTHING
+                    """,
+                    (self._scope.workspace_id, self._scope.project_id, producer_id),
+                )
+                self._execute(
+                    """
+                    INSERT INTO celestin_project_source_namespaces
+                        (workspace_id, project_id, source_namespace)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (workspace_id, project_id, source_namespace) DO NOTHING
+                    """,
+                    (self._scope.workspace_id, self._scope.project_id, source_namespace),
+                )
+        except Exception as exc:
+            raise ProducerWorkflowError(
+                "producer_registration_failed",
+                "trusted producer/source binding could not be registered",
+            ) from exc
+
     def approve(
         self,
         producer_id: str,
@@ -405,6 +441,9 @@ class PostgresProducerKnowledgeWorkflow:
         self, producer_id: str, candidate_id: str, candidate_revision: int
     ) -> KnowledgeConversionResult:
         """Convert only the exact approved immutable candidate revision."""
+        # Evidence store writes retain the existing project ``write`` gate;
+        # conversion also requires its dedicated reviewer-granted capability.
+        self._require_permission("write")
         self._require_permission("memory:convert")
         producer_id = _required_text(producer_id, "producer_id")
         candidate_id = _required_text(candidate_id, "candidate_id")
@@ -925,6 +964,7 @@ class PostgresProducerKnowledgeWorkflow:
                     evidence=evidence,
                     candidate_id=candidate_id,
                     candidate_revision=candidate_revision,
+                    conflicts=occurrence.conflicts,
                 )
             )
             conflicts.extend(occurrence.conflicts)
@@ -1267,6 +1307,11 @@ class PostgresProducerKnowledgeWorkflow:
             "schema_version": 1,
             "project_id": self._scope.project_key,
             "producer_id": provenance.producer_id,
+            "source_namespace": provenance.source_namespace,
+            "delivery_id": provenance.delivery_id,
+            "payload_revision_id": provenance.payload_revision_id,
+            "payload_hash_version": provenance.payload_hash_version,
+            "payload_hash": provenance.payload_hash,
             "candidate_id": candidate.candidate_id,
             "candidate_revision": candidate_revision,
             "category": candidate.category.value,

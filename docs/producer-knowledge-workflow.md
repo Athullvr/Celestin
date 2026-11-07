@@ -33,10 +33,11 @@ An exact delivery retry returns the persisted receipt and does not make a new
 revision. The same delivery key with any different canonical payload, including
 a different revision ID, fails with `delivery_id_payload_conflict`. A
 transaction failure rolls back receipt, candidate, evidence association, and
-occurrence writes together; the caller may retry the same delivery. Producer
-and source-namespace IDs must already be registered for the authorized
-project. Registration and external credential-to-producer binding remain
-operator/application responsibilities.
+occurrence writes together; the caller may retry the same delivery. The
+internal application checks producer and namespace values against its trusted
+per-project configuration and inserts their registry rows in the same request
+transaction. Direct low-level workflow calls require those registry rows to
+exist. This configuration binding does not authenticate an external producer.
 
 ## Review and conversion
 
@@ -73,11 +74,13 @@ grant matrix and the added RLS policies. The existing authorization reader,
 administrator, and public MCP tool set are unchanged.
 
 The application service requires a trusted local project resolution, an
-explicit local-to-hosted project mapping, a configured producer binding, and
-an injected `HostedRequestBoundary`. The authenticated request resolver still
-checks workspace membership/service grant and the required `write`,
-`candidate:approve`, `memory:convert`, or `memory:read` action before opening
-the project transaction. The application is not registered as an MCP tool.
+explicit local-to-hosted project mapping, configured producer and source
+namespace bindings, and an injected `HostedRequestBoundary`. The authenticated
+request resolver still checks workspace membership/service grant and the
+required `write`, `candidate:approve`, `memory:convert`, or `memory:read` action
+before opening the project transaction. Conversion additionally requires the
+existing Evidence store's `write` permission plus `memory:convert`. The
+application is not registered as an MCP tool.
 Callers must not pass caller-controlled project or producer identity as proof
 of authorization.
 
@@ -110,8 +113,8 @@ incomplete rollout with a reviewed forward migration after checking the
 the same packaged migration set to verify upgrade/re-upgrade idempotency. No
 migration was run against a shared or production database in this work.
 
-This internal contract does not authenticate an external producer, automatically
-register producer identities or source namespaces, or attest evidence truth.
+This internal contract does not authenticate an external producer, administer
+trusted binding configuration, or attest evidence truth.
 It does not make the local SQLite Capture repository durable. The current local
 stdio/MCP tools are unchanged, and this workflow is not wired as a public MCP
 operation. Live PostgreSQL behavior and deployment role grants remain subject

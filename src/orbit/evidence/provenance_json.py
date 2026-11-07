@@ -35,6 +35,14 @@ def producer_delivery_to_dict(value: ProducerDeliveryProvenance) -> dict[str, An
                 "locator": item.locator,
                 "candidate_id": item.candidate_id,
                 "candidate_revision": item.candidate_revision,
+                "conflicts": [
+                    {
+                        "producer_id": conflict.producer_id,
+                        "candidate_id": conflict.candidate_id,
+                        "candidate_revision": conflict.candidate_revision,
+                    }
+                    for conflict in item.conflicts
+                ],
                 "evidence": [
                     {
                         "evidence_type": evidence.evidence_type.value,
@@ -78,6 +86,10 @@ def producer_delivery_from_dict(value: Any) -> ProducerDeliveryProvenance | None
                 locator=item.get("locator"),
                 candidate_id=item["candidate_id"],
                 candidate_revision=item["candidate_revision"],
+                conflicts=tuple(
+                    ProducerConflictReference(**conflict)
+                    for conflict in item.get("conflicts", ())
+                ),
                 evidence=tuple(
                     EvidenceSource(
                         EvidenceType(evidence["evidence_type"]),

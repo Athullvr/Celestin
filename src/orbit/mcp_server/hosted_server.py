@@ -2458,22 +2458,8 @@ def _assert_safe_project_runtime(
                    ]::text[]) AS workflow(table_name)
                     WHERE NOT has_table_privilege(current_user,
                               format('public.%I', workflow.table_name), 'SELECT')
-                       OR (
-                           workflow.table_name NOT IN (
-                               'celestin_project_producers',
-                               'celestin_project_source_namespaces'
-                           )
-                           AND NOT has_table_privilege(current_user,
+                       OR NOT has_table_privilege(current_user,
                               format('public.%I', workflow.table_name), 'INSERT')
-                       )
-                       OR (
-                           workflow.table_name IN (
-                               'celestin_project_producers',
-                               'celestin_project_source_namespaces'
-                           )
-                           AND has_table_privilege(current_user,
-                              format('public.%I', workflow.table_name), 'INSERT')
-                       )
                        OR has_table_privilege(current_user,
                               format('public.%I', workflow.table_name), 'UPDATE')
                           <> (workflow.table_name = ANY(ARRAY[
