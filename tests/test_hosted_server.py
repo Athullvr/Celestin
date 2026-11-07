@@ -422,8 +422,8 @@ def test_project_runtime_role_probe_checks_scope_and_privilege_invariants():
         "project_runtime_scopes", "celestin_schema_migrations",
     ) == tuple(pool.queries[0][1][2])
     assert tuple(PROTECTED_TABLES) == tuple(pool.queries[0][1][3])
-    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][14])
-    assert ("celestin_schema_migrations",) == tuple(pool.queries[0][1][15])
+    assert tuple(AUTHORIZATION_TABLES) == tuple(pool.queries[0][1][15])
+    assert ("celestin_schema_migrations",) == tuple(pool.queries[0][1][16])
     assert "relrowsecurity" in pool.queries[0][0]
     assert "relforcerowsecurity" in pool.queries[0][0]
     assert "pg_has_role" in pool.queries[0][0]

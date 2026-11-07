@@ -132,7 +132,9 @@ def test_retrieval_joins_fts_hits_to_read_ids_and_preserves_typed_provenance():
         Match("foreign-id", "p2", bundle.record.claim, NOW, -0.2),
     ))
 
-    result = KnowledgeRetrievalService(search).retrieve(read, "bounded queue")
+    result = KnowledgeRetrievalService(search).retrieve(
+        read, "bounded queue", token_budget=10_000
+    )
 
     assert search.calls == [("p1", "bounded queue", 20, True)]
     assert result.knowledge_read is read
